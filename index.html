@@ -1,195 +1,135 @@
+<!doctype html>
+<html lang="en">
 <head>
-<meta charset="utf-t" />
+<meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>NFL Sim - Weekly Games</title>
+<title>NFL Sim — Week 1 Games</title>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
 <style>
 :root{
-  /* Exact dark theme variables */
-  --bg:#0b1220;         /* Page background */
-  --panel:#121a2a;      /* Card/panel background */
-  --card:#0e1630;
-  --text:#eef2ff;       /* Main text color */
-  --muted:#93a0b1;
-  --accent:#5eead4;     /* Action color (buttons/links) */
-  --home:#4ade80;
-  --away:#60a5fa;
+  --bg:#0b1220; --panel:#121a2a; --card:#0e1630; --text:#eef2ff; --muted:#93a0b1;
+  --accent:#5eead4; --home:#4ade80; --away:#60a5fa;
 }
-
-/* Base & layout */
 *{box-sizing:border-box}
 html,body{height:100%}
 body{
-  margin:0;
-  background:var(--bg);
-  color:var(--text);
+  margin:0; background:var(--bg); color:var(--text);
   font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  display:grid;
-  place-items:center;
+  display:grid; place-items:start center;
 }
-main{
-  width:min(920px,92vw);
-  display:grid;
-  gap:16px;
-}
-
-/* Typography */
-h1{
-  margin:0 0 6px;
-  font-size:22px;
-  letter-spacing:.2px;
-}
-
-/* Grid for game cards */
-.grid{
-  display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(280px,1fr));
-  gap:12px;
-}
-
-/* Panel-style link card */
+main{ width:min(1000px,94vw); padding:18px 0; display:grid; gap:16px; }
+h1{margin:0 0 6px; font-size:22px; letter-spacing:.2px}
+.grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:12px; }
 .card{
-  display:block;
-  background:var(--panel);
-  border-radius:14px;
-  padding:14px;
-  text-decoration:none;
-  color:inherit;
-  border:1px solid #1c2440;
+  display:block; background:var(--panel); border-radius:14px; padding:14px;
+  text-decoration:none; color:inherit; border:1px solid #1c2440;
   box-shadow:0 6px 24px rgba(0,0,0,.25);
   transition:border-color .15s ease, transform .08s ease, box-shadow .15s ease;
 }
-.card:hover{
-  border-color:var(--accent);
-  transform:translateY(-2px);
-  box-shadow:0 10px 28px rgba(0,0,0,.35);
-}
-
-/* Card internals */
-.cardHeader{
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  margin-bottom:8px;
-}
-.title{font-weight:800;font-size:16px}
-.meta{font-size:12px;color:var(--muted)}
-.row{display:flex;align-items:center;justify-content:space-between;gap:10px}
-
-/* Pills (home/away) */
-.badges{display:flex;gap:8px;align-items:center}
-.pill{
-  display:inline-block;
-  padding:4px 8px;
-  border-radius:999px;
-  background:var(--card);
-  border:1px solid #233055;
-  font-size:12px;
-  color:var(--muted);
-}
-.pill.home{color:var(--home)}
-.pill.away{color:var(--away)}
-
-/* Divider */
-hr{
-  height:1px;
-  background:#1c2440;
-  border:0;
-  margin:10px 0;
-  border-radius:2px;
-}
-
-/* Primary action (matches original button style) */
-.btn{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  padding:10px 12px;
-  border-radius:10px;
-  background:var(--accent);
-  color:#0a0f17;
-  font-weight:700;
-  font-size:14px;
-  border:none;
-  box-shadow:0 2px 0 rgba(0,0,0,.25);
-}
-.card:hover .btn{box-shadow:0 3px 0 rgba(0,0,0,.28)}
-.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-
-/* Small helper text */
-.small{font-size:12px;color:var(--muted)}
+.card:hover{ border-color:var(--accent); transform:translateY(-2px); box-shadow:0 10px 28px rgba(0,0,0,.35); }
+.cardHeader{ display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+.title{ font-weight:800; font-size:16px }
+.meta{ font-size:12px; color:var(--muted) }
+.row{ display:flex; align-items:center; justify-content:space-between; gap:10px }
+.badges{ display:flex; gap:8px; align-items:center }
+.pill{ display:inline-block; padding:4px 8px; border-radius:999px; background:var(--card); border:1px solid #233055; font-size:12px; color:var(--muted) }
+.pill.home{ color:var(--home) } .pill.away{ color:var(--away) }
+hr{ height:1px; background:#1c2440; border:0; margin:10px 0; border-radius:2px }
+.btn{ display:inline-flex; align-items:center; justify-content:center; padding:10px 12px; border-radius:10px; background:var(--accent); color:#0a0f17; font-weight:700; font-size:14px; border:none; box-shadow:0 2px 0 rgba(0,0,0,.25) }
+.card:hover .btn{ box-shadow:0 3px 0 rgba(0,0,0,.28) }
+.small{ font-size:12px; color:var(--muted) }
 </style>
 </head>
 <body>
-    <main>
-        <h1 id="page-title">Loading Week 1 Games...</h1>
-    
-        <div class="grid" id="game-grid">
-              </div>
-    
-        <div class="small">Tip: Click anywhere on a card to set up the simulator.</div>
-      </main>
-    <script>
-    // URL to your raw .xlsx file from GitHub
-    const XLSX_URL = 'PASTE_YOUR_RAW_GITHUB_URL_HERE'; // 👈 PASTE YOUR URL
-    
-    /**
-     * Fetches and parses the XLSX file, then renders the game cards.
-     */
-    async function loadGames() {
-      const grid = document.getElementById('game-grid');
-      const title = document.getElementById('page-title');
-    
-      try {
-        // 1. Fetch the file
-        const response = await fetch(XLSX_URL);
-        if (!response.ok) throw new Error('Network response was not ok');
-        const arrayBuffer = await response.arrayBuffer();
-    
-        // 2. Parse the file
-        const workbook = XLSX.read(arrayBuffer, { type: 'buffer' });
-        const sheetName = workbook.SheetNames[0];
-        const sheet = workbook.Sheets[sheetName];
-        const games = XLSX.utils.sheet_to_json(sheet);
-    
-        // 3. Render the game cards
-        let html = '';
-        for (const game of games) {
-          const home = game.HomeTeam || 'Home';
-          const away = game.AwayTeam || 'Away';
-    
-          // Create the URL with parameters
-          const gameUrl = `game.html?home=${encodeURIComponent(home)}&away=${encodeURIComponent(away)}`;
-    
-          html += `
-            <a class="card" href="${gameUrl}" aria-label="${home} vs. ${away} — Play Sim">
-              <div class="cardHeader">
-                <div class="title">${home} vs. ${away}</div>
-                <span class="btn" role="button">Play Sim</span>
-              </div>
-              <hr>
-              <div class="row">
-                <div class="badges">
-                  <span class="pill home">${home}</span>
-                  <span class="pill away">${away}</span>
-                </div>
-              </div>
-            </a>
-          `;
-        }
-    
-        grid.innerHTML = html; // Add all cards to the grid
-        title.textContent = 'Week 1 Games'; // Update title
-    
-      } catch (error) {
-        console.error('Error loading games:', error);
-        title.textContent = 'Error loading games';
-        grid.innerHTML = `<p style="color:var(--muted)">Could not load games. Please check the XLSX_URL and file format.</p>`;
-      }
+  <main>
+    <h1 id="page-title">Loading Week 1 Games...</h1>
+    <div class="grid" id="game-grid"></div>
+    <div class="small">Tip: Teams are shuffled on each visit. Cards link into the simulator with those teams preloaded.</div>
+  </main>
+
+<script>
+/** RAW XLSX containing a single sheet with a column "TeamName" listing all 32 NFL teams. */
+const XLSX_URL = 'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/roster.xlsx';
+
+/** Fisher–Yates shuffle (in-place) */
+function shuffle(arr){
+  for(let i=arr.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [arr[i],arr[j]] = [arr[j],arr[i]];
+  }
+  return arr;
+}
+
+function pickTeamColumn(headers){
+  const lc = headers.map(h=>String(h||'').toLowerCase());
+  let idx = lc.indexOf('teamname');
+  if (idx===-1) idx = lc.indexOf('team');
+  if (idx===-1) idx = lc.indexOf('name');
+  return idx;
+}
+
+async function loadGames(){
+  const grid  = document.getElementById('game-grid');
+  const title = document.getElementById('page-title');
+
+  try{
+    const res = await fetch(XLSX_URL, { cache:'no-store' });
+    if(!res.ok) throw new Error('Fetch failed: '+res.status);
+    const buf = await res.arrayBuffer();
+
+    const wb  = XLSX.read(buf, { type:'array' });
+    // Prefer a sheet called "Teams" if present, else first sheet
+    const sheetName = wb.SheetNames.find(n=>/^teams?$/i.test(n)) || wb.SheetNames[0];
+    const ws  = wb.Sheets[sheetName];
+
+    // Get rows and detect the team column robustly
+    const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:'' });
+    if (!rows.length) throw new Error('Empty sheet');
+    const headers = rows[0];
+    const colIdx  = pickTeamColumn(headers);
+    if (colIdx === -1) throw new Error('No "TeamName" (or Team/Name) column found');
+
+    // Pull 32 names
+    const names = rows.slice(1).map(r => String(r[colIdx]||'').trim()).filter(Boolean);
+    if (names.length < 32) console.warn(`Only found ${names.length} names; expected 32`);
+    shuffle(names);
+
+    // Pair into games
+    const games = [];
+    for (let i=0; i+1<names.length; i+=2){
+      games.push({ home:names[i], away:names[i+1] });
     }
-    
-    // Run the function when the page loads
-    document.addEventListener('DOMContentLoaded', loadGames);
-    </script>
+
+    // Render
+    title.textContent = 'Week 1 Games';
+    grid.innerHTML = games.map(g=>{
+      const url = `game.html?home=${encodeURIComponent(g.home)}&away=${encodeURIComponent(g.away)}`;
+      return `
+        <a class="card" href="${url}" aria-label="${g.home} vs. ${g.away} — Play Sim">
+          <div class="cardHeader">
+            <div class="title">${g.home} vs. ${g.away}</div>
+            <span class="btn">Play Sim</span>
+          </div>
+          <hr>
+          <div class="row">
+            <div class="badges">
+              <span class="pill home">${g.home}</span>
+              <span class="pill away">${g.away}</span>
+            </div>
+            <span class="meta">Random pairing</span>
+          </div>
+        </a>`;
+    }).join('');
+
+  }catch(err){
+    console.error(err);
+    title.textContent = 'Error loading games';
+    document.getElementById('game-grid').innerHTML =
+      `<p class="small">Could not load teams from the XLSX. Check the URL (must be a <em>raw</em> link) and that the sheet has a “TeamName” column.</p>`;
+  }
+}
+
+document.addEventListener('DOMContentLoaded', loadGames);
+</script>
 </body>
 </html>
