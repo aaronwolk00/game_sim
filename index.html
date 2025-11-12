@@ -45,8 +45,25 @@ hr{height:1px;background:#1c2440;border:0;margin:10px 0;border-radius:2px}
   </main>
 
 <script>
-/** Your raw CSV */
-const CSV_URL = 'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/players.csv';
+// Try same-origin first (works on GitHub Pages), then fall back to raw GH
+const CSV_URLS = [
+  new URL('players.csv', location.href).href,
+  'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/players.csv'
+];
+
+async function fetchCsvText(){
+  let lastErr = null;
+  for (const url of CSV_URLS){
+    try{
+      const res = await fetch(url, { cache: 'no-store', mode: 'cors' });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      const txt = await res.text();
+      return { txt, url };
+    }catch(e){ lastErr = e; }
+  }
+  throw lastErr || new Error('CSV not reachable');
+}
+
 
 /** Robust CSV parser (quotes/commas/newlines) → array of rows (arrays) */
 function parseCsvToRows(text){
@@ -97,9 +114,7 @@ async function loadGames(){
   const title = document.getElementById('page-title');
 
   try{
-    const res = await fetch(CSV_URL, {cache:'no-store'});
-    if(!res.ok) throw new Error(`Fetch failed: ${res.status}`);
-    const text = await res.text();
+    const { txt: text, url: csvUrlUsed } = await fetchCsvText();
 
     const rows = parseCsvToRows(text);
     const headerIdx = findHeaderIndex(rows);
@@ -119,7 +134,7 @@ async function loadGames(){
     shuffle(teams);
 
     // Build 16 cards; pass ?players= so game.html can load this same CSV
-    const playersParam = encodeURIComponent(CSV_URL);
+    const playersParam = encodeURIComponent(csvUrlUsed);
     let html = '';
     for (let i=0; i+1<teams.length; i+=2){
       const home = teams[i], away = teams[i+1];
