@@ -230,14 +230,6 @@ const resetBtn  = document.getElementById('resetBtn');
 const exportCsv = document.getElementById('exportCsv');
 const topEpa = document.getElementById('topEpa');
 const topEpaList = document.getElementById('topEpaList');
-let epaPlays = [];
-function renderTopEpa(){
-  if(!topEpaList) return;
-  const top = [...epaPlays].sort((a,b)=>b.epa-a.epa).slice(0,5);
-  topEpaList.innerHTML = top.map(p =>
-    `<li><span class="val">${p.epa>=0?'+':''}${p.epa.toFixed(2)}</span><span class="txt">${p.text}</span></li>`
-  ).join('');
-}
 
 function logPlay(tag,line,off,scoring=false,epa=null,wpd=null){
   const aux=(epa!==null||wpd!==null)?`EPA ${(epa>=0?'+':'')}${(epa||0).toFixed(2)} | ΔWP ${(wpd>=0?'+':'')}${((wpd||0)*100).toFixed(1)}%`:'';
@@ -396,6 +388,70 @@ tabAdvanced.onclick=()=>{activeTab='advanced';tabAdvanced.classList.add('active'
 /* ===== Files ===== */
 homeCsv.onchange=async e=>{const f=e.target.files?.[0];if(!f)return;HOME=buildTeam(parseCSV(await f.text()));homeName.textContent=homeLabel.value;renderBox();renderLeaders();};
 awayCsv.onchange=async e=>{const f=e.target.files?.[0];if(!f)return;AWAY=buildTeam(parseCSV(await f.text()));awayName.textContent=awayLabel.value;renderBox();renderLeaders();};
+
+/* === Auto-load roster file from same folder === */
+const ROSTER_CANDIDATES = [
+  'roster.xlsx',
+  'Roster.xlsx',
+  'ratings.xlsx',
+  'Ratings.xlsx',
+  'Madden 22 Player Ratings - Launch (dist).xlsx' // your current file
+];
+
+async function tryLoadDefaultRoster(){
+  for (const name of ROSTER_CANDIDATES){
+    try{
+      const url = encodeURI(name); // handle spaces/()
+      const res = await fetch(url, { cache:'no-store' });
+      if(!res.ok) continue;
+
+      const buf = await res.arrayBuffer();
+      XLSX_BOOK = XLSX.read(buf, { type:'array' });
+      populateTeamsFromWorkbook();
+      logPlay('INFO', `Auto-loaded roster: ${name}`, 'Home', false, 0, 0);
+
+      // If user hasn't picked, choose two random distinct teams
+      if(!homeTeamSel.value && TEAM_SHEETS.length){
+        let i = Math.floor(Math.random()*TEAM_SHEETS.length);
+        let j = Math.floor(Math.random()*TEAM_SHEETS.length);
+        if(i===j) j = (i+1) % TEAM_SHEETS.length;
+
+        homeTeamSel.value = TEAM_SHEETS[i];
+        awayTeamSel.value = TEAM_SHEETS[j];
+
+        homeLabel.value = TEAM_SHEETS[i];
+        awayLabel.value = TEAM_SHEETS[j];
+        homeName.textContent = homeLabel.value;
+        awayName.textContent = awayLabel.value;
+      }
+      return true;
+    }catch(e){}
+  }
+  return false;
+}
+
+function populateTeamsFromWorkbook(){
+  TEAM_SHEETS = XLSX_BOOK.SheetNames.filter(name=>{
+    const ws = XLSX_BOOK.Sheets[name];
+    const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
+    return rows.length && Object.keys(rows[0]).some(k=>/position/i.test(k));
+  });
+  const opts = TEAM_SHEETS.map(n=>`<option>${n}</option>`).join('');
+  homeTeamSel.innerHTML = opts;
+  awayTeamSel.innerHTML = opts;
+  homeTeamSel.disabled = awayTeamSel.disabled = TEAM_SHEETS.length===0;
+}
+
+// Keep the name inputs in sync when user changes dropdowns
+homeTeamSel.addEventListener('change', ()=>{
+  homeLabel.value = homeTeamSel.value;
+  homeName.textContent = homeLabel.value;
+});
+awayTeamSel.addEventListener('change', ()=>{
+  awayLabel.value = awayTeamSel.value;
+  awayName.textContent = awayLabel.value;
+});
+
 
 /* ===== XLSX Roster ===== */
 xlsxFile.onchange = async (e)=>{
@@ -600,11 +656,6 @@ function applyPenalty(p){
   return true;
 }
 
-/* ===== Logging ===== */
-function logPlay(tag,line,off,scoring=false,epa=null,wpd=null){
-  const aux=(epa!==null||wpd!==null)?`EPA ${(epa>=0?'+':'')}${(epa||0).toFixed(2)} | ΔWP ${(wpd>=0?'+':'')}${((wpd||0)*100).toFixed(1)}%`:''; plays.push({tag,line,off,scoring,aux}); if(activeTab==='plays') renderPlays(); lastPlay.textContent='Last Play: '+line.replace(/^.* — /,'');
-}
-
 /* ===== Start / Pause / Reset ===== */
 function seedRoster(seed){const r=rngFromSeed(seed),
     F=["James","Michael","David","John","Robert","Chris","Daniel","Joseph","William","Ryan","Ethan","Noah","Logan","Lucas","Owen","Mason","Liam","Aiden","Kai","Leo","Benjamin","Samuel","Nathan","Zachary","Aaron","Adrian","Caleb","Henry","Carter","Julian","Isaac","Nathaniel","Christian","Hunter","Jeremiah","Thomas","Andrew","Oliver","Gabriel","Eli"],
@@ -614,9 +665,28 @@ function startGame(){
   running=true; paused=false; pauseBtn.disabled=false; exportCsv.disabled=false;
   plays=[]; scoring=[]; drives=[]; pendingPAT=null; pendingKickoff=null; pendingScoreIdx=-1;
   timeouts={Home:3,Away:3}; toHome.textContent=3; toAway.textContent=3;
-  // Prefer Excel roster if available; fallback to CSV (already handled by onchange) then seed
-  if (XLSX_BOOK && homeTeamSel.value) HOME = teamFromSheet(homeTeamSel.value) || HOME;
-  if (XLSX_BOOK && awayTeamSel.value) AWAY = teamFromSheet(awayTeamSel.value) || AWAY;
+
+  // Prefer Excel roster if available; choose random teams if none selected
+  if (XLSX_BOOK) {
+  if ((!homeTeamSel.value || !awayTeamSel.value) && TEAM_SHEETS.length >= 2) {
+    let i = Math.floor(Math.random()*TEAM_SHEETS.length);
+    let j = Math.floor(Math.random()*TEAM_SHEETS.length);
+    if (i===j) j = (i+1) % TEAM_SHEETS.length;
+    homeTeamSel.value = TEAM_SHEETS[i];
+    awayTeamSel.value = TEAM_SHEETS[j];
+  }
+  if (homeTeamSel.value) {
+    HOME = teamFromSheet(homeTeamSel.value) || HOME;
+    homeLabel.value = homeTeamSel.value;
+    homeName.textContent = homeLabel.value;
+  }
+  if (awayTeamSel.value) {
+    AWAY = teamFromSheet(awayTeamSel.value) || AWAY;
+    awayLabel.value = awayTeamSel.value;
+    awayName.textContent = awayLabel.value;
+  }
+  }
+
   if(!HOME) HOME=buildTeam(seedRoster((seed.value||'seed')+'-H'));
   if(!AWAY) AWAY=buildTeam(seedRoster((seed.value||'seed')+'-A'));
 
@@ -1239,10 +1309,14 @@ function exportBlob(name,data,type){const b=new Blob([data],{type});const url=UR
 exportCsv.onclick=()=>{const lines=['tag,line,aux'];plays.forEach(p=>lines.push([p.tag,`"${p.line.replace(/"/g,'""')}"`,`"${(p.aux||'').replace(/"/g,'""')}"`].join(',')));exportBlob('play_log.csv',lines.join('\n'),'text/csv');};
 
 /* ===== Init ===== */
-(function(){sim={rng:rngFromSeed('seed'),score:{home:0,away:0},hud:{poss:'Home',qtr:1,secs:900,down:1,dist:10,yard:25}};Field.render({hud:sim.hud});updateHUD();updateScore();drawWP();renderBox();renderLeaders();renderTopEpa();renderCrowdMeter();})();
+(function(){
+  sim = { rng:rngFromSeed('seed'), score:{home:0,away:0},
+          hud:{poss:'Home',qtr:1,secs:900,down:1,dist:10,yard:25} };
+  Field.render({hud:sim.hud});
+  updateHUD(); updateScore(); drawWP(); renderBox(); renderLeaders(); renderTopEpa(); renderCrowdMeter();
+
+  // Auto-load roster file from this folder (if present)
+  tryLoadDefaultRoster();
+})();
 </script>
 
-
-
-
-=======
