@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>NFL Sim - Weekly Games</title>
+<style>
+:root{
+  /* Exact dark theme variables */
+  --bg:#0b1220;         /* Page background */
+  --panel:#121a2a;      /* Card/panel background */
+  --card:#0e1630;
+  --text:#eef2ff;       /* Main text color */
+  --muted:#93a0b1;
+  --accent:#5eead4;     /* Action color (buttons/links) */
+  --home:#4ade80;
+  --away:#60a5fa;
+}
+
+/* Base & layout */
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--text);
+  font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  display:grid;
+  place-items:center;
+}
+main{
+  width:min(920px,92vw);
+  display:grid;
+  gap:16px;
+}
+
+/* Typography */
+h1{
+  margin:0 0 6px;
+  font-size:22px;
+  letter-spacing:.2px;
+}
+
+/* Grid for game cards */
+.grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(280px,1fr));
+  gap:12px;
+}
+
+/* Panel-style link card */
+.card{
+  display:block;
+  background:var(--panel);
+  border-radius:14px;
+  padding:14px;
+  text-decoration:none;
+  color:inherit;
+  border:1px solid #1c2440;
+  box-shadow:0 6px 24px rgba(0,0,0,.25);
+  transition:border-color .15s ease, transform .08s ease, box-shadow .15s ease;
+}
+.card:hover{
+  border-color:var(--accent);
+  transform:translateY(-2px);
+  box-shadow:0 10px 28px rgba(0,0,0,.35);
+}
+
+/* Card internals */
+.cardHeader{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:8px;
+}
+.title{font-weight:800;font-size:16px}
+.meta{font-size:12px;color:var(--muted)}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+
+/* Pills (home/away) */
+.badges{display:flex;gap:8px;align-items:center}
+.pill{
+  display:inline-block;
+  padding:4px 8px;
+  border-radius:999px;
+  background:var(--card);
+  border:1px solid #233055;
+  font-size:12px;
+  color:var(--muted);
+}
+.pill.home{color:var(--home)}
+.pill.away{color:var(--away)}
+
+/* Divider */
+hr{
+  height:1px;
+  background:#1c2440;
+  border:0;
+  margin:10px 0;
+  border-radius:2px;
+}
+
+/* Primary action (matches original button style) */
+.btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:10px 12px;
+  border-radius:10px;
+  background:var(--accent);
+  color:#0a0f17;
+  font-weight:700;
+  font-size:14px;
+  border:none;
+  box-shadow:0 2px 0 rgba(0,0,0,.25);
+}
+.card:hover .btn{box-shadow:0 3px 0 rgba(0,0,0,.28)}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* Small helper text */
+.small{font-size:12px;color:var(--muted)}
+</style>
+</head>
+<body>
+  <main>
+    <h1>Week 1 Games</h1>
+
+    <div class="grid">
+      <!-- Game Card Link to game.html -->
+      <a class="card" href="game.html" aria-label="Home vs. Away — Play Sim">
+        <div class="cardHeader">
+          <div class="title">Home vs. Away</div>
+          <!-- Use a <span> so the entire card remains the link target -->
+          <span class="btn" role="button">Play Sim</span>
+        </div>
+        <hr>
+        <div class="row">
+          <div class="badges">
+            <span class="pill home">Home</span>
+            <span class="pill away">Away</span>
+          </div>
+          <div class="meta">Kickoff: 1:00 PM ET</div>
+        </div>
+      </a>
+    </div>
+
+    <div class="small">Tip: Click anywhere on the card to launch the simulator.</div>
+  </main>
+</body>
+</html>
