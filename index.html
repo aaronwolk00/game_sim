@@ -211,7 +211,7 @@ function drawWP(){const c=wpChart;const w=c.width=300,h=c.height=110,ctx=c.getCo
 /* ===== Field ===== */
 const Field=(()=>{function base(ctx,w,h,qtr){const l=w*0.06,r=w*0.94,top=12,bot=h-12;const g=ctx.createLinearGradient(0,top,0,bot);g.addColorStop(0,'#0b5d49');g.addColorStop(1,'#0a4f3f');ctx.fillStyle=g;ctx.fillRect(l,top,r-l,bot-top);ctx.strokeStyle='#c7f9ec';ctx.strokeRect(l,top,r-l,bot-top);const flip=(qtr%2===0);ctx.fillStyle='rgba(15,40,60,.55)';ctx.fillRect(l,top,(r-l)/20,bot-top);ctx.fillStyle='rgba(60,25,25,.55)';ctx.fillRect(l+(r-l)*19/20,top,(r-l)/20,bot-top);ctx.fillStyle='#d1fae5';ctx.font='bold 14px system-ui';ctx.fillText(flip?'AWAY':'HOME',l+8,top+16);ctx.fillText(flip?'HOME':'AWAY',r-62,top+16);for(let i=0;i<=20;i++){const x=l+(r-l)*i/20;ctx.strokeStyle='#e2e8f0';ctx.lineWidth=(i%5===0?1.4:0.8);ctx.beginPath();ctx.moveTo(x,top);ctx.lineTo(x,bot);ctx.stroke();if(i>0&&i<20&&i!==10){ctx.fillStyle='#d1fae5';ctx.font='11px system-ui';const n=(i<=10?i*5:(20-i)*5);ctx.fillText(n.toString(),x-7,top+12);ctx.save();ctx.translate(x+7,bot-4);ctx.rotate(Math.PI);ctx.fillText(n.toString(),0,0);ctx.restore();}}return {l,r,top,bot};}
 function yardToX(y,w,l,r){return l+(r-l)*(y/100);}
-return{render(state){const c=field,w=c.width,h=c.height,ctx=c.getContext('2d');const b=base(ctx,w,h,state.hud.qtr);const xLOS=yardToX(state.hud.yard,w,b.l,b.r);const x1D=yardToX(Math.min(100,state.hud.yard+state.hud.dist),w,b.l,b.r);ctx.strokeStyle='var(--los)';ctx.setLineDash([5,7]);ctx.lineWidth=1.3;ctx.beginPath();ctx.moveTo(xLOS,b.top);ctx.lineTo(xLOS,b.bot);ctx.stroke();ctx.setLineDash([]);if(state.hud.yard+state.hud.dist<100){ctx.strokeStyle='var(--first)';ctx.setLineDash([6,8]);ctx.lineWidth=1.3;ctx.beginPath();ctx.moveTo(x1D,b.top);ctx.lineTo(x1D,b.bot);ctx.stroke();ctx.setLineDash([]);}ctx.fillStyle='#f59e0b';ctx.beginPath();ctx.ellipse(xLOS+4,(b.top+b.bot)/2,6,4,0,0,Math.PI*2);ctx.fill();}}})();
+return{render(state){const c=field,w=c.width,h=c.height,ctx=c.getContext('2d');const b=base(ctx,w,h,state.hud.qtr);const xLOS=yardToX(state.hud.yard,w,b.l,b.r);const x1D=yardToX(Math.min(100,state.hud.yard+state.hud.dist),w,b.l,b.r);ctx.strokeStyle='#93c5fd';ctx.setLineDash([5,7]);ctx.lineWidth=1.3;ctx.beginPath();ctx.moveTo(xLOS,b.top);ctx.lineTo(xLOS,b.bot);ctx.stroke();ctx.setLineDash([]);if(state.hud.yard+state.hud.dist<100){ctx.strokeStyle='#facc15';ctx.setLineDash([6,8]);ctx.lineWidth=1.3;ctx.beginPath();ctx.moveTo(x1D,b.top);ctx.lineTo(x1D,b.bot);ctx.stroke();ctx.setLineDash([]);}ctx.fillStyle='#f59e0b';ctx.beginPath();ctx.ellipse(xLOS+4,(b.top+b.bot)/2,6,4,0,0,Math.PI*2);ctx.fill();}}})();
 
 /* ===== Sim state & UI ===== */
 let HOME=null, AWAY=null, running=false, paused=false, sim=null, pendingKickoff=null, pendingPAT=null, pendingScoreIdx=-1;
@@ -284,15 +284,39 @@ function applyPenalty(p){
   if(p.preSnap){
     if(p.onDefense){h.yard=clamp(h.yard+5,0,99);h.dist=Math.max(1,h.dist-5);}
     else{h.yard=Math.max(0,h.yard-5);h.dist=h.dist+5;}
-    logPlay('PEN',`${p.type} — ${p.onDefense?'+5':'-5'} (replay down)`,h.poss,false,0,0); return true;
+    logPlay('PEN',
+    `${p.type} — ${p.onDefense?'+':'-'}${Math.abs(p.yards)}${p.autoFirst?' (1st down)':' (replay down)'}`,
+    h.poss,false,0,0
+    ); return true;
   }
   if(p.onDefense){
     if(p.spot){const toGL=Math.min(100-h.yard,p.yards);h.yard=Math.min(99,h.yard+toGL);h.down=1;h.dist=Math.min(10,100-h.yard);}
     else{h.yard=Math.min(99,h.yard+Math.abs(p.yards)); if(p.autoFirst){h.down=1;h.dist=Math.min(10,100-h.yard);} else {h.dist=Math.max(1,h.dist-Math.abs(p.yards));}}
   } else {
-    h.yard=Math.max(0,h.yard-Math.abs(p.yards)); h.dist+=Math.abs(p.yards);
-  }
-  logPlay('PEN',`${p.type} — ${p.onDefense?'+':'-'}${Math.abs(p.yards)}${p.autoFirst?' (1st down)':' (replay/adj)'}`,h.poss,false,0,0);
+    // Offensive penalty enforced from previous spot.
+    // Special case: Offensive holding inside own 20 → half-the-distance (rounded down).
+    let applied = Math.abs(p.yards); // default (e.g., -10)
+    if (p.type === 'Offensive holding') {
+        const prev = h.yard;                     // previous spot (we call applyPenalty before any play result)
+        if (prev < 20) {
+        applied = Math.floor(prev / 2);        // distance rounded down
+        } else {
+        applied = 10;                          // standard 10 yards
+        }
+        h.yard = Math.max(0, prev - applied);    // back toward own goal
+        h.dist += applied;                        // replay down, add yards-to-go by penalty distance
+    } else {
+        h.yard = Math.max(0, h.yard - Math.abs(p.yards));
+        h.dist += Math.abs(p.yards);
+    }
+    // stash actual applied yards for accurate logging below
+    p._applied = applied;
+    }
+    logPlay(
+    'PEN',
+    `${p.type} — ${p.onDefense?'+':'-'}${(p._applied ?? Math.abs(p.yards))}${p.autoFirst?' (1st down)':' (replay down)'}`,
+    h.poss,false,0,0
+    );
   return true;
 }
 
@@ -302,7 +326,10 @@ function logPlay(tag,line,off,scoring=false,epa=null,wpd=null){
 }
 
 /* ===== Start / Pause / Reset ===== */
-function seedRoster(seed){const r=rngFromSeed(seed),F=["James","Michael","David","John","Robert","Chris","Daniel","Joseph","William","Ryan","Ethan","Noah","Logan","Lucas","Owen","Mason","Liam","Aiden","Kai","Leo"],L=["Smith","Johnson","Williams","Brown","Jones","Garcia","Miller","Davis","Rodriguez","Martinez","Lee","Walker","Hall","Young","Allen","King","Wright","Scott","Green","Baker"];const name=()=>({first:F[Math.floor(r()*F.length)],last:L[Math.floor(r()*L.length)]});function mk(pos,b){const {first,last}=name();const z=d=>clamp(Math.round(60+d+randNorm(r,0,8)),40,99);return {"First Name":first,"Last Name":last,"Position":pos,SPD:z(b.spd),STR:z(b.str),AGI:z(b.agi),INT:z(b.int),TEC:z(b.tec),HANDS:z(b.hnd),TACK:z(b.tck),BLOCK:z(b.blk),COVER:z(b.cov),PASS_ACC:z(b.pac),PASS_PWR:z(b.ppw),KICK_POW:z(b.kpw),KICK_ACC:z(b.kac),DISC:clamp(Math.round(65+randNorm(r,0,12)),30,99)};}const B={QB:{spd:-5,str:0,agi:0,int:10,tec:8,hnd:0,tck:-10,blk:-10,cov:-10,pac:18,ppw:12,kpw:-20,kac:-20},RB:{spd:12,str:0,agi:12,int:0,tec:4,hnd:8,tck:-10,blk:-4,cov:-10,pac:-10,ppw:-10,kpw:-20,kac:-20},WR:{spd:16,str:-6,agi:14,int:0,tec:8,hnd:12,tck:-10,blk:-6,cov:-10,pac:-12,ppw:-12,kpw:-20,kac:-20},TE:{spd:2,str:6,agi:0,int:0,tec:4,hnd:8,tck:-6,blk:6,cov:-10,pac:-12,ppw:-12,kpw:-20,kac:-20},OL:{spd:-18,str:18,agi:-8,int:0,tec:10,hnd:-10,tck:-6,blk:16,cov:-10,pac:-20,ppw:-20,kpw:-20,kac:-20},DL:{spd:0,str:14,agi:0,int:0,tec:8,hnd:-6,tck:12,blk:0,cov:-6,pac:-20,ppw:-20,kpw:-20,kac:-20},LB:{spd:4,str:6,agi:2,int:2,tec:6,hnd:-6,tck:12,blk:0,cov:2,pac:-20,ppw:-20,kpw:-20,kac:-20},DB:{spd:12,str:-6,agi:10,int:2,tec:2,hnd:2,tck:2,blk:-8,cov:12,pac:-20,ppw:-20,kpw:-20,kac:-20},K:{spd:-8,str:-8,agi:-8,int:0,tec:0,hnd:0,tck:-10,blk:-10,cov:-10,pac:-20,ppw:-20,kpw:18,kac:18},P:{spd:-8,str:-8,agi:-8,int:0,tec:0,hnd:0,tck:-10,blk:-10,cov:-10,pac:-20,ppw:-20,kpw:18,kac:6}};const plan=[['QB',3],['RB',4],['WR',7],['TE',3],['OL',9],['DL',8],['LB',7],['DB',10],['K',1],['P',1]];const rows=[];plan.forEach(([p,c])=>{for(let i=0;i<c;i++)rows.push(mk(p,B[p]));});return rows;}
+function seedRoster(seed){const r=rngFromSeed(seed),
+    F=["James","Michael","David","John","Robert","Chris","Daniel","Joseph","William","Ryan","Ethan","Noah","Logan","Lucas","Owen","Mason","Liam","Aiden","Kai","Leo","Benjamin","Samuel","Nathan","Zachary","Aaron","Adrian","Caleb","Henry","Carter","Julian","Isaac","Nathaniel","Christian","Hunter","Jeremiah","Thomas","Andrew","Oliver","Gabriel","Eli"],
+    L=["Smith","Johnson","Williams","Brown","Jones","Garcia","Miller","Davis","Rodriguez","Martinez","Lee","Walker","Hall","Young","Allen","King","Wright","Scott","Green","Baker","Adams","Nelson","Carter","Mitchell","Perez","Roberts","Turner","Phillips","Campbell","Parker","Evans","Edwards","Collins","Stewart","Sanchez","Morris","Rogers","Reed","Cook","Morgan"];
+    const name=()=>({first:F[Math.floor(r()*F.length)],last:L[Math.floor(r()*L.length)]});function mk(pos,b){const {first,last}=name();const z=d=>clamp(Math.round(60+d+randNorm(r,0,8)),40,99);return {"First Name":first,"Last Name":last,"Position":pos,SPD:z(b.spd),STR:z(b.str),AGI:z(b.agi),INT:z(b.int),TEC:z(b.tec),HANDS:z(b.hnd),TACK:z(b.tck),BLOCK:z(b.blk),COVER:z(b.cov),PASS_ACC:z(b.pac),PASS_PWR:z(b.ppw),KICK_POW:z(b.kpw),KICK_ACC:z(b.kac),DISC:clamp(Math.round(65+randNorm(r,0,12)),30,99)};}const B={QB:{spd:-5,str:0,agi:0,int:10,tec:8,hnd:0,tck:-10,blk:-10,cov:-10,pac:18,ppw:12,kpw:-20,kac:-20},RB:{spd:12,str:0,agi:12,int:0,tec:4,hnd:8,tck:-10,blk:-4,cov:-10,pac:-10,ppw:-10,kpw:-20,kac:-20},WR:{spd:16,str:-6,agi:14,int:0,tec:8,hnd:12,tck:-10,blk:-6,cov:-10,pac:-12,ppw:-12,kpw:-20,kac:-20},TE:{spd:2,str:6,agi:0,int:0,tec:4,hnd:8,tck:-6,blk:6,cov:-10,pac:-12,ppw:-12,kpw:-20,kac:-20},OL:{spd:-18,str:18,agi:-8,int:0,tec:10,hnd:-10,tck:-6,blk:16,cov:-10,pac:-20,ppw:-20,kpw:-20,kac:-20},DL:{spd:0,str:14,agi:0,int:0,tec:8,hnd:-6,tck:12,blk:0,cov:-6,pac:-20,ppw:-20,kpw:-20,kac:-20},LB:{spd:4,str:6,agi:2,int:2,tec:6,hnd:-6,tck:12,blk:0,cov:2,pac:-20,ppw:-20,kpw:-20,kac:-20},DB:{spd:12,str:-6,agi:10,int:2,tec:2,hnd:2,tck:2,blk:-8,cov:12,pac:-20,ppw:-20,kpw:-20,kac:-20},K:{spd:-8,str:-8,agi:-8,int:0,tec:0,hnd:0,tck:-10,blk:-10,cov:-10,pac:-20,ppw:-20,kpw:18,kac:18},P:{spd:-8,str:-8,agi:-8,int:0,tec:0,hnd:0,tck:-10,cov:-10,pac:-20,ppw:-20,kpw:18,kac:6}};const plan=[['QB',3],['RB',4],['WR',7],['TE',3],['OL',9],['DL',8],['LB',7],['DB',10],['K',1],['P',1]];const rows=[];plan.forEach(([p,c])=>{for(let i=0;i<c;i++)rows.push(mk(p,B[p]));});return rows;}
 function startGame(){
   running=true; paused=false; pauseBtn.disabled=false; exportCsv.disabled=false;
   plays=[]; scoring=[]; drives=[]; pendingPAT=null; pendingKickoff=null; pendingScoreIdx=-1;
@@ -332,24 +359,138 @@ function fgMakeProb(dist,pow,acc){dist=Math.min(dist,68);let z=(kickerLeg(pow)-d
 function fgEPA(FGdist,epBefore,yard){const k=(sim.hud.poss==='Home'?HOME:AWAY).k||{KICK_POW:70,KICK_ACC:70};const p=fgMakeProb(FGdist,k.KICK_POW,k.KICK_ACC);const epAfterMiss=-EP(1,10,clamp(100-yard,1,99));return 3*p+epAfterMiss*(1-p)-epBefore;}
 function pickDefender(def,role){const pool= role==='sack'?(def.dl.concat(def.lb)) : role==='int'?def.db.concat(def.lb): role==='tacklePass'?def.db.concat(def.lb): def.dl.concat(def.lb); return pool[Math.floor(sim.rng()*pool.length)]||{first:'Def',last:'ender',adv:{}};}
 function chooseReceiver(atk){const r=sim.rng(); let group=null;if(r<0.65&&atk.wr.length)group=atk.wr;else if(r<0.85&&atk.te.length)group=atk.te;else group=atk.rb.length?atk.rb:atk.wr;return group[Math.floor(sim.rng()*group.length)]||atk.qb;}
+function updateCrowd(){
+  const h = sim.hud, c = sim.crowd; if(!c) return;
+  const cap = c.cap || 72000;
+
+  // Arrivals: 90% in seats at kickoff; remaining 10% trickle in over first 12 minutes of Q1
+  let target = c.present;
+  if (h.qtr === 1) {
+    const elapsed = 900 - h.secs;
+    const arrivals = Math.round(0.10 * cap * Math.min(1, elapsed / 720)); // over 12 minutes
+    target = Math.floor(0.90 * cap + arrivals);
+  }
+
+  // Departures influenced by score, weather, and time
+  const diff = Math.abs(sim.score.home - sim.score.away);
+  const homeTrailing = (sim.score.home < sim.score.away);
+  let leaveRate = 0;
+
+  if (h.qtr >= 3 && diff >= 17) leaveRate += 0.005 * (diff - 16); // blowout after halftime
+  if (precip.value === 'Heavy Rain' || precip.value === 'Snow') leaveRate += 0.004;
+  if (+temp.value <= 20) leaveRate += 0.003;
+  if (homeTrailing && h.qtr === 4 && h.secs < 600 && diff >= 10) leaveRate += 0.006; // late, down big
+
+  // Hype in close games late: fewer departures, louder mood
+  if (h.qtr === 4 && diff <= 3) leaveRate = Math.max(0, leaveRate - 0.004), c.mood = Math.min(1, (c.mood||0) + 0.02);
+  else c.mood = Math.max(-1, (c.mood||0) - 0.005);
+
+  const desired = Math.max(0, Math.min(cap, target - Math.floor(cap * leaveRate)));
+  c.present = Math.round(0.9 * c.present + 0.1 * desired); // smooth
+  fansPill.textContent = `Fans: ${c.present.toLocaleString()}`;
+}
 
 /* ===== Main loop ===== */
 function loop(ms){
   const r=sim.rng,h=sim.hud,s=sim.score;
   (async function tick(){
     while(running&&!paused){
-      if(pendingKickoff){doKickoff();updateHUD();updateScore();Field.render({hud:h});const t=stateWP(s.home,s.away,h.qtr,h.secs,h.yard,h.poss,wpPrior);wpSmooth=0.97*wpSmooth+0.03*t;wpSeries.push(wpSmooth);wpVal.textContent=(wpSmooth*100).toFixed(1)+'%';drawWP();if(ms>0)await new Promise(rs=>setTimeout(rs,ms));continue;}
+        if(pendingKickoff){
+            doKickoff(); updateHUD(); updateScore(); Field.render({hud:h});
+            const t=stateWP(s.home,s.away,h.qtr,h.secs,h.yard,h.poss,wpPrior);
+            wpSmooth=0.97*wpSmooth+0.03*t; wpSeries.push(wpSmooth);
+            wpVal.textContent=(wpSmooth*100).toFixed(1)+'%'; drawWP();
+            updateCrowd(); // ← added
+            if(ms>0) await new Promise(rs=>setTimeout(rs,ms));
+            continue;
+            }
       if(pendingPAT){
         const {team,type}=pendingPAT;const atk=(team==='Home'?HOME:AWAY),k=atk.k||{first:'K',last:'',KICK_ACC:70};
         if(type==='xp'){const p=clamp(0.93+(k.KICK_ACC-70)/250-(+wind.value/20)*0.08-((precip.value==='Heavy Rain'||precip.value==='Snow')?0.04:0),0.85,0.99);const make=r()<p;if(make){if(team==='Home')s.home+=1;else s.away+=1;}if(pendingScoreIdx>=0){const e=scoring[pendingScoreIdx];e.text+=` (XP ${make?'good':'no good'})`;e.score=`${s.home}-${s.away}`;}logPlay('PLAY',`XP — ${k.first} ${k.last} ${make?'GOOD':'NO GOOD'}`,team,true,0,0);}
         else{const def=(team==='Home'?AWAY:HOME);const p=clamp(0.48+(atk.offense-def.defense)/220,0.35,0.63);const make=r()<p;if(make){if(team==='Home')s.home+=2;else s.away+=2;}if(pendingScoreIdx>=0){const e=scoring[pendingScoreIdx];e.text+=` (2-pt ${make?'good':'fail'})`;e.score=`${s.home}-${s.away}`;}logPlay('PLAY',`2-pt Try — ${make?'GOOD':'NO GOOD'}`,team,true,0,0);}
-        h.secs=Math.max(0,h.secs-10);pendingPAT=null;beginKickoff(team);updateHUD();updateScore();Field.render({hud:h});const t=stateWP(s.home,s.away,h.qtr,h.secs,h.yard,h.poss,wpPrior);wpSmooth=0.97*wpSmooth+0.03*t;wpSeries.push(wpSmooth);wpVal.textContent=(wpSmooth*100).toFixed(1)+'%';drawWP();if(ms>0)await new Promise(rs=>setTimeout(rs,ms));continue;
+        h.secs=Math.max(0,h.secs-10);pendingPAT=null;beginKickoff(team);updateHUD();updateScore();Field.render({hud:h});const t=stateWP(s.home,s.away,h.qtr,h.secs,h.yard,h.poss,wpPrior);wpSmooth=0.97*wpSmooth+0.03*t;wpSeries.push(wpSmooth);wpVal.textContent=(wpSmooth*100).toFixed(1)+'%'; drawWP(); updateCrowd(); if(ms>0) await new Promise(rs=>setTimeout(rs,ms)); continue;
       }
 
       const startDown=h.down,startDist=h.dist,startY=h.yard,startPoss=h.poss;
       const ep0=EP(h.down,h.dist,h.yard), wp0=stateWP(s.home,s.away,h.qtr,h.secs,h.yard,h.poss,wpPrior);
 
+      /* >>> pre-play header snapshot (fix alignment) <<< */
+      const preHeader = `Q${h.qtr} ${Math.floor(h.secs/60)}:${String(h.secs%60).padStart(2,'0')} | ${dnTxt(startDown)} & ${Math.max(1,Math.round(startDist))} @ ${yardText(startY)}`;
+
       const pre=chancePenalty({down:h.down,isPass:false,airDepth:0}); if(pre&&pre.preSnap){applyPenalty(pre);updateHUD();Field.render({hud:h});if(ms>0)await new Promise(rs=>setTimeout(rs,ms));continue;}
+
+      /* >>> Early 4th-down decision: if not going for it, do FG/Punt here and stop <<< */
+        let handledFourth = false;
+        if (h.down === 4) {
+        const distGL = 100 - h.yard;
+        const FGdist = Math.round(distGL + 17);
+        const aggr = (+aggr4th.value);
+        const goThresh = (h.yard >= 50 ? 4.0 : 2.0) - (aggr - 50)/25 - (h.qtr === 4 ? 0.6 : 0);
+
+        if (h.dist > goThresh) {
+            // Not going for it → choose FG if reasonable, else punt. Log ONLY that play.
+            const teamObj = (h.poss === 'Home' ? HOME : AWAY).stats.team;
+            const k = (h.poss === 'Home' ? HOME : AWAY).k;
+
+            if (k && FGdist <= 68 && h.dist > 1) {
+            teamObj.fga++;
+            const make = Math.random() < fgMakeProb(FGdist, k.KICK_POW, k.KICK_ACC);
+            const epaFG = fgEPA(FGdist, ep0, h.yard);
+
+            if (make) {
+                teamObj.fgm++;
+                if (h.poss === 'Home') s.home += 3; else s.away += 3;
+                scoring.push({ text: `${h.poss} FG (${FGdist})`, score: `${s.home}-${s.away}` });
+                logPlay('PLAY', `${preHeader} — FG — ${k.first} ${k.last} GOOD from ${FGdist}`, h.poss, true, epaFG, 0);
+                closeDrive('FG', h.yard);
+                beginKickoff(h.poss);
+            } else {
+                logPlay('PLAY', `${preHeader} — FG — ${k.first} ${k.last} NO GOOD from ${FGdist}`, h.poss, false, epaFG, 0);
+                closeDrive('Missed FG', h.yard);
+                const newForDef = clamp(100 - h.yard, 1, 99);
+                h.poss = (h.poss === 'Home' ? 'Away' : 'Home'); h.down = 1; h.dist = 10; h.yard = newForDef;
+                pushDriveStart(h.poss, h.yard);
+            }
+            } else {
+            const punter = (h.poss === 'Home' ? HOME : AWAY).p || { first:'P', last:'', KICK_POW:70 };
+            const gross = clamp(Math.round(46 + (punter.KICK_POW - 70)/2 + randNorm(sim.rng,0,7)), 35, 70);
+            const land = h.yard + gross;
+
+            if (land >= 100) {
+                logPlay('PLAY', `${preHeader} — Punt ${gross} by ${punter.first} ${punter.last} — touchback`, h.poss, false, 0, 0);
+                teamObj.punts++; closeDrive('Punt (TB)', 20);
+                h.poss = (h.poss === 'Home' ? 'Away' : 'Home'); h.down = 1; h.dist = 10; h.yard = 20;
+                pushDriveStart(h.poss, h.yard);
+            } else {
+                const retMan = ((h.poss === 'Home' ? AWAY : HOME).wr[0] || (h.poss === 'Home' ? AWAY : HOME).rb[0] || (h.poss === 'Home' ? AWAY : HOME).players[0]);
+                const recvAt = 100 - land;
+                const ret = clamp(Math.round(randNorm(sim.rng,10,8)), 0, 40);
+                const end = clamp(recvAt + ret, 1, 99);
+                logPlay('PLAY', `${preHeader} — Punt ${gross} by ${punter.first} ${punter.last}, ${retMan.first} ${retMan.last} returns ${ret} to ${yardText(end)}`, h.poss, false, 0, 0);
+                teamObj.punts++; closeDrive('Punt', end);
+                h.poss = (h.poss === 'Home' ? 'Away' : 'Home'); h.down = 1; h.dist = 10; h.yard = end;
+                pushDriveStart(h.poss, h.yard);
+            }
+            }
+
+            // consume a bit of clock for special teams, render, and skip normal play
+            h.secs = Math.max(0, h.secs - 18);
+            handledFourth = true;
+
+            updateHUD(); updateScore(); Field.render({ hud:h });
+            const t = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
+            wpSmooth = 0.97*wpSmooth + 0.03*t; wpSeries.push(wpSmooth);
+            wpVal.textContent = (wpSmooth*100).toFixed(1) + '%'; if (wpSeries.length>600) wpSeries.shift();
+            drawWP(); renderBox(); renderLeaders(); updateCrowd();
+
+            if (h.secs<=0){
+            h.qtr++; if(h.qtr<=4){ h.secs=900; beginKickoff('Away'); }
+            else { running=false; pauseBtn.disabled=true; logPlay('FINAL',`FINAL: ${homeLabel.value} ${s.home} – ${awayLabel.value} ${s.away}`,'Home',true,0,0); }
+            }
+            if (ms>0) await new Promise(rs=>setTimeout(rs,ms));
+            continue; // ← critical: prevents a run/pass from also occurring on 4th down
+        }
+        }
 
       const atk=(h.poss==='Home'?HOME:AWAY), def=(h.poss==='Home'?AWAY:HOME);
       const offAdv=atk.offense-def.defense, varK=(+feelVariance.value)/100;
@@ -362,8 +503,20 @@ function loop(ms){
       const pace=(+feelPace.value)/100; const playTime=clamp(Math.round(randNorm(r,26+(precip.value!=='None'?2:0)-4*(pace-0.5),4)),18,35);
 
       if(r()<runRate && atk.rb.length){
-        const rb=atk.rb[0]; const ppen=chancePenalty({down:h.down,isPass:false,airDepth:0});
-        if(ppen && !ppen.preSnap){applyPenalty(ppen);updateHUD();Field.render({hud:h});if(ms>0)await new Promise(rs=>setTimeout(rs,ms));continue;}
+        const rb=atk.rb[0]; 
+        const ppen = chancePenalty({ down: h.down, isPass: false, airDepth: 0 });
+        if (ppen) {
+        if (ppen.preSnap) {
+            // Pre-snap penalty: NO PLAY. Enforce and replay down from previous spot.
+            applyPenalty(ppen);
+        } else {
+            // Live-ball penalty: NO RESULT. Enforce and replay.
+            applyPenalty(ppen);
+        }
+        updateHUD(); Field.render({ hud: h });
+        if (ms > 0) await new Promise(rs => setTimeout(rs, ms));
+        continue; // <- critical
+        }
         const mean=3.9+offAdv*0.025, spread=3.2*(1+0.6*varK); const yRaw=clamp(Math.round(randNorm(r,mean,spread)),-4,35); const yds=Math.min(yRaw,100-h.yard);
         const tack=pickDefender(def,'tackleRun'); tack.adv.tkl=(tack.adv.tkl||0)+ (h.yard+yds>=100?0:1);
         if(h.yard+yds>=100){if(h.poss==='Home')s.home+=6;else s.away+=6;scored=true;kind='rush';playText=`${rb.first} ${rb.last} rushes for ${yds} yards, TOUCHDOWN`;atk.stats.team.td++;pendingPAT={team:h.poss,type:decidePAT({force2:(h.qtr===4&&h.secs<360&&((h.poss==='Home'?s.home-s.away:s.away-s.home)===-2)),forceXP:false})};pendingScoreIdx=scoring.push({text:`${h.poss} TD run`,score:`${s.home}-${s.away}`})-1;closeDrive('TD',100);}
@@ -372,65 +525,223 @@ function loop(ms){
         const mph=clamp(13+(rb.SPD-70)/3+randNorm(r,0,1.5),11,22); rb.adv.fast=Math.max(rb.adv.fast||0,mph);
         atk.stats.team.rushYds+=Math.max(0,deltaY);
       } else {
-        // PASS
-        const qb=atk.qb ? atk.qb : {first:'QB',last:'',PASS_ACC:70,INT:70,adv:{att:0,comp:0,yards:0,td:0,int:0,sacks:0,dropbacks:0,pressures:0,ttt:0,tttN:0,air:0,yac:0}};
-        if(!qb.adv) qb.adv={}; qb.adv.dropbacks=(qb.adv.dropbacks||0)+1;
+                // PASS
+                const qb=atk.qb ? atk.qb : {first:'QB',last:'',PASS_ACC:70,INT:70,adv:{att:0,comp:0,yards:0,td:0,int:0,sacks:0,dropbacks:0,pressures:0,ttt:0,tttN:0,air:0,yac:0}};
+        if(!qb.adv) qb.adv={};
+        qb.adv.dropbacks=(qb.adv.dropbacks||0)+1;
+
         const air=clamp(Math.round(randNorm(r,8+offAdv*0.01,6*(1+0.6*varK))),-1,30);
-        const pen=chancePenalty({down:h.down,isPass:true,airDepth:air}); if(pen && !pen.preSnap){applyPenalty(pen);updateHUD();Field.render({hud:h});if(ms>0)await new Promise(rs=>setTimeout(rs,ms));continue;}
-        const pressureP=clamp(0.24+(def.defense-atk.offense)/180,0.12,0.45); const pressured=(r()<pressureP); if(pressured) qb.adv.pressures=(qb.adv.pressures||0)+1;
-        const sackP=pressured?0.18:0.06; const expComp=clamp(0.60+(qb.PASS_ACC-70)/220-(def.defense-70)/340-(air>12?0.06:0)-(pressured?0.07:0),0.40,0.74);
-        qb.adv.expSum=(qb.adv.expSum||0)+expComp; qb.adv.expN=(qb.adv.expN||0)+1;
-        const ttt=clamp(randNorm(r,2.65+(pressured?-0.3:0),0.35),1.3,4.5); qb.adv.ttt=(qb.adv.ttt||0)+ttt; qb.adv.tttN=(qb.adv.tttN||0)+1;
+        const pen = chancePenalty({ down: h.down, isPass: true, airDepth: air });
+        if (pen) {
+        if (pen.preSnap) {
+            // Pre-snap penalty: NO PLAY. Enforce and replay down from previous spot.
+            applyPenalty(pen);
+        } else {
+            // Live-ball penalty (e.g., holding/DPI): NO RESULT. Enforce from previous spot and replay.
+            applyPenalty(pen);
+        }
+        updateHUD(); Field.render({ hud: h });
+        if (ms > 0) await new Promise(rs => setTimeout(rs, ms));
+        continue; // <- critical: never run the play on any penalty
+        }
+
+        const pressureP=clamp(0.24+(def.defense-atk.offense)/180,0.12,0.45);
+        const pressured=(r()<pressureP);
+        if(pressured) qb.adv.pressures=(qb.adv.pressures||0)+1;
+
+        const sackP=pressured?0.18:0.06;
+        const expComp=clamp(
+          0.60+(qb.PASS_ACC-70)/220-(def.defense-70)/340-(air>12?0.06:0)-(pressured?0.07:0),
+          0.40,0.74
+        );
+
+        qb.adv.expSum=(qb.adv.expSum||0)+expComp;
+        qb.adv.expN=(qb.adv.expN||0)+1;
+
+        const ttt=clamp(randNorm(r,2.65+(pressured?-0.3:0),0.35),1.3,4.5);
+        qb.adv.ttt=(qb.adv.ttt||0)+ttt; qb.adv.tttN=(qb.adv.tttN||0)+1;
+
         const x=r();
-        if(x<sackP){const loss=clamp(Math.round(randNorm(r,6,3)),3,13);const sacker=pickDefender(def,'sack');sacker.adv.sk=(sacker.adv.sk||0)+1;h.yard=Math.max(0,h.yard-loss);deltaY=-loss;kind='pass';setFirstDownOrAdvance(-loss);playText=`${qb.first} ${qb.last} sacked by ${sacker.first} ${sacker.last} for -${loss} at ${yardText(h.yard)}`;qb.adv.sacks=(qb.adv.sacks||0)+1;}
-        else{ if(r()<expComp){
-            const wr=chooseReceiver(atk); const yac=Math.max(0,Math.round(randNorm(r,4.0+(atk.offense-def.defense)/100,3*(1+0.6*varK)))); const gain=Math.min(Math.max(0,air)+yac,100-h.yard);
-            if(h.yard+gain>=100){ if(h.poss==='Home')s.home+=6;else s.away+=6; scored=true;kind='pass';playText=`${qb.first} ${qb.last} completes to ${wr.first} ${wr.last} for ${gain} yards, TOUCHDOWN`;atk.stats.team.td++;pendingPAT={team:h.poss,type:decidePAT({force2:(h.qtr===4&&h.secs<360&&((h.poss==='Home'?s.home-s.away:s.away-s.home)===-2)),forceXP:false})};pendingScoreIdx=scoring.push({text:`${h.poss} TD pass`,score:`${s.home}-${s.away}`})-1;closeDrive('TD',100); qb.adv.td=(qb.adv.td||0)+1; qb.adv.comp=(qb.adv.comp||0)+1; qb.adv.att=(qb.adv.att||0)+1; qb.adv.yards=(qb.adv.yards||0)+gain; qb.adv.air+=Math.max(0,air); qb.adv.yac+=yac; wr.adv.catches=(wr.adv.catches||0)+1; wr.adv.targets=(wr.adv.targets||0)+1; wr.adv.recY=(wr.adv.recY||0)+gain; wr.adv.air=(wr.adv.air||0)+Math.max(0,air); wr.adv.yac=(wr.adv.yac||0)+yac; wr.adv.td=(wr.adv.td||0)+1;
-            } else { h.yard=clamp(h.yard+gain,0,99); deltaY=gain; kind='pass'; setFirstDownOrAdvance(gain); const tack=pickDefender(def,'tacklePass'); tack.adv.tkl=(tack.adv.tkl||0)+1; playText=`${qb.first} ${qb.last} completes to ${wr.first} ${wr.last} for ${gain} yards, tackled by ${tack.first} ${tack.last} at ${yardText(h.yard)}`; wr.adv.targets=(wr.adv.targets||0)+1; wr.adv.catches=(wr.adv.catches||0)+1; wr.adv.recY=(wr.adv.recY||0)+gain; wr.adv.air=(wr.adv.air||0)+Math.max(0,air); wr.adv.yac=(wr.adv.yac||0)+yac; wr.adv.ayDepth=(wr.adv.ayDepth||0)+Math.max(0,air); wr.adv.ayN=(wr.adv.ayN||0)+1; const sep=clamp(2.7+(wr.SPD-70)/25-(def.defense-70)/120+randNorm(r,0,0.6),0.5,4.5); wr.adv.sep=(wr.adv.sep||0)+sep; wr.adv.sepN=(wr.adv.sepN||0)+1; qb.adv.comp=(qb.adv.comp||0)+1; qb.adv.att=(qb.adv.att||0)+1; qb.adv.yards=(qb.adv.yards||0)+gain; qb.adv.air+=Math.max(0,air); qb.adv.yac+=yac; }
-          } else { // incomplete or INT chance
-            if(r()<0.04){ // small explicit INT on incompletion branch
-              const pick=pickDefender(def,'int'); pick.adv.ints=(pick.adv.ints||0)+1; const ret=clamp(Math.round(randNorm(r,10,7)),0,60); const newForDef=clamp(100-(h.yard+ret),1,99); playText=`${qb.first} ${qb.last} pass is INTERCEPTED by ${pick.first} ${pick.last}, return to ${yardText(newForDef)}`; (h.poss==='Home'?HOME:AWAY).stats.team.ints++; closeDrive('INT', h.yard); h.poss=(h.poss==='Home'?'Away':'Home'); h.down=1; h.dist=10; h.yard=newForDef; pushDriveStart(h.poss,h.yard);
-            } else { setFirstDownOrAdvance(0); const db=pickDefender(def,'tacklePass'); db.adv.pd=(db.adv.pd||0)+1; playText=`${qb.first} ${qb.last} pass incomplete`; qb.adv.att=(qb.adv.att||0)+1; const wr=chooseReceiver(atk); wr.adv.targets=(wr.adv.targets||0)+1; if(r()<clamp(0.03+(70-(wr.HANDS||70))/400,0.01,0.08)){wr.adv.drops=(wr.adv.drops||0)+1; playText+=' (drop)';} }
+        if(x<sackP){
+          const loss=clamp(Math.round(randNorm(r,6,3)),3,13);
+          const sacker=pickDefender(def,'sack');
+          sacker.adv.sk=(sacker.adv.sk||0)+1;
+          h.yard=Math.max(0,h.yard-loss);
+          deltaY=-loss; kind='pass';
+          setFirstDownOrAdvance(-loss);
+          playText=`${qb.first} ${qb.last} sacked by ${sacker.first} ${sacker.last} for -${loss} at ${yardText(h.yard)}`;
+          qb.adv.sacks=(qb.adv.sacks||0)+1;
+        } else {
+          if(r()<expComp){
+            const wr=chooseReceiver(atk);
+            const yac=Math.max(0,Math.round(randNorm(r,4.0+(atk.offense-def.defense)/100,3*(1+0.6*varK))));
+            // cap total gain by yards-to-goal so a 20-yd TD from Opp 6 can't occur
+            const gain=Math.min(Math.max(0,air)+yac, 100-h.yard);
+
+            if(h.yard+gain>=100){
+              if(h.poss==='Home') s.home+=6; else s.away+=6;
+              scored=true; kind='pass';
+              playText=`${qb.first} ${qb.last} completes to ${wr.first} ${wr.last} for ${gain} yards, TOUCHDOWN`;
+              atk.stats.team.td++;
+              pendingPAT={team:h.poss,type:decidePAT({force2:(h.qtr===4&&h.secs<360&&((h.poss==='Home'?s.home-s.away:s.away-s.home)===-2)),forceXP:false})};
+              pendingScoreIdx=scoring.push({text:`${h.poss} TD pass`,score:`${s.home}-${s.away}`})-1;
+              closeDrive('TD',100);
+              qb.adv.td=(qb.adv.td||0)+1;
+              qb.adv.comp=(qb.adv.comp||0)+1; qb.adv.att=(qb.adv.att||0)+1;
+              qb.adv.yards=(qb.adv.yards||0)+gain; qb.adv.air+=Math.max(0,air); qb.adv.yac+=yac;
+              wr.adv.catches=(wr.adv.catches||0)+1; wr.adv.targets=(wr.adv.targets||0)+1;
+              wr.adv.recY=(wr.adv.recY||0)+gain; wr.adv.air=(wr.adv.air||0)+Math.max(0,air);
+              wr.adv.yac=(wr.adv.yac||0)+yac; wr.adv.td=(wr.adv.td||0)+1;
+            } else {
+              h.yard=clamp(h.yard+gain,0,99);
+              deltaY=gain; kind='pass';
+              setFirstDownOrAdvance(gain);
+              const tack=pickDefender(def,'tacklePass');
+              tack.adv.tkl=(tack.adv.tkl||0)+1;
+              playText=`${qb.first} ${qb.last} completes to ${wr.first} ${wr.last} for ${gain} yards, tackled by ${tack.first} ${tack.last} at ${yardText(h.yard)}`;
+              wr.adv.targets=(wr.adv.targets||0)+1; wr.adv.catches=(wr.adv.catches||0)+1;
+              wr.adv.recY=(wr.adv.recY||0)+gain; wr.adv.air=(wr.adv.air||0)+Math.max(0,air);
+              wr.adv.yac=(wr.adv.yac||0)+yac; wr.adv.ayDepth=(wr.adv.ayDepth||0)+Math.max(0,air);
+              wr.adv.ayN=(wr.adv.ayN||0)+1;
+              const sep=clamp(2.7+(wr.SPD-70)/25-(def.defense-70)/120+randNorm(r,0,0.6),0.5,4.5);
+              wr.adv.sep=(wr.adv.sep||0)+sep; wr.adv.sepN=(wr.adv.sepN||0)+1;
+              qb.adv.comp=(qb.adv.comp||0)+1; qb.adv.att=(qb.adv.att||0)+1;
+              qb.adv.yards=(qb.adv.yards||0)+gain; qb.adv.air+=Math.max(0,air); qb.adv.yac+=yac;
+            }
+          } else {
+            // incomplete or INT chance
+            if(r()<0.04){
+              const pick=pickDefender(def,'int'); pick.adv.ints=(pick.adv.ints||0)+1;
+              const ret=clamp(Math.round(randNorm(r,10,7)),0,60);
+              const newForDef=clamp(100-(h.yard+ret),1,99);
+              playText=`${qb.first} ${qb.last} pass is INTERCEPTED by ${pick.first} ${pick.last}, return to ${yardText(newForDef)}`;
+              (h.poss==='Home'?HOME:AWAY).stats.team.ints++;
+              closeDrive('INT', h.yard);
+              h.poss=(h.poss==='Home'?'Away':'Home'); h.down=1; h.dist=10; h.yard=newForDef;
+              pushDriveStart(h.poss,h.yard);
+            } else {
+              setFirstDownOrAdvance(0);
+              const db=pickDefender(def,'tacklePass'); db.adv.pd=(db.adv.pd||0)+1;
+              playText=`${qb.first} ${qb.last} pass incomplete`;
+              qb.adv.att=(qb.adv.att||0)+1;
+              const wr=chooseReceiver(atk); wr.adv.targets=(wr.adv.targets||0)+1;
+              if(r()<clamp(0.03+(70-(wr.HANDS||70))/400,0.01,0.08)){
+                wr.adv.drops=(wr.adv.drops||0)+1; playText+=' (drop)';
+              }
+            }
           }
         }
         atk.stats.team.passYds+=Math.max(0,deltaY);
       }
 
       // Update team/drives
-      const teamObj=(startPoss==='Home'?HOME:AWAY).stats.team; if(startPoss===h.poss){ teamObj.plays++; teamObj.yards+=deltaY; }
-      const D=drives.length?drives[drives.length-1]:null; if(D && startPoss===h.poss){ D.plays++; D.yards+=deltaY; }
+      const teamObj=(startPoss==='Home'?HOME:AWAY).stats.team;
+      if(startPoss===h.poss){ teamObj.plays++; teamObj.yards+=deltaY; }
+      const D=drives.length?drives[drives.length-1]:null;
+      if(D && startPoss===h.poss){ D.plays++; D.yards+=deltaY; }
 
       // clock
       h.secs=Math.max(0,h.secs-(scored?22:playTime));
 
       // 4th down decisions
-      if(!scored && h.down===5){
+      if(!scored && h.down===5 && !handledFourth){
         const distGL=100-h.yard, FGdist=Math.round(distGL+17);
-        const aggr=(+aggr4th.value); const goThresh=(h.yard>=50?4.0:2.0) - (aggr-50)/25 - (h.qtr===4?0.6:0);
-        if(h.dist<=goThresh){ teamObj.fourth.a++; const success=Math.random()<clamp(0.48+((h.poss==='Home'?HOME.offense:AWAY.offense)-(h.poss==='Home'?AWAY.defense:HOME.defense))/220,0.30,0.70); if(success){teamObj.fourth.c++;h.down=1;h.dist=Math.min(10,100-h.yard);logPlay('PLAY','4th-down conversion — chains move',h.poss,false,0,0);} else {teamObj.downs++;closeDrive('Downs',h.yard);const newForDef=clamp(100-h.yard,1,99);logPlay('PLAY','4th-down failed — turnover on downs',h.poss,false,-0.5,0);h.poss=(h.poss==='Home'?'Away':'Home');h.down=1;h.dist=10;h.yard=newForDef;pushDriveStart(h.poss,h.yard);} }
-        else {
-          const k=(h.poss==='Home'?HOME:AWAY).k; let attempted=false;
-          if(k && FGdist<=68 && h.dist>1){
-            attempted=true; teamObj.fga++; const make=Math.random()<fgMakeProb(FGdist,k.KICK_POW,k.KICK_ACC); const epaFG=fgEPA(FGdist,ep0,h.yard);
-            if(make){teamObj.fgm++; if(h.poss==='Home')s.home+=3;else s.away+=3; scoring.push({text:`${h.poss} FG (${FGdist})`,score:`${s.home}-${s.away}`}); logPlay('PLAY',`FG — ${k.first} ${k.last} GOOD from ${FGdist}`,h.poss,true,epaFG,0); closeDrive('FG',h.yard); beginKickoff(h.poss);}
-            else {logPlay('PLAY',`FG — ${k.first} ${k.last} NO GOOD from ${FGdist}`,h.poss,false,epaFG,0); closeDrive('Missed FG',h.yard); const newForDef=clamp(100-h.yard,1,99); h.poss=(h.poss==='Home'?'Away':'Home'); h.down=1; h.dist=10; h.yard=newForDef; pushDriveStart(h.poss,h.yard);}
+        const aggr=(+aggr4th.value);
+        const goThresh=(h.yard>=50?4.0:2.0) - (aggr-50)/25 - (h.qtr===4?0.6:0);
+
+        if(h.dist<=goThresh){
+          teamObj.fourth.a++;
+          const success=Math.random()<clamp(0.48+((h.poss==='Home'?HOME.offense:AWAY.offense)-(h.poss==='Home'?AWAY.defense:HOME.defense))/220,0.30,0.70);
+          if(success){
+            teamObj.fourth.c++;
+            h.down=1; h.dist=Math.min(10,100-h.yard);
+            logPlay('PLAY','4th-down conversion — chains move',h.poss,false,0,0);
+          } else {
+            teamObj.downs++;
+            closeDrive('Downs',h.yard);
+            const newForDef=clamp(100-h.yard,1,99);
+            logPlay('PLAY','4th-down failed — turnover on downs',h.poss,false,-0.5,0);
+            h.poss=(h.poss==='Home'?'Away':'Home'); h.down=1; h.dist=10; h.yard=newForDef;
+            pushDriveStart(h.poss,h.yard);
           }
-          if(!attempted){ const punter=(h.poss==='Home'?HOME:AWAY).p||{first:'P',last:'',KICK_POW:70}; const gross=clamp(Math.round(46+(punter.KICK_POW-70)/2+randNorm(sim.rng,0,7)),35,70); const land=h.yard+gross; if(land>=100){logPlay('PLAY',`Punt ${gross} by ${punter.first} ${punter.last} — touchback`,h.poss,false,0,0); teamObj.punts++; closeDrive('Punt (TB)',20); h.poss=(h.poss==='Home'?'Away':'Home'); h.down=1; h.dist=10; h.yard=20; pushDriveStart(h.poss,h.yard);} else {const retMan=((h.poss==='Home'?AWAY:HOME).wr[0]||(h.poss==='Home'?AWAY:HOME).rb[0]||(h.poss==='Home'?AWAY:HOME).players[0]); const recvAt=100-land; const ret=clamp(Math.round(randNorm(sim.rng,10,8)),0,40); const end=clamp(recvAt+ret,1,99); logPlay('PLAY',`Punt ${gross} by ${punter.first} ${punter.last}, ${retMan.first} ${retMan.last} returns ${ret} to ${yardText(end)}`,h.poss,false,0,0); teamObj.punts++; closeDrive('Punt',end); h.poss=(h.poss==='Home'?'Away':'Home'); h.down=1; h.dist=10; h.yard=end; pushDriveStart(h.poss,h.yard);} }
+        } else {
+          const k=(h.poss==='Home'?HOME:AWAY).k;
+          let attempted=false;
+          if(k && FGdist<=68 && h.dist>1){
+            attempted=true;
+            teamObj.fga++;
+            const make=Math.random()<fgMakeProb(FGdist,k.KICK_POW,k.KICK_ACC);
+            const epaFG=fgEPA(FGdist,ep0,h.yard);
+            if(make){
+              teamObj.fgm++;
+              if(h.poss==='Home') s.home+=3; else s.away+=3;
+              scoring.push({text:`${h.poss} FG (${FGdist})`,score:`${s.home}-${s.away}`});
+              logPlay('PLAY',`FG — ${k.first} ${k.last} GOOD from ${FGdist}`,h.poss,true,epaFG,0);
+              closeDrive('FG',h.yard);
+              beginKickoff(h.poss);
+            } else {
+              logPlay('PLAY',`FG — ${k.first} ${k.last} NO GOOD from ${FGdist}`,h.poss,false,epaFG,0);
+              closeDrive('Missed FG',h.yard);
+              const newForDef=clamp(100-h.yard,1,99);
+              h.poss=(h.poss==='Home'?'Away':'Home'); h.down=1; h.dist=10; h.yard=newForDef;
+              pushDriveStart(h.poss,h.yard);
+            }
+          }
+          if(!attempted){
+            const punter=(h.poss==='Home'?HOME:AWAY).p||{first:'P',last:'',KICK_POW:70};
+            const gross=clamp(Math.round(46+(punter.KICK_POW-70)/2+randNorm(sim.rng,0,7)),35,70);
+            const land=h.yard+gross;
+            if(land>=100){
+              logPlay('PLAY',`Punt ${gross} by ${punter.first} ${punter.last} — touchback`,h.poss,false,0,0);
+              teamObj.punts++;
+              closeDrive('Punt (TB)',20);
+              h.poss=(h.poss==='Home'?'Away':'Home'); h.down=1; h.dist=10; h.yard=20;
+              pushDriveStart(h.poss,h.yard);
+            } else {
+              const retMan=((h.poss==='Home'?AWAY:HOME).wr[0]||(h.poss==='Home'?AWAY:HOME).rb[0]||(h.poss==='Home'?AWAY:HOME).players[0]);
+              const recvAt=100-land;
+              const ret=clamp(Math.round(randNorm(sim.rng,10,8)),0,40);
+              const end=clamp(recvAt+ret,1,99);
+              logPlay('PLAY',`Punt ${gross} by ${punter.first} ${punter.last}, ${retMan.first} ${retMan.last} returns ${ret} to ${yardText(end)}`,h.poss,false,0,0);
+              teamObj.punts++;
+              closeDrive('Punt',end);
+              h.poss=(h.poss==='Home'?'Away':'Home'); h.down=1; h.dist=10; h.yard=end;
+              pushDriveStart(h.poss,h.yard);
+            }
+          }
         }
       }
 
-      // EPA/WP annotate
-      const ep1=EP(h.down,h.dist,h.yard), wp1=stateWP(s.home,s.away,h.qtr,h.secs,h.yard,h.poss,wpPrior); const earlyCap=(h.qtr<=2)?0.02:0.04; const epa=(ep1-ep0); const wpd=clamp(wp1-wp0,-earlyCap,earlyCap);
-      const header=`Q${h.qtr} ${Math.floor(h.secs/60)}:${String(h.secs%60).padStart(2,'0')} | ${dnTxt(h.down)} & ${Math.max(1,Math.round(h.dist))} @ ${yardText(h.yard)}`; if(!pendingKickoff && !pendingPAT) logPlay('PLAY', `${header} — ${playText}`, h.poss, false, epa, wpd);
-      (h.poss==='Home'?HOME:AWAY).stats.team.epa += (epa||0);
-      // visuals
-      updateHUD(); updateScore(); Field.render({hud:h}); wpSmooth=0.97*wpSmooth+0.03*wp1; wpSeries.push(wpSmooth); wpVal.textContent=(wpSmooth*100).toFixed(1)+'%'; if(wpSeries.length>600) wpSeries.shift(); drawWP(); renderBox(); renderLeaders();
+      // EPA/WP annotate and log with the PRE-PLAY header (alignment fix)
+      const ep1=EP(h.down,h.dist,h.yard),
+            wp1=stateWP(s.home,s.away,h.qtr,h.secs,h.yard,h.poss,wpPrior);
+      const earlyCap=(h.qtr<=2)?0.02:0.04;
+      const epa=(ep1-ep0);
+      const wpd=clamp(wp1-wp0,-earlyCap,earlyCap);
 
-      if(h.secs<=0){h.qtr++;if(h.qtr<=4){h.secs=900;beginKickoff('Away');}else{running=false;pauseBtn.disabled=true;logPlay('FINAL',`FINAL: ${homeLabel.value} ${s.home} – ${awayLabel.value} ${s.away}`,'Home',true,0,0);break;}}
+      if(!pendingKickoff && !pendingPAT){
+        logPlay('PLAY', `${preHeader} — ${playText}`, h.poss, false, epa, wpd);
+      }
+      (h.poss==='Home'?HOME:AWAY).stats.team.epa += (epa||0);
+
+      // visuals
+      updateHUD(); updateScore(); Field.render({hud:h});
+      wpSmooth=0.97*wpSmooth+0.03*wp1; wpSeries.push(wpSmooth);
+      wpVal.textContent=(wpSmooth*100).toFixed(1)+'%';
+      if(wpSeries.length>600) wpSeries.shift();
+      drawWP(); renderBox(); renderLeaders();
+
+      if(h.secs<=0){
+        h.qtr++;
+        if(h.qtr<=4){ h.secs=900; beginKickoff('Away'); }
+        else { running=false; pauseBtn.disabled=true; logPlay('FINAL',`FINAL: ${homeLabel.value} ${s.home} – ${awayLabel.value} ${s.away}`,'Home',true,0,0); break; }
+      }
+
       if(ms>0) await new Promise(rs=>setTimeout(rs,ms));
     }
   })();
 }
+
 
 /* ===== Advanced Tab (team + players) ===== */
 function renderAdvanced(){
