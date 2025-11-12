@@ -216,6 +216,22 @@ canvas#field{width:100%;height:260px;background:#062b22;border-radius:12px;borde
 </main>
 
 <script>
+document.addEventListener('DOMContentLoaded', () => {
+  try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const homeName = urlParams.get('home');
+    const awayName = urlParams.get('away');
+
+    if (homeName) {
+      document.getElementById('homeLabel').value = homeName;
+    }
+    if (awayName) {
+      document.getElementById('awayLabel').value = awayName;
+    }
+  } catch (e) {
+    console.error("Error loading team names from URL:", e);
+  }
+});
 /* ===== Utilities ===== */
 const crowdPct = document.getElementById('crowdPct');
 const crowdBar = document.getElementById('crowdBar');

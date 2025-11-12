@@ -1,5 +1,8 @@
+<head>
+<meta charset="utf-t" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>NFL Sim - Weekly Games</title>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
 <style>
 :root{
   /* Exact dark theme variables */
@@ -118,30 +121,75 @@ hr{
 </style>
 </head>
 <body>
-  <main>
-    <h1>Week 1 Games</h1>
-
-    <div class="grid">
-      <!-- Game Card Link to game.html -->
-      <a class="card" href="game.html" aria-label="Home vs. Away — Play Sim">
-        <div class="cardHeader">
-          <div class="title">Home vs. Away</div>
-          <!-- Use a <span> so the entire card remains the link target -->
-          <span class="btn" role="button">Play Sim</span>
-        </div>
-        <hr>
-        <div class="row">
-          <div class="badges">
-            <span class="pill home">Home</span>
-            <span class="pill away">Away</span>
-          </div>
-          <div class="meta">Kickoff: 1:00 PM ET</div>
-        </div>
-      </a>
-    </div>
-
-    <div class="small">Tip: Click anywhere on the card to launch the simulator.</div>
-  </main>
->>>>>>> b75ee8063e56fb93c54dcbc218e23a7701f2d37d
+    <main>
+        <h1 id="page-title">Loading Week 1 Games...</h1>
+    
+        <div class="grid" id="game-grid">
+              </div>
+    
+        <div class="small">Tip: Click anywhere on a card to set up the simulator.</div>
+      </main>
+    <script>
+    // URL to your raw .xlsx file from GitHub
+    const XLSX_URL = 'PASTE_YOUR_RAW_GITHUB_URL_HERE'; // 👈 PASTE YOUR URL
+    
+    /**
+     * Fetches and parses the XLSX file, then renders the game cards.
+     */
+    async function loadGames() {
+      const grid = document.getElementById('game-grid');
+      const title = document.getElementById('page-title');
+    
+      try {
+        // 1. Fetch the file
+        const response = await fetch(XLSX_URL);
+        if (!response.ok) throw new Error('Network response was not ok');
+        const arrayBuffer = await response.arrayBuffer();
+    
+        // 2. Parse the file
+        const workbook = XLSX.read(arrayBuffer, { type: 'buffer' });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const games = XLSX.utils.sheet_to_json(sheet);
+    
+        // 3. Render the game cards
+        let html = '';
+        for (const game of games) {
+          const home = game.HomeTeam || 'Home';
+          const away = game.AwayTeam || 'Away';
+    
+          // Create the URL with parameters
+          const gameUrl = `game.html?home=${encodeURIComponent(home)}&away=${encodeURIComponent(away)}`;
+    
+          html += `
+            <a class="card" href="${gameUrl}" aria-label="${home} vs. ${away} — Play Sim">
+              <div class="cardHeader">
+                <div class="title">${home} vs. ${away}</div>
+                <span class="btn" role="button">Play Sim</span>
+              </div>
+              <hr>
+              <div class="row">
+                <div class="badges">
+                  <span class="pill home">${home}</span>
+                  <span class="pill away">${away}</span>
+                </div>
+              </div>
+            </a>
+          `;
+        }
+    
+        grid.innerHTML = html; // Add all cards to the grid
+        title.textContent = 'Week 1 Games'; // Update title
+    
+      } catch (error) {
+        console.error('Error loading games:', error);
+        title.textContent = 'Error loading games';
+        grid.innerHTML = `<p style="color:var(--muted)">Could not load games. Please check the XLSX_URL and file format.</p>`;
+      }
+    }
+    
+    // Run the function when the page loads
+    document.addEventListener('DOMContentLoaded', loadGames);
+    </script>
 </body>
 </html>
