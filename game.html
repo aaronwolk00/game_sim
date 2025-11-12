@@ -114,22 +114,18 @@ canvas#field{width:100%;height:260px;background:#062b22;border-radius:12px;borde
       <div><label>Play Speed (ms)</label><input id="speed" type="number" min="0" value="140"></div>
     </div>
 
-    <!-- Roster source -->
-    <div class="row">
-      <div><label>Roster .xlsx</label><input id="xlsxFile" type="file" accept=".xlsx,.xls"></div>
-      <div><label class="small">Loaded Teams</label>
+    <!-- Teams (auto-populated from the roster .xlsx in this folder) -->
+    <div class="row" style="grid-template-columns:1fr">
+      <div>
+        <label class="small">Loaded Teams</label>
         <div class="row" style="grid-template-columns:1fr 1fr">
-          <select id="homeTeamSel" disabled></select>
-          <select id="awayTeamSel" disabled></select>
+          <select id="homeTeamSel"></select>
+          <select id="awayTeamSel"></select>
         </div>
+        <div id="rosterStatus" class="small" style="margin-top:6px;color:var(--muted)"></div>
       </div>
     </div>
 
-    <!-- (Optional) CSV fallback still supported -->
-    <div class="row">
-      <div><label>Home CSV (optional)</label><input id="homeCsv" type="file" accept=".csv"></div>
-      <div><label>Away CSV (optional)</label><input id="awayCsv" type="file" accept=".csv"></div>
-    </div>
 
 
     <div class="line"></div>
@@ -230,6 +226,7 @@ const resetBtn  = document.getElementById('resetBtn');
 const exportCsv = document.getElementById('exportCsv');
 const topEpa = document.getElementById('topEpa');
 const topEpaList = document.getElementById('topEpaList');
+const rosterStatus = document.getElementById('rosterStatus');
 
 function logPlay(tag,line,off,scoring=false,epa=null,wpd=null){
   const aux=(epa!==null||wpd!==null)?`EPA ${(epa>=0?'+':'')}${(epa||0).toFixed(2)} | ΔWP ${(wpd>=0?'+':'')}${((wpd||0)*100).toFixed(1)}%`:'';
@@ -385,9 +382,7 @@ tabScoring.onclick=()=>{activeTab='scoring';tabScoring.classList.add('active');[
 tabDrives.onclick=()=>{activeTab='drives';tabDrives.classList.add('active');[tabPlays,tabScoring,tabAdvanced].forEach(x=>x.classList.remove('active'));renderDrives();}
 tabAdvanced.onclick=()=>{activeTab='advanced';tabAdvanced.classList.add('active');[tabPlays,tabScoring,tabDrives].forEach(x=>x.classList.remove('active'));renderAdvanced();}
 
-/* ===== Files ===== */
-homeCsv.onchange=async e=>{const f=e.target.files?.[0];if(!f)return;HOME=buildTeam(parseCSV(await f.text()));homeName.textContent=homeLabel.value;renderBox();renderLeaders();};
-awayCsv.onchange=async e=>{const f=e.target.files?.[0];if(!f)return;AWAY=buildTeam(parseCSV(await f.text()));awayName.textContent=awayLabel.value;renderBox();renderLeaders();};
+
 
 /* === Auto-load roster file from same folder === */
 const ROSTER_CANDIDATES = [
@@ -451,34 +446,6 @@ awayTeamSel.addEventListener('change', ()=>{
   awayLabel.value = awayTeamSel.value;
   awayName.textContent = awayLabel.value;
 });
-
-
-/* ===== XLSX Roster ===== */
-xlsxFile.onchange = async (e)=>{
-  const f = e.target.files?.[0];
-  if(!f) return;
-  const buf = await f.arrayBuffer();
-  XLSX_BOOK = XLSX.read(buf, {type:'array'});
-  // choose sheet names that actually contain players (have a Position column)
-  TEAM_SHEETS = XLSX_BOOK.SheetNames.filter(name=>{
-    const ws = XLSX_BOOK.Sheets[name];
-    const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
-    return rows.length && Object.keys(rows[0]).some(k=>/position/i.test(k));
-  });
-  // Fill dropdowns
-  homeTeamSel.innerHTML = TEAM_SHEETS.map(n=>`<option>${n}</option>`).join('');
-  awayTeamSel.innerHTML = TEAM_SHEETS.map(n=>`<option>${n}</option>`).join('');
-  homeTeamSel.disabled = awayTeamSel.disabled = TEAM_SHEETS.length===0;
-  // If “Home Name/Away Name” are filled, try to preselect matches
-  const hName = (homeLabel.value||'').toLowerCase();
-  const aName = (awayLabel.value||'').toLowerCase();
-  const hIdx = TEAM_SHEETS.findIndex(s=>s.toLowerCase().includes(hName));
-  const aIdx = TEAM_SHEETS.findIndex(s=>s.toLowerCase().includes(aName));
-  if(hIdx>=0) homeTeamSel.selectedIndex=hIdx;
-  if(aIdx>=0) awayTeamSel.selectedIndex=aIdx;
-  // Let the user know
-  logPlay('INFO', `Loaded roster: ${TEAM_SHEETS.length} team tabs detected`, 'Home', false, null, null);
-};
 
 // Build a team from a workbook sheet name
 function teamFromSheet(sheetName){
