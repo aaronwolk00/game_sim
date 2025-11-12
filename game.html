@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
+<<<<<<< HEAD
 <title>NFL Sim — GMG (Players + Penalties)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
@@ -53,6 +54,9 @@ canvas#field{width:100%;height:260px;background:#062b22;border-radius:12px;borde
 .hudPill{position:absolute;top:6px;left:50%;transform:translateX(-50%);background:rgba(8,12,24,.78);border:1px solid #2a355a;border-radius:999px;padding:4px 10px;font-size:12px;backdrop-filter:blur(2px)}
 .lastPlay{background:var(--card);border:1px solid #243055;border-radius:12px;padding:8px;font-size:13px}
 .wpBox{display:flex;align-items:center;justify-content:space-between;background:var(--card);border:1px solid #243055;border-radius:12px;padding:6px 8px}
+.crowdBox{background:var(--card);border:1px solid #243055;border-radius:12px;padding:8px;margin-top:8px}
+.meter{width:100%;height:8px;background:#0e1630;border:1px solid #233055;border-radius:999px;overflow:hidden}
+#crowdBar{height:100%;width:0%;background:linear-gradient(90deg,#93c5fd,#34d399);transition:width .25s ease}
 .wpVal{font-weight:800}
 .pill{display:inline-block;padding:3px 7px;border-radius:8px;background:#0e1630;border:1px solid #233055;color:#cfe1ff;font-size:11px}
 .subtabs{display:flex;gap:6px;margin:8px 0}
@@ -144,6 +148,13 @@ canvas#field{width:100%;height:260px;background:#062b22;border-radius:12px;borde
         <button id="toggleAdv" class="ghost">PBP: Advanced Off</button>
         <canvas id="wpChart" height="110"></canvas>
       </div>
+      <div class="crowdBox">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <div>Crowd Impact</div>
+          <div class="small"><span id="crowdPct">0%</span></div>
+        </div>
+        <div class="meter"><div id="crowdBar"></div></div>
+      </div>
     </div>
     <div class="line"></div>
     <div class="tabs">
@@ -162,12 +173,43 @@ canvas#field{width:100%;height:260px;background:#062b22;border-radius:12px;borde
     <div class="line"></div>
     <div style="font-weight:800;margin-bottom:6px">Leaders</div>
     <div id="leaders"></div>
+    <div class="line"></div>
+    <div style="font-weight:800;margin-bottom:6px">Top EPA Plays</div>
+    <div id="topEpa" class="small"></div>
   </section>
 </main>
 
 <script>
 /* ===== Utilities ===== */
 const ui={homeName,awayName,homeScore,awayScore,poss,qtr,clock,toHome,toAway,wpVal,feed,lastPlay,boxWrap,leaders,tabPlays,tabScoring,tabDrives,tabAdvanced,toggleAdv,fansPill};
+const crowdPct = document.getElementById('crowdPct');
+const crowdBar = document.getElementById('crowdBar');
+const startBtn  = document.getElementById('startBtn');
+const pauseBtn  = document.getElementById('pauseBtn');
+const resetBtn  = document.getElementById('resetBtn');
+const exportCsv = document.getElementById('exportCsv');
+const topEpa = document.getElementById('topEpa');
+function renderTopEPA(){
+  if (!topEpa) return;
+  const ranked = plays
+    .filter(p => typeof p.epa === 'number' && isFinite(p.epa))
+    .slice()
+    .sort((a,b)=>b.epa - a.epa)
+    .slice(0,5);
+  topEpa.innerHTML = ranked.map(p=>{
+    const e = (p.epa>=0?'+':'')+p.epa.toFixed(2);
+    return `<div>${e} — <span class="tag">${p.tag}</span>${p.line}</div>`;
+  }).join('');
+}
+function logPlay(tag,line,off,scoring=false,epa=null,wpd=null){
+  const aux = (epa!==null||wpd!==null)
+    ? `EPA ${(epa>=0?'+':'')}${(epa||0).toFixed(2)} | ΔWP ${(wpd>=0?'+':'')}${((wpd||0)*100).toFixed(1)}%`
+    : '';
+  plays.push({tag,line,off,scoring,aux, epa:(epa??null), wpd:(wpd??null)});
+  if (activeTab==='plays') renderPlays();
+  lastPlay.textContent = 'Last Play: ' + line.replace(/^.* — /,'');
+  renderTopEPA();
+}
 let showAdvanced=false; toggleAdv.onclick=()=>{showAdvanced=!showAdvanced; toggleAdv.textContent='PBP: '+(showAdvanced?'Advanced On':'Advanced Off'); renderPlays();};
 function hash32(str){let h=1779033703^str.length;for(let i=0;i<str.length;i++){h=Math.imul(h^str.charCodeAt(i),3432918353);h=(h<<13)|(h>>>19);}return(h>>>0);}
 function rngFromSeed(s){let a=hash32(s)||1;return()=>{a=(a+0x6D2B79F5)>>>0;let t=Math.imul(a^(a>>>15),1|a);t^=t+Math.imul(t^(t>>>7),61|t);return((t^(t>>>14))>>>0)/4294967296;};}
@@ -202,10 +244,50 @@ function buildTeam(rows){
 const EP_ANCHORS=[[1,-1.1],[10,-0.7],[20,0.2],[25,0.9],[30,1.4],[40,2.0],[50,2.25],[60,3.0],[70,3.7],[80,4.4],[90,5.0],[95,5.35],[98,5.9]];
 function lerp(a,b,t){return a+(b-a)*t;}
 function epYard(y){for(let i=0;i<EP_ANCHORS.length-1;i++){const [x1,e1]=EP_ANCHORS[i],[x2,e2]=EP_ANCHORS[i+1];if(y>=x1&&y<=x2){return lerp(e1,e2,(y-x1)/(x2-x1));}}return (y<1?EP_ANCHORS[0][1]:EP_ANCHORS.at(-1)[1]);}
-function EP(down,dist,y){const base=epYard(y);const downAdj=[0,-0.35,-0.9,-1.55][down-1]||-1.7;const distAdj=-0.03*(dist-1);return clamp(base+downAdj+distAdj,-2.5,6.8);}
+function EP(down, dist, y){
+  const base = epYard(y);             // 1..98 → ~[-1.1 .. 5.9]
+  const nearGL = y/100;               // 0 (own GL) .. 1 (opp GL)
+  const damp = 0.65 + 0.35*(1 - nearGL); // down/dist hurt less near GL
+
+  const downAdjBase = [0, -0.55, -1.25, -2.0][down-1] || -2.2;
+  const downAdj = downAdjBase * damp;
+
+  const distAdj = -0.04 * Math.min(25, Math.max(1, dist)) * damp;
+
+  return clamp(base + downAdj + distAdj, -2.5, 6.8);
+}
 let wpSeries=[0.5], wpSmooth=0.5, wpPrior=0.5;
 function priorFromTeams(h,a){const sH=(h.offense+h.defense)/2,sA=(a.offense+a.defense)/2;return clamp(1/(1+Math.exp(-(sH-sA)/8)),0.35,0.65);}
-function stateWP(hs,as,q,s,y,p,prior){const diff=hs-as,tLeft=(5-q)*900+s,tf=1-(tLeft/3600);const field=0.002*(y-50)*(p==='Home'?1:-1);const score=0.14*diff;return clamp(prior+field+tf*score,0.05,0.95);}
+const logit = x => Math.log(x/(1-x));
+const invlogit = z => 1/(1+Math.exp(-z));
+function stateWP(hs, as, q, s, y, p, prior){
+  // time 0..1
+  const tLeft = (5 - q) * 900 + s;
+  const tf = clamp(1 - tLeft/3600, 0, 1);
+
+  // baseline (prior on logit; decays over time)
+  const zPrior = logit(clamp(prior, 0.05, 0.95)) * (0.65 - 0.35*tf);
+
+  // score (one TD lead ≈ 0.33 early → ~0.88 late on logit)
+  const lead = hs - as;
+  const zLead = (0.33 + 0.55*tf) * (lead / 7);
+
+  // field position signed for Home
+  const zField = 0.20 * ((y - 50)/50) * (p === 'Home' ? 1 : -1);
+
+  // situational EP signed for Home
+  const epNow = EP(sim.hud.down, sim.hud.dist, y);
+  const zEP = 0.10 * ((p === 'Home') ? epNow : -epNow) / 6; // scaled
+
+  // crowd: helps Home more on defense, modest on offense; grows late
+  const intensity = computeCrowdIntensity(); // 0..1
+  const defBoost = (p === 'Home') ? 0.18 : 0.38; // Home on D louder
+  const zCrowd = (defBoost + 0.20*tf) * intensity;
+
+  const z = zPrior + zLead + zField + zEP + zCrowd;
+  return clamp(invlogit(z), 0.02, 0.98);
+}
+
 function drawWP(){const c=wpChart;const w=c.width=300,h=c.height=110,ctx=c.getContext('2d');ctx.clearRect(0,0,w,h);ctx.strokeStyle='#243055';ctx.beginPath();for(let y=0;y<=h;y+=h/4){ctx.moveTo(0,y);ctx.lineTo(w,y);}ctx.stroke();if(wpSeries.length>1){ctx.strokeStyle='#5eead4';ctx.lineWidth=2;ctx.beginPath();for(let i=0;i<wpSeries.length;i++){const x=i*(w/(wpSeries.length-1));const y=(1-wpSeries[i])*h;if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);}ctx.stroke();}}
 
 /* ===== Field ===== */
@@ -281,13 +363,20 @@ function chancePenalty(context){
 }
 function applyPenalty(p){
   const h=sim.hud; const atkTeam=(h.poss==='Home'?HOME:AWAY).stats.team; atkTeam.pen++;
-  if(p.preSnap){
-    if(p.onDefense){h.yard=clamp(h.yard+5,0,99);h.dist=Math.max(1,h.dist-5);}
-    else{h.yard=Math.max(0,h.yard-5);h.dist=h.dist+5;}
-    logPlay('PEN',
-    `${p.type} — ${p.onDefense?'+':'-'}${Math.abs(p.yards)}${p.autoFirst?' (1st down)':' (replay down)'}`,
-    h.poss,false,0,0
-    ); return true;
+  if (p.preSnap) {
+    if (p.onDefense) {
+      // Offside (defense): +5 from previous spot, replay down.
+      h.yard = clamp(h.yard + 5, 0, 99);
+      h.dist = Math.max(0, h.dist - 5);
+      // If the 5 yards reaches/extends the line to gain, award 1st down.
+      if (h.dist <= 0) { h.down = 1; h.dist = Math.min(10, 100 - h.yard); }
+    } else {
+      // False start (offense): -5, replay down.
+      h.yard = Math.max(0, h.yard - 5);
+      h.dist = h.dist + 5;
+    }
+    logPlay('PEN', `${p.type} — ${p.onDefense?'+5':'-5'} (replay down)`, h.poss, false, 0, 0);
+    return true;
   }
   if(p.onDefense){
     if(p.spot){const toGL=Math.min(100-h.yard,p.yards);h.yard=Math.min(99,h.yard+toGL);h.down=1;h.dist=Math.min(10,100-h.yard);}
@@ -340,7 +429,7 @@ function startGame(){
   AWAY.stats.team={plays:0,yards:0,passYds:0,rushYds:0,punts:0,fgm:0,fga:0,td:0,ints:0,downs:0,pen:0,third:{c:0,a:0},fourth:{c:0,a:0},epa:0}; AWAY.drives=[];
   renderBox(); renderLeaders();
   const r=rngFromSeed(seed.value||'seed'); const receive=r()<0.5?'Home':'Away';
-  sim={rng:r,score:{home:0,away:0},hud:{poss:receive,qtr:1,secs:900,down:1,dist:10,yard:25},crowd:{cap:72000,present:Math.floor(0.9*72000),mood:0}};
+  sim={rng:r,score:{home:0,away:0},hud:{poss:receive,qtr:1,secs:900,down:1,dist:10,yard:25},crowd:{cap:72000,present:Math.floor(0.85*72000),mood:0}};
   wpSeries=[0.5]; wpSmooth=0.5; wpPrior=priorFromTeams(HOME,AWAY); fansPill.textContent=`Fans: ${sim.crowd.present.toLocaleString()}`;
   beginKickoff(receive==='Home'?'Away':'Home'); doKickoff(); updateHUD(); updateScore(); drawWP(); renderPlays(); Field.render({hud:sim.hud});
   loop(+speed.value||0);
@@ -355,39 +444,104 @@ document.addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault();
 /* ===== Helpers ===== */
 function setFirstDownOrAdvance(yds){const h=sim.hud;if(yds>=0)h.dist-=yds;else h.dist+=(-yds);if(h.dist<=0){h.down=1;h.dist=Math.min(10,100-h.yard);}else{h.down++;}}
 function kickerLeg(pow){return 45+0.7*(pow-70);}
-function fgMakeProb(dist,pow,acc){dist=Math.min(dist,68);let z=(kickerLeg(pow)-dist)/4+(acc-70)/18;z-=(+wind.value/20)*0.4;if(+temp.value<25)z-=0.3;if(precip.value==='Heavy Rain'||precip.value==='Snow')z-=0.1;let p=1/(1+Math.exp(-z));const hard=dist>=60?0.20:(dist>=55?0.55:(dist>=50?0.70:0.90));p=Math.min(p,hard+0.08*(acc-70)/30);return clamp(p,0.02,0.98);}
+function fgMakeProb(dist, pow, acc){
+  dist = Math.min(dist, 68);
+  let z = (kickerLeg(pow)-dist)/4 + (acc-70)/18;
+  z -= (+wind.value/20)*0.4;
+  if (+temp.value<25) z -= 0.3;
+  if (precip.value==='Heavy Rain' || precip.value==='Snow') z -= 0.1;
+
+  let p = 1/(1+Math.exp(-z));
+
+  // Cap only true long kicks; don't suppress 30–40 yarders
+  const cap = dist>=60 ? 0.20 : dist>=55 ? 0.55 : dist>=50 ? 0.70 : 1.00;
+  if (dist>=50) p = Math.min(p, cap + 0.08*(acc-70)/30);
+
+  return clamp(p, 0.02, 0.995);
+}
+
 function fgEPA(FGdist,epBefore,yard){const k=(sim.hud.poss==='Home'?HOME:AWAY).k||{KICK_POW:70,KICK_ACC:70};const p=fgMakeProb(FGdist,k.KICK_POW,k.KICK_ACC);const epAfterMiss=-EP(1,10,clamp(100-yard,1,99));return 3*p+epAfterMiss*(1-p)-epBefore;}
 function pickDefender(def,role){const pool= role==='sack'?(def.dl.concat(def.lb)) : role==='int'?def.db.concat(def.lb): role==='tacklePass'?def.db.concat(def.lb): def.dl.concat(def.lb); return pool[Math.floor(sim.rng()*pool.length)]||{first:'Def',last:'ender',adv:{}};}
+function headerNow(){
+  const hh = sim.hud;
+  return `Q${hh.qtr} ${Math.floor(hh.secs/60)}:${String(hh.secs%60).padStart(2,'0')} | ${dnTxt(hh.down)} & ${Math.max(1,Math.round(hh.dist))} @ ${yardText(hh.yard)}`;
+}
+// ---- Play snapshot & header helpers ----
+function snapshotHUD(){
+  const h = sim.hud;
+  return {
+    qtr: h.qtr,
+    secs: h.secs,
+    down: h.down,
+    dist: Math.max(1, Math.round(h.dist)),
+    yard: h.yard,
+    poss: h.poss
+  };
+}
+function headerFrom(snap){
+  return `Q${snap.qtr} ${Math.floor(snap.secs/60)}:${String(snap.secs%60).padStart(2,'0')} | ${dnTxt(snap.down)} & ${snap.dist} @ ${yardText(snap.yard)}`;
+}
 function chooseReceiver(atk){const r=sim.rng(); let group=null;if(r<0.65&&atk.wr.length)group=atk.wr;else if(r<0.85&&atk.te.length)group=atk.te;else group=atk.rb.length?atk.rb:atk.wr;return group[Math.floor(sim.rng()*group.length)]||atk.qb;}
+// ===== Crowd helpers (GLOBAL) =====
+function computeCrowdIntensity(){
+  const c = sim?.crowd || {present:0, cap:1, mood:0};
+  const h = sim?.hud || {down:1, dist:10, yard:25, qtr:1, secs:900};
+  const att = clamp(c.present / (c.cap || 1), 0, 1);
+  const mood = clamp(c.mood || 0, -1, 1); // -1..1
+
+  // Baseline + situational boosts (so it's not 0 unless stadium empty)
+  let ctx = 0.15;                                              // baseline hum
+  if ((h.down===3 && h.dist<=5) || h.down===4) ctx += 0.25;   // big down
+  if (h.yard>=80) ctx += 0.15;                                // red zone
+  if (h.qtr===2 && h.secs<=120) ctx += 0.08;                  // late 1H
+  if (h.qtr===4){ ctx += 0.10; if (h.secs<=300) ctx += 0.10;} // late 4Q
+  if (Math.abs(sim.score.home - sim.score.away)<=8) ctx += 0.10; // one-score
+  ctx = clamp(ctx, 0, 1);
+
+  const base = att * (0.7 + 0.3 * mood);
+  return clamp(base * ctx, 0, 1); // 0..1
+}
+
+function renderCrowdMeter(){
+  const x = computeCrowdIntensity();     // 0..1
+  const pct = (x*100);
+  crowdPct.textContent = pct.toFixed(1) + '%';     // ← show decimal
+  crowdBar.style.width = pct + '%';
+}
+
 function updateCrowd(){
   const h = sim.hud, c = sim.crowd; if(!c) return;
   const cap = c.cap || 72000;
 
-  // Arrivals: 90% in seats at kickoff; remaining 10% trickle in over first 12 minutes of Q1
+  // Arrivals: 85% at kick, remaining 15% over first 12 min of Q1
   let target = c.present;
   if (h.qtr === 1) {
     const elapsed = 900 - h.secs;
-    const arrivals = Math.round(0.10 * cap * Math.min(1, elapsed / 720)); // over 12 minutes
-    target = Math.floor(0.90 * cap + arrivals);
+    const arrivals = Math.round(0.15 * cap * Math.min(1, elapsed / 720));
+    target = Math.floor(0.85 * cap + arrivals);
   }
 
-  // Departures influenced by score, weather, and time
+  // Departures by score/weather/time
   const diff = Math.abs(sim.score.home - sim.score.away);
   const homeTrailing = (sim.score.home < sim.score.away);
   let leaveRate = 0;
-
-  if (h.qtr >= 3 && diff >= 17) leaveRate += 0.005 * (diff - 16); // blowout after halftime
+  if (h.qtr >= 3 && diff >= 17) leaveRate += 0.005 * (diff - 16);
   if (precip.value === 'Heavy Rain' || precip.value === 'Snow') leaveRate += 0.004;
   if (+temp.value <= 20) leaveRate += 0.003;
-  if (homeTrailing && h.qtr === 4 && h.secs < 600 && diff >= 10) leaveRate += 0.006; // late, down big
+  if (homeTrailing && h.qtr === 4 && h.secs < 600 && diff >= 10) leaveRate += 0.006;
 
-  // Hype in close games late: fewer departures, louder mood
-  if (h.qtr === 4 && diff <= 3) leaveRate = Math.max(0, leaveRate - 0.004), c.mood = Math.min(1, (c.mood||0) + 0.02);
-  else c.mood = Math.max(-1, (c.mood||0) - 0.005);
+  // Late, close games → hype
+  if (h.qtr === 4 && diff <= 3) {
+    leaveRate = Math.max(0, leaveRate - 0.004);
+    c.mood = Math.min(1, (c.mood || 0) + 0.02);
+  } else {
+    c.mood = Math.max(-1, (c.mood || 0) - 0.005);
+  }
 
   const desired = Math.max(0, Math.min(cap, target - Math.floor(cap * leaveRate)));
-  c.present = Math.round(0.9 * c.present + 0.1 * desired); // smooth
+  c.present = Math.round(0.9 * c.present + 0.1 * desired);
   fansPill.textContent = `Fans: ${c.present.toLocaleString()}`;
+  renderCrowdMeter();
 }
 
 /* ===== Main loop ===== */
@@ -405,19 +559,73 @@ function loop(ms){
             continue;
             }
       if(pendingPAT){
-        const {team,type}=pendingPAT;const atk=(team==='Home'?HOME:AWAY),k=atk.k||{first:'K',last:'',KICK_ACC:70};
-        if(type==='xp'){const p=clamp(0.93+(k.KICK_ACC-70)/250-(+wind.value/20)*0.08-((precip.value==='Heavy Rain'||precip.value==='Snow')?0.04:0),0.85,0.99);const make=r()<p;if(make){if(team==='Home')s.home+=1;else s.away+=1;}if(pendingScoreIdx>=0){const e=scoring[pendingScoreIdx];e.text+=` (XP ${make?'good':'no good'})`;e.score=`${s.home}-${s.away}`;}logPlay('PLAY',`XP — ${k.first} ${k.last} ${make?'GOOD':'NO GOOD'}`,team,true,0,0);}
-        else{const def=(team==='Home'?AWAY:HOME);const p=clamp(0.48+(atk.offense-def.defense)/220,0.35,0.63);const make=r()<p;if(make){if(team==='Home')s.home+=2;else s.away+=2;}if(pendingScoreIdx>=0){const e=scoring[pendingScoreIdx];e.text+=` (2-pt ${make?'good':'fail'})`;e.score=`${s.home}-${s.away}`;}logPlay('PLAY',`2-pt Try — ${make?'GOOD':'NO GOOD'}`,team,true,0,0);}
-        h.secs=Math.max(0,h.secs-10);pendingPAT=null;beginKickoff(team);updateHUD();updateScore();Field.render({hud:h});const t=stateWP(s.home,s.away,h.qtr,h.secs,h.yard,h.poss,wpPrior);wpSmooth=0.97*wpSmooth+0.03*t;wpSeries.push(wpSmooth);wpVal.textContent=(wpSmooth*100).toFixed(1)+'%'; drawWP(); updateCrowd(); if(ms>0) await new Promise(rs=>setTimeout(rs,ms)); continue;
+        const {team, type} = pendingPAT;
+        const atk = (team==='Home'?HOME:AWAY);
+        const def = (team==='Home'?AWAY:HOME);
+        const k   = atk.k || {first:'K',last:'',KICK_ACC:70};
+
+        // WP *before* attempting the PAT (after TD but pre-PAT)
+        const wpBeforePAT = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
+
+        let text = '', realizedPts = 0, expectedPts = 0;
+
+        if (type==='xp'){
+          const xpP = clamp(0.93 + (k.KICK_ACC-70)/250 - (+wind.value/20)*0.08 - ((precip.value==='Heavy Rain'||precip.value==='Snow')?0.04:0), 0.85, 0.99);
+          const make = sim.rng() < xpP;
+          realizedPts = make ? 1 : 0; expectedPts = xpP;
+
+          if (make){ if(team==='Home') s.home += 1; else s.away += 1; }
+          text = `XP — ${k.first} ${k.last} ${make?'GOOD':'NO GOOD'}`;
+        } else {
+          const twoP = clamp(0.48 + (atk.offense - def.defense)/220, 0.35, 0.63);
+          const make = sim.rng() < twoP;
+          realizedPts = make ? 2 : 0; expectedPts = 2*twoP;
+
+          if (make){ if(team==='Home') s.home += 2; else s.away += 2; }
+          text = `2-pt Try — ${make?'GOOD':'FAIL'}`;
+        }
+
+        const epaPAT = realizedPts - expectedPts;
+
+        // WP after PAT result (score now updated)
+        const wpAfterPAT = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
+        const wpdPAT = clamp(wpAfterPAT - wpBeforePAT, -0.12, 0.12);
+
+        if (pendingScoreIdx>=0){
+          const e = scoring[pendingScoreIdx];
+          e.text += (type==='xp' ? ` (XP ${realizedPts? 'good':'no good'})` : ` (2-pt ${realizedPts? 'good':'fail'})`);
+          e.score = `${s.home}-${s.away}`;
+        }
+
+        logPlay('PLAY', text, team, true, epaPAT, wpdPAT);
+
+        h.secs = Math.max(0, h.secs - 10);
+        pendingPAT = null;
+        beginKickoff(team);
+
+        updateHUD(); updateScore(); Field.render({hud:h});
+        const t = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
+        wpSmooth = 0.97*wpSmooth + 0.03*t; wpSeries.push(wpSmooth);
+        wpVal.textContent = (wpSmooth*100).toFixed(1)+'%'; drawWP();
+        updateCrowd();
+        if (ms>0) await new Promise(rs=>setTimeout(rs,ms));
+        continue;
       }
 
-      const startDown=h.down,startDist=h.dist,startY=h.yard,startPoss=h.poss;
-      const ep0=EP(h.down,h.dist,h.yard), wp0=stateWP(s.home,s.away,h.qtr,h.secs,h.yard,h.poss,wpPrior);
+    // snapshot AFTER pre-snap penalties are cleared, BEFORE any play logic
+    const snap = snapshotHUD();
+    const ep0 = EP(snap.down, snap.dist, snap.yard);
+    const wp0 = stateWP(s.home, s.away, snap.qtr, snap.secs, snap.yard, snap.poss, wpPrior);
+    const startPoss = snap.poss;
+    const toggleAdv = document.getElementById('toggleAdv');
 
-      /* >>> pre-play header snapshot (fix alignment) <<< */
-      const preHeader = `Q${h.qtr} ${Math.floor(h.secs/60)}:${String(h.secs%60).padStart(2,'0')} | ${dnTxt(startDown)} & ${Math.max(1,Math.round(startDist))} @ ${yardText(startY)}`;
-
-      const pre=chancePenalty({down:h.down,isPass:false,airDepth:0}); if(pre&&pre.preSnap){applyPenalty(pre);updateHUD();Field.render({hud:h});if(ms>0)await new Promise(rs=>setTimeout(rs,ms));continue;}
+      const pre = chancePenalty({ down: h.down, isPass: false, airDepth: 0 });
+        if (pre && pre.preSnap) {
+          applyPenalty(pre);
+          updateHUD(); Field.render({ hud:h });
+          if (ms > 0) await new Promise(rs => setTimeout(rs, ms));
+          continue; // ← NO normal play logged on this snap
+        }
 
       /* >>> Early 4th-down decision: if not going for it, do FG/Punt here and stop <<< */
         let handledFourth = false;
@@ -433,32 +641,40 @@ function loop(ms){
             const k = (h.poss === 'Home' ? HOME : AWAY).k;
 
             if (k && FGdist <= 68 && h.dist > 1) {
-            teamObj.fga++;
-            const make = Math.random() < fgMakeProb(FGdist, k.KICK_POW, k.KICK_ACC);
-            const epaFG = fgEPA(FGdist, ep0, h.yard);
+              teamObj.fga++;
+              const make = Math.random() < fgMakeProb(FGdist, k.KICK_POW, k.KICK_ACC);
 
-            if (make) {
+              if (make) {
                 teamObj.fgm++;
                 if (h.poss === 'Home') s.home += 3; else s.away += 3;
+
+                const epaFG = 3 - ep0; // <-- realized EPA for a made FG
                 scoring.push({ text: `${h.poss} FG (${FGdist})`, score: `${s.home}-${s.away}` });
-                logPlay('PLAY', `${preHeader} — FG — ${k.first} ${k.last} GOOD from ${FGdist}`, h.poss, true, epaFG, 0);
+                logPlay('PLAY', `${headerFrom(snap)} — FG — ${k.first} ${k.last} GOOD from ${FGdist}`, h.poss, true, epaFG, 0);
+
                 closeDrive('FG', h.yard);
                 beginKickoff(h.poss);
-            } else {
-                logPlay('PLAY', `${preHeader} — FG — ${k.first} ${k.last} NO GOOD from ${FGdist}`, h.poss, false, epaFG, 0);
-                closeDrive('Missed FG', h.yard);
+              } else {
+                // after a miss, opponent takes over at 100 - yard
                 const newForDef = clamp(100 - h.yard, 1, 99);
+                const epAfterMissForUs = -EP(1, 10, newForDef);
+                const epaFG = epAfterMissForUs - ep0;
+
+                logPlay('PLAY', `${headerFrom(snap)} — FG — ${k.first} ${k.last} NO GOOD from ${FGdist}`, h.poss, false, epaFG, 0);
+                closeDrive('Missed FG', h.yard);
+
                 h.poss = (h.poss === 'Home' ? 'Away' : 'Home'); h.down = 1; h.dist = 10; h.yard = newForDef;
                 pushDriveStart(h.poss, h.yard);
+              }
             }
-            } else {
+            else {
             const punter = (h.poss === 'Home' ? HOME : AWAY).p || { first:'P', last:'', KICK_POW:70 };
             const gross = clamp(Math.round(46 + (punter.KICK_POW - 70)/2 + randNorm(sim.rng,0,7)), 35, 70);
             const land = h.yard + gross;
 
             if (land >= 100) {
-                logPlay('PLAY', `${preHeader} — Punt ${gross} by ${punter.first} ${punter.last} — touchback`, h.poss, false, 0, 0);
-                teamObj.punts++; closeDrive('Punt (TB)', 20);
+                logPlay('PLAY', `${headerFrom(snap)} — Punt ${gross} by ${punter.first} ${punter.last} — touchback`, h.poss, false, 0, 0);
+                teamObj.punts++; closeDrive('Punt (TB)', h.yard);
                 h.poss = (h.poss === 'Home' ? 'Away' : 'Home'); h.down = 1; h.dist = 10; h.yard = 20;
                 pushDriveStart(h.poss, h.yard);
             } else {
@@ -466,8 +682,8 @@ function loop(ms){
                 const recvAt = 100 - land;
                 const ret = clamp(Math.round(randNorm(sim.rng,10,8)), 0, 40);
                 const end = clamp(recvAt + ret, 1, 99);
-                logPlay('PLAY', `${preHeader} — Punt ${gross} by ${punter.first} ${punter.last}, ${retMan.first} ${retMan.last} returns ${ret} to ${yardText(end)}`, h.poss, false, 0, 0);
-                teamObj.punts++; closeDrive('Punt', end);
+                logPlay('PLAY', `${headerFrom(snap)} — Punt ${gross} by ${punter.first} ${punter.last}, ${retMan.first} ${retMan.last} returns ${ret} to ${yardText(end)}`, h.poss, false, 0, 0);
+                teamObj.punts++; closeDrive('Punt', h.yard);
                 h.poss = (h.poss === 'Home' ? 'Away' : 'Home'); h.down = 1; h.dist = 10; h.yard = end;
                 pushDriveStart(h.poss, h.yard);
             }
@@ -504,22 +720,42 @@ function loop(ms){
 
       if(r()<runRate && atk.rb.length){
         const rb=atk.rb[0]; 
-        const ppen = chancePenalty({ down: h.down, isPass: false, airDepth: 0 });
-        if (ppen) {
-        if (ppen.preSnap) {
-            // Pre-snap penalty: NO PLAY. Enforce and replay down from previous spot.
-            applyPenalty(ppen);
-        } else {
-            // Live-ball penalty: NO RESULT. Enforce and replay.
-            applyPenalty(ppen);
+        let ppen = chancePenalty({ down: h.down, isPass: false, airDepth: 0 });
+        // Safety guard: DPI cannot occur on a running play. Convert to Defensive holding (5y, auto 1st).
+        if (ppen && !ppen.preSnap && ppen.type === 'DPI') {
+          ppen = { type:'Defensive holding', yards:+5, onDefense:true, autoFirst:true };
         }
-        updateHUD(); Field.render({ hud: h });
-        if (ms > 0) await new Promise(rs => setTimeout(rs, ms));
-        continue; // <- critical
+        if (ppen) {
+          applyPenalty(ppen);
+          updateHUD(); Field.render({ hud:h });
+          if (ms > 0) await new Promise(rs=>setTimeout(rs,ms));
+          continue;
         }
         const mean=3.9+offAdv*0.025, spread=3.2*(1+0.6*varK); const yRaw=clamp(Math.round(randNorm(r,mean,spread)),-4,35); const yds=Math.min(yRaw,100-h.yard);
         const tack=pickDefender(def,'tackleRun'); tack.adv.tkl=(tack.adv.tkl||0)+ (h.yard+yds>=100?0:1);
-        if(h.yard+yds>=100){if(h.poss==='Home')s.home+=6;else s.away+=6;scored=true;kind='rush';playText=`${rb.first} ${rb.last} rushes for ${yds} yards, TOUCHDOWN`;atk.stats.team.td++;pendingPAT={team:h.poss,type:decidePAT({force2:(h.qtr===4&&h.secs<360&&((h.poss==='Home'?s.home-s.away:s.away-s.home)===-2)),forceXP:false})};pendingScoreIdx=scoring.push({text:`${h.poss} TD run`,score:`${s.home}-${s.away}`})-1;closeDrive('TD',100);}
+        if (h.yard + yds >= 100) {
+          if (h.poss === 'Home') s.home += 6; else s.away += 6;
+          scored = true; kind = 'rush';
+          playText = `${rb.first} ${rb.last} rushes for ${yds} yards, TOUCHDOWN`;
+          atk.stats.team.td++;
+
+          // ---- TD logging with realized EPA/WP (before PAT) ----
+          const kAcc = ((h.poss==='Home'?HOME:AWAY).k?.KICK_ACC ?? 70);
+          const xpP  = clamp(0.93 + (kAcc-70)/250 - (+wind.value/20)*0.08 - ((precip.value==='Heavy Rain'||precip.value==='Snow')?0.04:0), 0.85, 0.99);
+          const tdEPA = (6 + xpP) - ep0;
+          const wpAfterTD = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
+          const wpdTD = clamp(wpAfterTD - wp0, -0.30, 0.30);
+          logPlay('PLAY', `${headerFrom(snap)} — ${playText}`, snap.poss, true, tdEPA, wpdTD);
+          // -------------------------------------
+
+          pendingPAT = { team: h.poss, type: decidePAT({ 
+            force2: (h.qtr===4 && h.secs<360 && ((h.poss==='Home'?s.home-s.away:s.away-s.home)===-2)), 
+            forceXP: false 
+          })};
+          pendingScoreIdx = scoring.push({ text: `${h.poss} TD run`, score: `${s.home}-${s.away}` }) - 1;
+          closeDrive('TD', 100);
+        }
+
         else{h.yard=clamp(h.yard+yds,0,99);deltaY=yds;kind='rush';setFirstDownOrAdvance(yds);playText=`${rb.first} ${rb.last} rushes for ${yds} yards, tackled by ${tack.first} ${tack.last} at ${yardText(h.yard)}`;}
         rb.adv.carries=(rb.adv.carries||0)+1; rb.adv.ry=(rb.adv.ry||0)+Math.max(0,yds);
         const mph=clamp(13+(rb.SPD-70)/3+randNorm(r,0,1.5),11,22); rb.adv.fast=Math.max(rb.adv.fast||0,mph);
@@ -578,20 +814,35 @@ function loop(ms){
             // cap total gain by yards-to-goal so a 20-yd TD from Opp 6 can't occur
             const gain=Math.min(Math.max(0,air)+yac, 100-h.yard);
 
-            if(h.yard+gain>=100){
-              if(h.poss==='Home') s.home+=6; else s.away+=6;
-              scored=true; kind='pass';
-              playText=`${qb.first} ${qb.last} completes to ${wr.first} ${wr.last} for ${gain} yards, TOUCHDOWN`;
+            if (h.yard + gain >= 100) {
+              if (h.poss === 'Home') s.home += 6; else s.away += 6;
+              scored = true; kind = 'pass';
+              playText = `${qb.first} ${qb.last} completes to ${wr.first} ${wr.last} for ${gain} yards, TOUCHDOWN`;
               atk.stats.team.td++;
-              pendingPAT={team:h.poss,type:decidePAT({force2:(h.qtr===4&&h.secs<360&&((h.poss==='Home'?s.home-s.away:s.away-s.home)===-2)),forceXP:false})};
-              pendingScoreIdx=scoring.push({text:`${h.poss} TD pass`,score:`${s.home}-${s.away}`})-1;
-              closeDrive('TD',100);
-              qb.adv.td=(qb.adv.td||0)+1;
-              qb.adv.comp=(qb.adv.comp||0)+1; qb.adv.att=(qb.adv.att||0)+1;
-              qb.adv.yards=(qb.adv.yards||0)+gain; qb.adv.air+=Math.max(0,air); qb.adv.yac+=yac;
-              wr.adv.catches=(wr.adv.catches||0)+1; wr.adv.targets=(wr.adv.targets||0)+1;
-              wr.adv.recY=(wr.adv.recY||0)+gain; wr.adv.air=(wr.adv.air||0)+Math.max(0,air);
-              wr.adv.yac=(wr.adv.yac||0)+yac; wr.adv.td=(wr.adv.td||0)+1;
+
+              // ---- TD logging with realized EPA/WP (before PAT) ----
+              const kAcc = ((h.poss==='Home'?HOME:AWAY).k?.KICK_ACC ?? 70);
+              const xpP  = clamp(0.93 + (kAcc-70)/250 - (+wind.value/20)*0.08 - ((precip.value==='Heavy Rain'||precip.value==='Snow')?0.04:0), 0.85, 0.99);
+              const tdEPA = (6 + xpP) - ep0;
+              const wpAfterTD = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
+              const wpdTD = clamp(wpAfterTD - wp0, -0.30, 0.30);
+              logPlay('PLAY', `${headerFrom(snap)} — ${playText}`, snap.poss, true, tdEPA, wpdTD);
+              // -------------------------------------
+
+              pendingPAT = { team: h.poss, type: decidePAT({ 
+                force2: (h.qtr===4 && h.secs<360 && ((h.poss==='Home'?s.home-s.away:s.away-s.home)===-2)), 
+                forceXP: false 
+              })};
+              pendingScoreIdx = scoring.push({ text: `${h.poss} TD pass`, score: `${s.home}-${s.away}` }) - 1;
+              closeDrive('TD', 100);
+
+              // keep your stat accruals
+              qb.adv.td = (qb.adv.td||0) + 1;
+              qb.adv.comp = (qb.adv.comp||0) + 1; qb.adv.att = (qb.adv.att||0) + 1;
+              qb.adv.yards = (qb.adv.yards||0) + gain; qb.adv.air += Math.max(0, air); qb.adv.yac += yac;
+              wr.adv.catches = (wr.adv.catches||0) + 1; wr.adv.targets = (wr.adv.targets||0) + 1;
+              wr.adv.recY = (wr.adv.recY||0) + gain; wr.adv.air = (wr.adv.air||0) + Math.max(0, air);
+              wr.adv.yac = (wr.adv.yac||0) + yac; wr.adv.td = (wr.adv.td||0) + 1;
             } else {
               h.yard=clamp(h.yard+gain,0,99);
               deltaY=gain; kind='pass';
@@ -693,8 +944,7 @@ function loop(ms){
             const land=h.yard+gross;
             if(land>=100){
               logPlay('PLAY',`Punt ${gross} by ${punter.first} ${punter.last} — touchback`,h.poss,false,0,0);
-              teamObj.punts++;
-              closeDrive('Punt (TB)',20);
+              teamObj.punts++; closeDrive('Punt (TB)', h.yard);
               h.poss=(h.poss==='Home'?'Away':'Home'); h.down=1; h.dist=10; h.yard=20;
               pushDriveStart(h.poss,h.yard);
             } else {
@@ -704,7 +954,7 @@ function loop(ms){
               const end=clamp(recvAt+ret,1,99);
               logPlay('PLAY',`Punt ${gross} by ${punter.first} ${punter.last}, ${retMan.first} ${retMan.last} returns ${ret} to ${yardText(end)}`,h.poss,false,0,0);
               teamObj.punts++;
-              closeDrive('Punt',end);
+              closeDrive('Punt',h.yard);
               h.poss=(h.poss==='Home'?'Away':'Home'); h.down=1; h.dist=10; h.yard=end;
               pushDriveStart(h.poss,h.yard);
             }
@@ -713,15 +963,19 @@ function loop(ms){
       }
 
       // EPA/WP annotate and log with the PRE-PLAY header (alignment fix)
-      const ep1=EP(h.down,h.dist,h.yard),
-            wp1=stateWP(s.home,s.away,h.qtr,h.secs,h.yard,h.poss,wpPrior);
-      const earlyCap=(h.qtr<=2)?0.02:0.04;
-      const epa=(ep1-ep0);
-      const wpd=clamp(wp1-wp0,-earlyCap,earlyCap);
+      const ep1 = EP(h.down, h.dist, h.yard),
+            wp1 = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
+      const earlyCap = (h.qtr<=2) ? 0.02 : 0.04;
+      const epa = (ep1 - ep0);
+      const wpd = clamp(wp1 - wp0, -earlyCap, earlyCap);
 
-      if(!pendingKickoff && !pendingPAT){
-        logPlay('PLAY', `${preHeader} — ${playText}`, h.poss, false, epa, wpd);
+      // IMPORTANT: log the TD play even when pendingPAT is set
+      if (scored) {
+        logPlay('PLAY', `${headerFrom(snap)} — ${playText}`, startPoss, true, epa, wpd);
+      } else if (!pendingKickoff && !pendingPAT) {
+        logPlay('PLAY', `${headerFrom(snap)} — ${playText}`, startPoss, false, epa, wpd);
       }
+
       (h.poss==='Home'?HOME:AWAY).stats.team.epa += (epa||0);
 
       // visuals
@@ -790,7 +1044,153 @@ function exportBlob(name,data,type){const b=new Blob([data],{type});const url=UR
 exportCsv.onclick=()=>{const lines=['tag,line,aux'];plays.forEach(p=>lines.push([p.tag,`"${p.line.replace(/"/g,'""')}"`,`"${(p.aux||'').replace(/"/g,'""')}"`].join(',')));exportBlob('play_log.csv',lines.join('\n'),'text/csv');};
 
 /* ===== Init ===== */
-(function(){sim={rng:rngFromSeed('seed'),score:{home:0,away:0},hud:{poss:'Home',qtr:1,secs:900,down:1,dist:10,yard:25}};Field.render({hud:sim.hud});updateHUD();updateScore();drawWP();renderBox();renderLeaders();})();
+(function(){sim={rng:rngFromSeed('seed'),score:{home:0,away:0},hud:{poss:'Home',qtr:1,secs:900,down:1,dist:10,yard:25}};Field.render({hud:sim.hud});updateHUD();updateScore();drawWP();renderBox();renderLeaders();renderCrowdMeter();})();
 </script>
+=======
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>NFL Sim - Weekly Games</title>
+<style>
+:root{
+  /* Exact dark theme variables */
+  --bg:#0b1220;         /* Page background */
+  --panel:#121a2a;      /* Card/panel background */
+  --card:#0e1630;
+  --text:#eef2ff;       /* Main text color */
+  --muted:#93a0b1;
+  --accent:#5eead4;     /* Action color (buttons/links) */
+  --home:#4ade80;
+  --away:#60a5fa;
+}
+
+/* Base & layout */
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--text);
+  font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  display:grid;
+  place-items:center;
+}
+main{
+  width:min(920px,92vw);
+  display:grid;
+  gap:16px;
+}
+
+/* Typography */
+h1{
+  margin:0 0 6px;
+  font-size:22px;
+  letter-spacing:.2px;
+}
+
+/* Grid for game cards */
+.grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(280px,1fr));
+  gap:12px;
+}
+
+/* Panel-style link card */
+.card{
+  display:block;
+  background:var(--panel);
+  border-radius:14px;
+  padding:14px;
+  text-decoration:none;
+  color:inherit;
+  border:1px solid #1c2440;
+  box-shadow:0 6px 24px rgba(0,0,0,.25);
+  transition:border-color .15s ease, transform .08s ease, box-shadow .15s ease;
+}
+.card:hover{
+  border-color:var(--accent);
+  transform:translateY(-2px);
+  box-shadow:0 10px 28px rgba(0,0,0,.35);
+}
+
+/* Card internals */
+.cardHeader{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:8px;
+}
+.title{font-weight:800;font-size:16px}
+.meta{font-size:12px;color:var(--muted)}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+
+/* Pills (home/away) */
+.badges{display:flex;gap:8px;align-items:center}
+.pill{
+  display:inline-block;
+  padding:4px 8px;
+  border-radius:999px;
+  background:var(--card);
+  border:1px solid #233055;
+  font-size:12px;
+  color:var(--muted);
+}
+.pill.home{color:var(--home)}
+.pill.away{color:var(--away)}
+
+/* Divider */
+hr{
+  height:1px;
+  background:#1c2440;
+  border:0;
+  margin:10px 0;
+  border-radius:2px;
+}
+
+/* Primary action (matches original button style) */
+.btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:10px 12px;
+  border-radius:10px;
+  background:var(--accent);
+  color:#0a0f17;
+  font-weight:700;
+  font-size:14px;
+  border:none;
+  box-shadow:0 2px 0 rgba(0,0,0,.25);
+}
+.card:hover .btn{box-shadow:0 3px 0 rgba(0,0,0,.28)}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* Small helper text */
+.small{font-size:12px;color:var(--muted)}
+</style>
+</head>
+<body>
+  <main>
+    <h1>Week 1 Games</h1>
+
+    <div class="grid">
+      <!-- Game Card Link to game.html -->
+      <a class="card" href="game.html" aria-label="Home vs. Away — Play Sim">
+        <div class="cardHeader">
+          <div class="title">Home vs. Away</div>
+          <!-- Use a <span> so the entire card remains the link target -->
+          <span class="btn" role="button">Play Sim</span>
+        </div>
+        <hr>
+        <div class="row">
+          <div class="badges">
+            <span class="pill home">Home</span>
+            <span class="pill away">Away</span>
+          </div>
+          <div class="meta">Kickoff: 1:00 PM ET</div>
+        </div>
+      </a>
+    </div>
+
+    <div class="small">Tip: Click anywhere on the card to launch the simulator.</div>
+  </main>
+>>>>>>> b75ee8063e56fb93c54dcbc218e23a7701f2d37d
 </body>
 </html>
