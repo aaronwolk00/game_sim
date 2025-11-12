@@ -2,7 +2,6 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<<<<<<< HEAD
 <title>NFL Sim — GMG (Players + Penalties)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
@@ -16,7 +15,18 @@
 body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
 header{padding:10px 14px;border-bottom:1px solid #1c2440;display:flex;align-items:center;gap:10px}
 h1{margin:0;font-size:16px}
-main{display:grid;grid-template-columns:300px 1fr 360px;gap:12px;padding:12px}
+main{
+  display:grid;
+  grid-template-columns:320px 1fr 380px;
+  gap:12px;
+  padding:12px;
+  width:min(1400px,96vw);
+  margin:0 auto;
+}
+@media (max-width:1100px){
+  main{ grid-template-columns:1fr; width:min(960px,96vw); }
+}
+
 .panel{background:var(--panel);border-radius:14px;padding:12px;box-shadow:0 6px 24px rgba(0,0,0,.25)}
 label{display:block;font-size:11px;color:var(--muted);margin-bottom:6px}
 input[type="text"],input[type="number"],select{width:100%;padding:8px 10px;border-radius:10px;border:1px solid #243055;background:var(--card);color:var(--text)}
@@ -42,12 +52,21 @@ button:disabled{opacity:.6;cursor:not-allowed}
 .item.home{border-left-color:var(--home)}
 .item.away{border-left-color:var(--away)}
 .item.score{background:rgba(52,211,153,.06);border-left-color:var(--good)}
+.feed{font-size:13px;line-height:1.35}
+.item.score{font-size:13px;font-weight:600}
+.feed h1,.feed h2,.feed h3{font-size:13px;font-weight:700;margin:0}
 .tag{font-size:11px;color:#9cd2ff;background:#1a2444;border-radius:6px;padding:2px 6px;margin-right:6px}
 .aux{color:#a3b2c7;font-size:12px;white-space:nowrap}
 
 .table{width:100%;border-collapse:collapse;font-size:12px}
 .table th,.table td{border-bottom:1px solid #1f2740;padding:6px 8px;text-align:left}
 .right{text-align:right}
+
+.feed .item.score{font-size:13px; line-height:1.25; padding:8px 10px;}
+.feed .item.score .tag{font-size:10px}
+
+main{max-width:1240px}
+main{grid-template-columns:320px minmax(560px,1fr) 380px}
 
 .fieldWrap{position:relative;display:grid;gap:6px}
 canvas#field{width:100%;height:260px;background:#062b22;border-radius:12px;border:1px solid #0b3a52}
@@ -63,6 +82,7 @@ canvas#field{width:100%;height:260px;background:#062b22;border-radius:12px;borde
 .subtab{padding:4px 8px;border-radius:8px;border:1px solid #243055;background:#0e1630;color:#d2e0ff;cursor:pointer;font-size:11px}
 .subtab.active{background:#1e293b}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.20.2/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 <header><h1>NFL Sim — GMG</h1></header>
@@ -87,10 +107,23 @@ canvas#field{width:100%;height:260px;background:#062b22;border-radius:12px;borde
       <div><label>Play Speed (ms)</label><input id="speed" type="number" min="0" value="140"></div>
     </div>
 
+    <!-- Roster source -->
+    <div class="row">
+      <div><label>Roster .xlsx</label><input id="xlsxFile" type="file" accept=".xlsx,.xls"></div>
+      <div><label class="small">Loaded Teams</label>
+        <div class="row" style="grid-template-columns:1fr 1fr">
+          <select id="homeTeamSel" disabled></select>
+          <select id="awayTeamSel" disabled></select>
+        </div>
+      </div>
+    </div>
+
+    <!-- (Optional) CSV fallback still supported -->
     <div class="row">
       <div><label>Home CSV (optional)</label><input id="homeCsv" type="file" accept=".csv"></div>
       <div><label>Away CSV (optional)</label><input id="awayCsv" type="file" accept=".csv"></div>
     </div>
+
 
     <div class="line"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -189,27 +222,32 @@ const pauseBtn  = document.getElementById('pauseBtn');
 const resetBtn  = document.getElementById('resetBtn');
 const exportCsv = document.getElementById('exportCsv');
 const topEpa = document.getElementById('topEpa');
-function renderTopEPA(){
-  if (!topEpa) return;
-  const ranked = plays
-    .filter(p => typeof p.epa === 'number' && isFinite(p.epa))
-    .slice()
-    .sort((a,b)=>b.epa - a.epa)
-    .slice(0,5);
-  topEpa.innerHTML = ranked.map(p=>{
-    const e = (p.epa>=0?'+':'')+p.epa.toFixed(2);
-    return `<div>${e} — <span class="tag">${p.tag}</span>${p.line}</div>`;
-  }).join('');
+const topEpaList = document.getElementById('topEpaList');
+let epaPlays = [];
+function renderTopEpa(){
+  if(!topEpaList) return;
+  const top = [...epaPlays].sort((a,b)=>b.epa-a.epa).slice(0,5);
+  topEpaList.innerHTML = top.map(p =>
+    `<li><span class="val">${p.epa>=0?'+':''}${p.epa.toFixed(2)}</span><span class="txt">${p.text}</span></li>`
+  ).join('');
 }
+
 function logPlay(tag,line,off,scoring=false,epa=null,wpd=null){
-  const aux = (epa!==null||wpd!==null)
-    ? `EPA ${(epa>=0?'+':'')}${(epa||0).toFixed(2)} | ΔWP ${(wpd>=0?'+':'')}${((wpd||0)*100).toFixed(1)}%`
-    : '';
-  plays.push({tag,line,off,scoring,aux, epa:(epa??null), wpd:(wpd??null)});
-  if (activeTab==='plays') renderPlays();
-  lastPlay.textContent = 'Last Play: ' + line.replace(/^.* — /,'');
-  renderTopEPA();
+  const aux=(epa!==null||wpd!==null)?`EPA ${(epa>=0?'+':'')}${(epa||0).toFixed(2)} | ΔWP ${(wpd>=0?'+':'')}${((wpd||0)*100).toFixed(1)}%`:'';
+  plays.push({tag,line,off,scoring,aux});
+  if(activeTab==='plays') renderPlays();
+  lastPlay.textContent='Last Play: '+line.replace(/^.* — /,'');
+
+  // Track EPA → Top EPA Plays
+  if(epa!==null && Number.isFinite(epa)){
+    // Shorten the text: drop the "Qx mm:ss | dn & dist @ ..." prefix
+    const short = line.replace(/^Q\d+\s+\d+:\d+\s+\|\s+[^—]+—\s*/,'').trim();
+    epaPlays.push({epa, text: short});
+    if(epaPlays.length>800) epaPlays.shift();
+    renderTopEpa();
+  }
 }
+
 let showAdvanced=false; toggleAdv.onclick=()=>{showAdvanced=!showAdvanced; toggleAdv.textContent='PBP: '+(showAdvanced?'Advanced On':'Advanced Off'); renderPlays();};
 function hash32(str){let h=1779033703^str.length;for(let i=0;i<str.length;i++){h=Math.imul(h^str.charCodeAt(i),3432918353);h=(h<<13)|(h>>>19);}return(h>>>0);}
 function rngFromSeed(s){let a=hash32(s)||1;return()=>{a=(a+0x6D2B79F5)>>>0;let t=Math.imul(a^(a>>>15),1|a);t^=t+Math.imul(t^(t>>>7),61|t);return((t^(t>>>14))>>>0)/4294967296;};}
@@ -298,6 +336,17 @@ return{render(state){const c=field,w=c.width,h=c.height,ctx=c.getContext('2d');c
 /* ===== Sim state & UI ===== */
 let HOME=null, AWAY=null, running=false, paused=false, sim=null, pendingKickoff=null, pendingPAT=null, pendingScoreIdx=-1;
 let plays=[], scoring=[], drives=[]; let timeouts={Home:3,Away:3};
+let XLSX_BOOK = null;
+let TEAM_SHEETS = [
+  "Arizona Cardinals", "Atlanta Falcons", "Baltimore Ravens", "Buffalo Bills",
+  "Carolina Panthers", "Chicago Bears", "Cincinnati Bengals", "Cleveland Browns",
+  "Dallas Cowboys", "Denver Broncos", "Detroit Lions", "Green Bay Packers",
+  "Houston Texans", "Indianapolis Colts", "Jacksonville Jaguars", "Kansas City Chiefs",
+  "Las Vegas Raiders", "Los Angeles Chargers", "Los Angeles Rams", "Miami Dolphins",
+  "Minnesota Vikings", "New England Patriots", "New Orleans Saints", "New York Giants",
+  "New York Jets", "Philadelphia Eagles", "Pittsburgh Steelers", "San Francisco 49ers",
+  "Seattle Seahawks", "Tampa Bay Buccaneers", "Tennessee Titans", "Washington Commanders"
+];
 function updateHUD(){const h=sim.hud;hud.textContent=`Q${h.qtr} • ${Math.floor(h.secs/60)}:${String(h.secs%60).padStart(2,'0')} • ${dnTxt(h.down)} & ${Math.max(1,Math.round(h.dist))} @ ${yardText(h.yard)} • Poss: ${h.poss}`;}
 function updateScore(){const s=sim.score;homeScore.textContent=s.home;awayScore.textContent=s.away;poss.textContent=sim.hud.poss;qtr.textContent=sim.hud.qtr;clock.textContent=`${Math.floor(sim.hud.secs/60)}:${String(sim.hud.secs%60).padStart(2,'0')}`;}
 function renderPlays(){feed.innerHTML='';plays.forEach(p=>{const d=document.createElement('div');d.className='item '+(p.scoring?'score':(p.off==='Home'?'home':'away'));const left=`<span class="tag">${p.tag}</span>${p.line}`;const right=showAdvanced&&p.aux?`<div class="aux">${p.aux}</div>`:'';d.innerHTML=`<div>${left}</div>${right}`;feed.prepend(d);});}
@@ -310,6 +359,22 @@ function renderLeaders(){
   function wrLine(T){const w=T.wr?.[0];const a=w?.adv||{};return `${T===HOME?homeLabel.value:awayLabel.value}: ${w?`${w.first} ${w.last}`:'WR'} — ${a.catches||0}/${a.targets||0}, ${a.recY||0}y, TD ${a.td||0}`}
   leaders.innerHTML=`<div class="small">${qbLine(HOME)}</div><div class="small">${qbLine(AWAY)}</div><div class="small" style="margin-top:6px">${rbLine(HOME)}</div><div class="small">${rbLine(AWAY)}</div><div class="small" style="margin-top:6px">${wrLine(HOME)}</div><div class="small">${wrLine(AWAY)}</div>`;
 }
+function renderTopEPA(){
+  const el = document.getElementById('topEpa');
+  if(!el) return;
+  const items = plays
+    .filter(p => !isNaN(p.epa))
+    .sort((a,b)=> (b.epa||0) - (a.epa||0))
+    .slice(0,5);
+  el.innerHTML = items.length
+    ? items.map(p => `<div style="margin-bottom:6px">
+        <span class="pill" style="margin-right:6px">${p.tag}</span>
+        <span>${p.line.replace(/^.* — /,'')}</span>
+        <span class="small" style="display:block;color:#93a0b1">EPA ${(p.epa>=0?'+':'')}${(p.epa||0).toFixed(2)}</span>
+      </div>`).join('')
+    : '<span class="small" style="color:#93a0b1">— No plays yet —</span>';
+}
+
 function pushDriveStart(team,yard){drives.push({team,startY:yard,plays:0,yards:0,startQ:sim.hud.qtr,startT:sim.hud.secs,result:'',endY:null});}
 function closeDrive(result,endY){const d=drives.length?drives[drives.length-1]:null;if(!d)return;d.result=result;d.endY=endY;d.time=d.startT - sim.hud.secs + (d.startQ!==sim.hud.qtr?(15*60)*(sim.hud.qtr-d.startQ):0);}
 function renderDrives(){feed.innerHTML=`<table class="table"><thead><tr><th>#</th><th>Team</th><th>Start</th><th>End</th><th>Plays</th><th>Yards</th><th>Time</th><th>Result</th></tr></thead><tbody>${drives.map((d,i)=>`<tr><td>${i+1}</td><td>${d.team}</td><td>${yardText(d.startY)}</td><td>${d.endY!==null?yardText(d.endY):'—'}</td><td>${d.plays}</td><td>${d.yards}</td><td>${Math.floor((d.time||0)/60)}:${String((d.time||0)%60).padStart(2,'0')}</td><td>${d.result||'—'}</td></tr>`).join('')}</tbody></table>`;}
@@ -323,6 +388,124 @@ tabAdvanced.onclick=()=>{activeTab='advanced';tabAdvanced.classList.add('active'
 /* ===== Files ===== */
 homeCsv.onchange=async e=>{const f=e.target.files?.[0];if(!f)return;HOME=buildTeam(parseCSV(await f.text()));homeName.textContent=homeLabel.value;renderBox();renderLeaders();};
 awayCsv.onchange=async e=>{const f=e.target.files?.[0];if(!f)return;AWAY=buildTeam(parseCSV(await f.text()));awayName.textContent=awayLabel.value;renderBox();renderLeaders();};
+
+/* ===== XLSX Roster ===== */
+xlsxFile.onchange = async (e)=>{
+  const f = e.target.files?.[0];
+  if(!f) return;
+  const buf = await f.arrayBuffer();
+  XLSX_BOOK = XLSX.read(buf, {type:'array'});
+  // choose sheet names that actually contain players (have a Position column)
+  TEAM_SHEETS = XLSX_BOOK.SheetNames.filter(name=>{
+    const ws = XLSX_BOOK.Sheets[name];
+    const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
+    return rows.length && Object.keys(rows[0]).some(k=>/position/i.test(k));
+  });
+  // Fill dropdowns
+  homeTeamSel.innerHTML = TEAM_SHEETS.map(n=>`<option>${n}</option>`).join('');
+  awayTeamSel.innerHTML = TEAM_SHEETS.map(n=>`<option>${n}</option>`).join('');
+  homeTeamSel.disabled = awayTeamSel.disabled = TEAM_SHEETS.length===0;
+  // If “Home Name/Away Name” are filled, try to preselect matches
+  const hName = (homeLabel.value||'').toLowerCase();
+  const aName = (awayLabel.value||'').toLowerCase();
+  const hIdx = TEAM_SHEETS.findIndex(s=>s.toLowerCase().includes(hName));
+  const aIdx = TEAM_SHEETS.findIndex(s=>s.toLowerCase().includes(aName));
+  if(hIdx>=0) homeTeamSel.selectedIndex=hIdx;
+  if(aIdx>=0) awayTeamSel.selectedIndex=aIdx;
+  // Let the user know
+  logPlay('INFO', `Loaded roster: ${TEAM_SHEETS.length} team tabs detected`, 'Home', false, null, null);
+};
+
+// Build a team from a workbook sheet name
+function teamFromSheet(sheetName){
+  if(!XLSX_BOOK) return null;
+  const ws = XLSX_BOOK.Sheets[sheetName];
+  if(!ws) return null;
+  const raw = XLSX.utils.sheet_to_json(ws, {defval:''});
+  const rows = raw.map(mapMaddenRowToSim).filter(Boolean);
+  return buildTeam(rows);
+}
+
+// Map Madden columns -> simulator columns
+function mapMaddenRowToSim(r){
+  // Position normalization (e.g., HB->RB, LE/RE->DE, etc.)
+  const posRaw = String(r['Position']||r['Pos']||'').toUpperCase().trim();
+  const posMap = {HB:'RB', FB:'RB', RE:'DE', LE:'DE', SS:'S', FS:'S', LOLB:'OLB', ROLB:'OLB', RG:'RG', LG:'LG', RT:'RT', LT:'LT', C:'C'};
+  const pos = posMap[posRaw] || posRaw;
+  const first = r['First Name'] || r['First'] || '';
+  const last  = r['Last Name']  || r['Last']  || '';
+
+  // Ratings (safe numeric pulls with fallbacks)
+  const N = (x, d=70)=>Number.isFinite(+x)?+x:d;
+  const avg = (...xs)=>Math.round(xs.reduce((a,b)=>a+N(b,0),0)/Math.max(1,xs.length));
+
+  const Speed   = N(r['Speed']);
+  const Accel   = N(r['Acceleration']);
+  const Agility = N(r['Agility']);
+  const Aware   = N(r['Awareness']);
+  const Strength= N(r['Strength']);
+  const Catch   = N(r['Catching']);
+  const Tackle  = N(r['Tackle']);
+  const PB      = N(r['Pass Block']);
+  const PBP     = N(r['Pass Block Power']);
+  const PBF     = N(r['Pass Block Finesse']);
+  const RB      = N(r['Run Block']);
+  const RBP     = N(r['Run Block Power']);
+  const RBF     = N(r['Run Block Finesse']);
+  const Man     = N(r['Man Coverage']);
+  const Zone    = N(r['Zone Coverage']);
+  const Press   = N(r['Press']);
+  const PMoves  = N(r['Power Moves']);
+  const FMoves  = N(r['Finesse Moves']);
+  const Shed    = N(r['Block Shedding']);
+  const TAS     = N(r['Throw Acc Short']);
+  const TAM     = N(r['Throw Acc Mid']);
+  const TAD     = N(r['Throw Acc Deep']);
+  const TUP     = N(r['Throw Under Pressure']);
+  const TOR     = N(r['Throw On The Run']);
+  const TPOW    = N(r['Throw Power']);
+  const KPOW    = N(r['Kick Power']);
+  const KACC    = N(r['Kick Accuracy']);
+  const Tough   = N(r['Toughness']);
+  const PR      = N(r['Play Recognition']);
+
+  // Derived simulator fields
+  const PASS_ACC = pos==='QB' ? avg(TAS,TAM,TAD, TUP, TOR) : 50;
+  const PASS_PWR = pos==='QB' ? TPOW : 50;
+  const HANDS    = (pos==='WR'||pos==='TE'||pos==='RB') ? Catch : 50;
+  const BLOCK    = (pos==='LT'||pos==='LG'||pos==='C'||pos==='RG'||pos==='RT'||pos==='OL') ? avg(PB,PBP,PBF,RB,RBP,RBF) : avg(RB,PB);
+  const COVER    = (pos==='CB'||pos==='S'||pos==='DB') ? avg(Man,Zone,Press) : avg(Man,Zone);
+  const TEC      = avg(PB,RB,PMoves,FMoves,Shed,Press); // generic “technique” proxy
+  const DISC     = avg(Tough,Aware,PR);                  // discipline proxy
+
+  // Kickers / Punters
+  const KICK_POW = (pos==='K'||pos==='P') ? KPOW : 50;
+  const KICK_ACC = (pos==='K'||pos==='P') ? KACC : 50;
+
+  // Filter out rows that don’t have a name or pos
+  if(!(first||last) || !pos) return null;
+
+  return {
+    "First Name":first,
+    "Last Name":last,
+    "Position":pos,
+    SPD:Speed,
+    STR:Strength,
+    AGI:Agility,
+    INT:Aware,
+    TEC:TEC,
+    HANDS:HANDS,
+    TACK:Tackle,
+    BLOCK:BLOCK,
+    COVER:COVER,
+    PASS_ACC:PASS_ACC,
+    PASS_PWR:PASS_PWR,
+    KICK_POW:KICK_POW,
+    KICK_ACC:KICK_ACC,
+    DISC:DISC
+  };
+}
+
 
 /* ===== Kickoffs & PAT ===== */
 function beginKickoff(kicking){pendingKickoff=kicking;}
@@ -423,11 +606,15 @@ function startGame(){
   running=true; paused=false; pauseBtn.disabled=false; exportCsv.disabled=false;
   plays=[]; scoring=[]; drives=[]; pendingPAT=null; pendingKickoff=null; pendingScoreIdx=-1;
   timeouts={Home:3,Away:3}; toHome.textContent=3; toAway.textContent=3;
+  // Prefer Excel roster if available; fallback to CSV (already handled by onchange) then seed
+  if (XLSX_BOOK && homeTeamSel.value) HOME = teamFromSheet(homeTeamSel.value) || HOME;
+  if (XLSX_BOOK && awayTeamSel.value) AWAY = teamFromSheet(awayTeamSel.value) || AWAY;
   if(!HOME) HOME=buildTeam(seedRoster((seed.value||'seed')+'-H'));
   if(!AWAY) AWAY=buildTeam(seedRoster((seed.value||'seed')+'-A'));
+
   HOME.stats.team={plays:0,yards:0,passYds:0,rushYds:0,punts:0,fgm:0,fga:0,td:0,ints:0,downs:0,pen:0,third:{c:0,a:0},fourth:{c:0,a:0},epa:0}; HOME.drives=[];
   AWAY.stats.team={plays:0,yards:0,passYds:0,rushYds:0,punts:0,fgm:0,fga:0,td:0,ints:0,downs:0,pen:0,third:{c:0,a:0},fourth:{c:0,a:0},epa:0}; AWAY.drives=[];
-  renderBox(); renderLeaders();
+  renderBox(); renderLeaders();renderTopEpa();
   const r=rngFromSeed(seed.value||'seed'); const receive=r()<0.5?'Home':'Away';
   sim={rng:r,score:{home:0,away:0},hud:{poss:receive,qtr:1,secs:900,down:1,dist:10,yard:25},crowd:{cap:72000,present:Math.floor(0.85*72000),mood:0}};
   wpSeries=[0.5]; wpSmooth=0.5; wpPrior=priorFromTeams(HOME,AWAY); fansPill.textContent=`Fans: ${sim.crowd.present.toLocaleString()}`;
@@ -435,7 +622,7 @@ function startGame(){
   loop(+speed.value||0);
 }
 function pauseToggle(){if(!running)return;paused=!paused;pauseBtn.textContent=paused?'Resume':'Pause';if(!paused)loop(+speed.value||0);}
-function hardReset(){running=false;paused=false;pauseBtn.disabled=true;pauseBtn.textContent='Pause';exportCsv.disabled=true;plays=[];scoring=[];drives=[];pendingPAT=null;pendingKickoff=null;pendingScoreIdx=-1;wpSeries=[0.5];wpSmooth=0.5;sim={rng:rngFromSeed('seed'),score:{home:0,away:0},hud:{poss:'Home',qtr:1,secs:900,down:1,dist:10,yard:25}};updateHUD();updateScore();drawWP();feed.innerHTML='';lastPlay.textContent='Last Play: —';if(HOME){HOME.stats.team={plays:0,yards:0,passYds:0,rushYds:0,punts:0,fgm:0,fga:0,td:0,ints:0,downs:0,pen:0,third:{c:0,a:0},fourth:{c:0,a:0},epa:0};HOME.drives=[];}if(AWAY){AWAY.stats.team={plays:0,yards:0,passYds:0,rushYds:0,punts:0,fgm:0,fga:0,td:0,ints:0,downs:0,pen:0,third:{c:0,a:0},fourth:{c:0,a:0},epa:0};AWAY.drives=[];}renderBox();renderLeaders();Field.render({hud:sim.hud});}
+function hardReset(){running=false;paused=false;pauseBtn.disabled=true;pauseBtn.textContent='Pause';exportCsv.disabled=true;plays=[];scoring=[];drives=[];pendingPAT=null;pendingKickoff=null;pendingScoreIdx=-1;wpSeries=[0.5];wpSmooth=0.5;sim={rng:rngFromSeed('seed'),score:{home:0,away:0},hud:{poss:'Home',qtr:1,secs:900,down:1,dist:10,yard:25}};updateHUD();updateScore();drawWP();feed.innerHTML='';lastPlay.textContent='Last Play: —';if(HOME){HOME.stats.team={plays:0,yards:0,passYds:0,rushYds:0,punts:0,fgm:0,fga:0,td:0,ints:0,downs:0,pen:0,third:{c:0,a:0},fourth:{c:0,a:0},epa:0};HOME.drives=[];}if(AWAY){AWAY.stats.team={plays:0,yards:0,passYds:0,rushYds:0,punts:0,fgm:0,fga:0,td:0,ints:0,downs:0,pen:0,third:{c:0,a:0},fourth:{c:0,a:0},epa:0};AWAY.drives=[];}renderBox();renderLeaders();renderTopEpa();Field.render({hud:sim.hud});}
 startBtn.addEventListener('click',()=>{if(running)return;homeName.textContent=homeLabel.value||'Home';awayName.textContent=awayLabel.value||'Away';startGame();});
 pauseBtn.addEventListener('click',pauseToggle);
 resetBtn.addEventListener('click',hardReset);
@@ -697,7 +884,7 @@ function loop(ms){
             const t = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
             wpSmooth = 0.97*wpSmooth + 0.03*t; wpSeries.push(wpSmooth);
             wpVal.textContent = (wpSmooth*100).toFixed(1) + '%'; if (wpSeries.length>600) wpSeries.shift();
-            drawWP(); renderBox(); renderLeaders(); updateCrowd();
+            drawWP(); renderBox(); renderLeaders(); renderTopEpa(); updateCrowd();
 
             if (h.secs<=0){
             h.qtr++; if(h.qtr<=4){ h.secs=900; beginKickoff('Away'); }
@@ -983,7 +1170,7 @@ function loop(ms){
       wpSmooth=0.97*wpSmooth+0.03*wp1; wpSeries.push(wpSmooth);
       wpVal.textContent=(wpSmooth*100).toFixed(1)+'%';
       if(wpSeries.length>600) wpSeries.shift();
-      drawWP(); renderBox(); renderLeaders();
+      drawWP(); renderBox(); renderLeaders(); renderTopEpa();
 
       if(h.secs<=0){
         h.qtr++;
@@ -1044,8 +1231,12 @@ function exportBlob(name,data,type){const b=new Blob([data],{type});const url=UR
 exportCsv.onclick=()=>{const lines=['tag,line,aux'];plays.forEach(p=>lines.push([p.tag,`"${p.line.replace(/"/g,'""')}"`,`"${(p.aux||'').replace(/"/g,'""')}"`].join(',')));exportBlob('play_log.csv',lines.join('\n'),'text/csv');};
 
 /* ===== Init ===== */
-(function(){sim={rng:rngFromSeed('seed'),score:{home:0,away:0},hud:{poss:'Home',qtr:1,secs:900,down:1,dist:10,yard:25}};Field.render({hud:sim.hud});updateHUD();updateScore();drawWP();renderBox();renderLeaders();renderCrowdMeter();})();
+(function(){sim={rng:rngFromSeed('seed'),score:{home:0,away:0},hud:{poss:'Home',qtr:1,secs:900,down:1,dist:10,yard:25}};Field.render({hud:sim.hud});updateHUD();updateScore();drawWP();renderBox();renderLeaders();renderTopEpa();renderCrowdMeter();})();
 </script>
+
+
+
+
 =======
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>NFL Sim - Weekly Games</title>
