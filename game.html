@@ -217,7 +217,6 @@ canvas#field{width:100%;height:260px;background:#062b22;border-radius:12px;borde
 
 <script>
 /* ===== Utilities ===== */
-const ui={homeName,awayName,homeScore,awayScore,poss,qtr,clock,toHome,toAway,wpVal,feed,lastPlay,boxWrap,leaders,tabPlays,tabScoring,tabDrives,tabAdvanced,toggleAdv,fansPill};
 const crowdPct = document.getElementById('crowdPct');
 const crowdBar = document.getElementById('crowdBar');
 const startBtn  = document.getElementById('startBtn');
@@ -227,7 +226,10 @@ const exportCsv = document.getElementById('exportCsv');
 const topEpa = document.getElementById('topEpa');
 const topEpaList = document.getElementById('topEpaList');
 const rosterStatus = document.getElementById('rosterStatus');
-
+const toggleAdv = document.getElementById('toggleAdv');
+const field = document.getElementById('field');
+const wpChart = document.getElementById('wpChart');
+const ui={homeName,awayName,homeScore,awayScore,poss,qtr,clock,toHome,toAway,wpVal,feed,lastPlay,boxWrap,leaders,tabPlays,tabScoring,tabDrives,tabAdvanced,toggleAdv,fansPill};
 function logPlay(tag,line,off,scoring=false,epa=null,wpd=null){
   const aux=(epa!==null||wpd!==null)?`EPA ${(epa>=0?'+':'')}${(epa||0).toFixed(2)} | ΔWP ${(wpd>=0?'+':'')}${((wpd||0)*100).toFixed(1)}%`:'';
   plays.push({tag,line,off,scoring,aux});
@@ -332,6 +334,7 @@ return{render(state){const c=field,w=c.width,h=c.height,ctx=c.getContext('2d');c
 /* ===== Sim state & UI ===== */
 let HOME=null, AWAY=null, running=false, paused=false, sim=null, pendingKickoff=null, pendingPAT=null, pendingScoreIdx=-1;
 let plays=[], scoring=[], drives=[]; let timeouts={Home:3,Away:3};
+let epaPlays = [];
 let XLSX_BOOK = null;
 let TEAM_SHEETS = [
   "Arizona Cardinals", "Atlanta Falcons", "Baltimore Ravens", "Buffalo Bills",
@@ -356,21 +359,24 @@ function renderLeaders(){
   function wrLine(T){const w=T.wr?.[0];const a=w?.adv||{};return `${T===HOME?homeLabel.value:awayLabel.value}: ${w?`${w.first} ${w.last}`:'WR'} — ${a.catches||0}/${a.targets||0}, ${a.recY||0}y, TD ${a.td||0}`}
   leaders.innerHTML=`<div class="small">${qbLine(HOME)}</div><div class="small">${qbLine(AWAY)}</div><div class="small" style="margin-top:6px">${rbLine(HOME)}</div><div class="small">${rbLine(AWAY)}</div><div class="small" style="margin-top:6px">${wrLine(HOME)}</div><div class="small">${wrLine(AWAY)}</div>`;
 }
-function renderTopEPA(){
+function renderTopEpa(){
   const el = document.getElementById('topEpa');
-  if(!el) return;
-  const items = plays
-    .filter(p => !isNaN(p.epa))
-    .sort((a,b)=> (b.epa||0) - (a.epa||0))
+  if (!el) return;
+  const items = epaPlays
+    .slice()
+    .sort((a,b)=> b.epa - a.epa)
     .slice(0,5);
+
   el.innerHTML = items.length
-    ? items.map(p => `<div style="margin-bottom:6px">
-        <span class="pill" style="margin-right:6px">${p.tag}</span>
-        <span>${p.line.replace(/^.* — /,'')}</span>
-        <span class="small" style="display:block;color:#93a0b1">EPA ${(p.epa>=0?'+':'')}${(p.epa||0).toFixed(2)}</span>
-      </div>`).join('')
+    ? items.map(p => `
+        <div style="margin-bottom:6px">
+          <span class="pill" style="margin-right:6px">PLAY</span>
+          <span>${p.text}</span>
+          <span class="small" style="display:block;color:#93a0b1">EPA ${(p.epa>=0?'+':'')}${(p.epa||0).toFixed(2)}</span>
+        </div>`).join('')
     : '<span class="small" style="color:#93a0b1">— No plays yet —</span>';
 }
+
 
 function pushDriveStart(team,yard){drives.push({team,startY:yard,plays:0,yards:0,startQ:sim.hud.qtr,startT:sim.hud.secs,result:'',endY:null});}
 function closeDrive(result,endY){const d=drives.length?drives[drives.length-1]:null;if(!d)return;d.result=result;d.endY=endY;d.time=d.startT - sim.hud.secs + (d.startQ!==sim.hud.qtr?(15*60)*(sim.hud.qtr-d.startQ):0);}
@@ -849,7 +855,6 @@ function loop(ms){
     const ep0 = EP(snap.down, snap.dist, snap.yard);
     const wp0 = stateWP(s.home, s.away, snap.qtr, snap.secs, snap.yard, snap.poss, wpPrior);
     const startPoss = snap.poss;
-    const toggleAdv = document.getElementById('toggleAdv');
 
       const pre = chancePenalty({ down: h.down, isPass: false, airDepth: 0 });
         if (pre && pre.preSnap) {
