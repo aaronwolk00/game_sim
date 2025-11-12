@@ -4,80 +4,88 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>NFL Sim — Week 1 Games</title>
-<script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+
+<!-- SheetJS for CSV parsing -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.20.2/dist/xlsx.full.min.js"></script>
+
 <style>
 :root{
-  --bg:#0b1220; --panel:#121a2a; --card:#0e1630; --text:#eef2ff; --muted:#93a0b1; --accent:#5eead4;
-  --home:#4ade80; --away:#60a5fa;
+  --bg:#0b1220; --panel:#121a2a; --card:#0e1630; --text:#eef2ff; --muted:#93a0b1; --accent:#5eead4; --home:#4ade80; --away:#60a5fa;
 }
 *{box-sizing:border-box}
 html,body{height:100%}
 body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;display:grid;place-items:center}
-main{width:min(960px,94vw);display:grid;gap:16px}
+main{width:min(980px,94vw);display:grid;gap:16px}
 h1{margin:0 0 6px;font-size:22px;letter-spacing:.2px}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
-.card{display:block;background:var(--panel);border-radius:14px;padding:14px;text-decoration:none;color:inherit;border:1px solid #1c2440;box-shadow:0 6px 24px rgba(0,0,0,.25);transition:border-color .15s ease,transform .08s ease,box-shadow .15s ease}
+.card{display:block;background:var(--panel);border-radius:14px;padding:14px;text-decoration:none;color:inherit;border:1px solid #1c2440;box-shadow:0 6px 24px rgba(0,0,0,.25);transition:border-color .15s,transform .08s,box-shadow .15s}
 .card:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:0 10px 28px rgba(0,0,0,.35)}
 .cardHeader{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
 .title{font-weight:800;font-size:16px}
-.btn{display:inline-flex;align-items:center;justify-content:center;padding:10px 12px;border-radius:10px;background:var(--accent);color:#0a0f17;font-weight:700;font-size:14px;border:none;box-shadow:0 2px 0 rgba(0,0,0,.25)}
-hr{height:1px;background:#1c2440;border:0;margin:10px 0;border-radius:2px}
+.meta{font-size:12px;color:var(--muted)}
 .badges{display:flex;gap:8px;align-items:center}
 .pill{display:inline-block;padding:4px 8px;border-radius:999px;background:var(--card);border:1px solid #233055;font-size:12px;color:var(--muted)}
 .pill.home{color:var(--home)} .pill.away{color:var(--away)}
+hr{height:1px;background:#1c2440;border:0;margin:10px 0;border-radius:2px}
+.btn{display:inline-flex;align-items:center;justify-content:center;padding:10px 12px;border-radius:10px;background:var(--accent);color:#0a0f17;font-weight:700;font-size:14px;border:none;box-shadow:0 2px 0 rgba(0,0,0,.25)}
+.card:hover .btn{box-shadow:0 3px 0 rgba(0,0,0,.28)}
 .small{font-size:12px;color:var(--muted)}
+.error{color:#fca5a5}
 </style>
 </head>
 <body>
   <main>
     <h1 id="page-title">Loading Week 1 Games...</h1>
-    <div class="grid" id="game-grid"></div>
-    <div class="small" id="hint">Tip: Teams are shuffled on each visit. Cards link into the simulator with those team sheets preloaded.</div>
+    <div id="game-grid" class="grid"></div>
+    <div class="small" id="tip">Tip: Teams are shuffled on each visit. Cards link into the simulator with those teams preloaded.</div>
   </main>
 
 <script>
-// IMPORTANT: use the RAW link
-// Example: https://raw.githubusercontent.com/<user>/<repo>/main/roster.xlsx
-const XLSX_URL = 'https://raw.githubusercontent.com/aaronwolk00/game_sim/main/roster.xlsx';
+// IMPORTANT: use a RAW link. Example:
+//   https://raw.githubusercontent.com/<user>/<repo>/<branch>/players.csv
+const CSV_URL =
+  'https://raw.githubusercontent.com/aaronwolk00/game_sim/main/players.csv'; // ← update if needed
 
-// Fallback list if we can’t infer from the file for any reason
-const TEAMS_FALLBACK = [
-  "Arizona Cardinals","Atlanta Falcons","Baltimore Ravens","Buffalo Bills",
-  "Carolina Panthers","Chicago Bears","Cincinnati Bengals","Cleveland Browns",
-  "Dallas Cowboys","Denver Broncos","Detroit Lions","Green Bay Packers",
-  "Houston Texans","Indianapolis Colts","Jacksonville Jaguars","Kansas City Chiefs",
-  "Las Vegas Raiders","Los Angeles Chargers","Los Angeles Rams","Miami Dolphins",
-  "Minnesota Vikings","New England Patriots","New Orleans Saints","New York Giants",
-  "New York Jets","Philadelphia Eagles","Pittsburgh Steelers","San Francisco 49ers",
-  "Seattle Seahawks","Tampa Bay Buccaneers","Tennessee Titans","Washington Commanders"
-];
-
-const $ = (id)=>document.getElementById(id);
-
-function shuffle(arr){
-  for(let i=arr.length-1;i>0;i--){
-    const j=Math.floor(Math.random()*(i+1));
-    [arr[i],arr[j]]=[arr[j],arr[i]];
-  }
-  return arr;
+function shuffleInPlace(a){
+  for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}
+  return a;
 }
 
-function makePairs(teams){
-  const t = teams.slice(0,32); // only need first 32
-  shuffle(t);
-  const games=[];
-  for(let i=0;i<Math.floor(t.length/2);i++){
-    games.push([t[2*i], t[2*i+1]]);
-  }
-  return games;
+async function loadTeamsFromCSV(rawUrl){
+  const res = await fetch(rawUrl, {cache:'no-store'});
+  if (!res.ok) throw new Error('CSV fetch failed: ' + res.status);
+  const text = await res.text();
+
+  // SheetJS can parse CSV text into a sheet then JSON
+  const wb = XLSX.read(text, {type:'string'});
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
+
+  // The file has a "Team" column. Extract unique names (non-empty).
+  const set = new Set();
+  rows.forEach(r=>{
+    const t = String(r.Team||'').trim();
+    if (t) set.add(t);
+  });
+  return Array.from(set);
 }
 
-function renderCards(games){
-  const grid = $('game-grid');
-  grid.innerHTML = games.map(([home,away])=>{
-    const url = `game.html?home=${encodeURIComponent(home)}&away=${encodeURIComponent(away)}`;
-    return `
-      <a class="card" href="${url}" aria-label="${home} vs. ${away}">
+function pairTeams(teams){
+  shuffleInPlace(teams);
+  const pairs = [];
+  for (let i=0;i<teams.length;i+=2){
+    if (i+1<teams.length) pairs.push([teams[i], teams[i+1]]);
+  }
+  return pairs;
+}
+
+function renderCards(pairs, csvUrl){
+  const grid = document.getElementById('game-grid');
+  let html = '';
+  for (const [home, away] of pairs){
+    const url = `game.html?home=${encodeURIComponent(home)}&away=${encodeURIComponent(away)}&players=${encodeURIComponent(csvUrl)}`;
+    html += `
+      <a class="card" href="${url}" aria-label="${home} vs. ${away} — Play Sim">
         <div class="cardHeader">
           <div class="title">${home} vs. ${away}</div>
           <span class="btn">Play Sim</span>
@@ -87,64 +95,31 @@ function renderCards(games){
           <span class="pill home">${home}</span>
           <span class="pill away">${away}</span>
         </div>
-      </a>
-    `;
-  }).join('');
-}
-
-/**
- * Try three ways to get team names:
- * A) Sheet with "TeamName" column
- * B) Sheet names that look like roster tabs (have a "Position/Pos" column)
- * C) Hardcoded fallback list
- */
-async function loadTeamsFromWorkbook(){
-  const res = await fetch(XLSX_URL, { cache:'no-store' });
-  if(!res.ok) throw new Error(`Fetch failed: ${res.status}`);
-
-  const buf = await res.arrayBuffer();
-  const wb  = XLSX.read(buf, { type:'array' });
-
-  // A) TeamName column on some sheet
-  for (const sn of wb.SheetNames){
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], {defval:''});
-    if (!rows.length) continue;
-    const cols = Object.keys(rows[0]).map(s=>s.toLowerCase().trim());
-    if (cols.includes('teamname')){
-      const names = rows.map(r => (r.TeamName || r.teamname || '').toString().trim()).filter(Boolean);
-      if (names.length) return names;
-    }
+      </a>`;
   }
-
-  // B) Use sheet names that look like roster tabs (have Position/Pos column)
-  const candidates = wb.SheetNames.filter(sn=>{
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], {defval:''});
-    if (!rows.length) return false;
-    const keys = Object.keys(rows[0]).join(' ').toLowerCase();
-    return /position|pos/.test(keys); // roster-ish sheet
-  });
-
-  if (candidates.length >= 2) return candidates;
-
-  // C) Fallback
-  return TEAMS_FALLBACK;
+  grid.innerHTML = html;
 }
 
-async function boot(){
-  const title = $('page-title');
+(async function init(){
+  const title = document.getElementById('page-title');
+  const tip = document.getElementById('tip');
+  const grid = document.getElementById('game-grid');
+
   try{
-    const teams = await loadTeamsFromWorkbook();
-    const games = makePairs(teams);
-    renderCards(games);
+    const teams = await loadTeamsFromCSV(CSV_URL);
+    if (teams.length < 2) throw new Error('No teams found (Team column missing?)');
+
+    const pairs = pairTeams(teams);
+    renderCards(pairs, CSV_URL);
     title.textContent = 'Week 1 Games';
+    tip.style.display = '';
   }catch(err){
     console.error(err);
     title.textContent = 'Error loading games';
-    $('game-grid').innerHTML =
-      `<p class="small">Could not load teams from the XLSX. Confirm the URL is a <b>raw</b> link and that your roster tabs have a “Position/Pos” column in row 1.</p>`;
+    tip.style.display = 'none';
+    grid.innerHTML = `<p class="error">Could not load teams from the CSV. Check the URL (must be a <em>raw</em> link) and that the sheet has a "Team" column.</p>`;
   }
-}
-document.addEventListener('DOMContentLoaded', boot);
+})();
 </script>
 </body>
 </html>

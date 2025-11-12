@@ -89,7 +89,6 @@ canvas#field{width:100%;height:260px;background:#062b22;border-radius:12px;borde
 .subtab{padding:4px 8px;border-radius:8px;border:1px solid #243055;background:#0e1630;color:#d2e0ff;cursor:pointer;font-size:11px}
 .subtab.active{background:#1e293b}
 </style>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.20.2/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 <header><h1>NFL Sim — GMG</h1></header>
@@ -218,9 +217,10 @@ canvas#field{width:100%;height:260px;background:#062b22;border-radius:12px;borde
 <script>
 document.addEventListener('DOMContentLoaded', () => {
   try {
-    const urlParams = new URLSearchParams(window.location.search);
-    const homeName = urlParams.get('home');
-    const awayName = urlParams.get('away');
+      const PARAMS = new URLSearchParams(location.search);
+      const URL_HOME  = PARAMS.get('home');
+      const URL_AWAY  = PARAMS.get('away');
+      const URL_PLAYERS = PARAMS.get('players'); // raw CSV URL from index.html
 
     if (homeName) {
       document.getElementById('homeLabel').value = homeName;
@@ -245,9 +245,11 @@ const rosterStatus = document.getElementById('rosterStatus');
 const toggleAdv = document.getElementById('toggleAdv');
 const field = document.getElementById('field');
 const wpChart = document.getElementById('wpChart');
-const params = new URLSearchParams(location.search);
-const URL_HOME = params.get('home');
-const URL_AWAY = params.get('away');
+const PARAMS = new URLSearchParams(location.search);
+const URL_HOME  = PARAMS.get('home');
+const URL_AWAY  = PARAMS.get('away');
+const URL_PLAYERS = PARAMS.get('players'); // raw CSV URL from index.html
+
 
 const ui={homeName,awayName,homeScore,awayScore,poss,qtr,clock,toHome,toAway,wpVal,feed,lastPlay,boxWrap,leaders,tabPlays,tabScoring,tabDrives,tabAdvanced,toggleAdv,fansPill};
 
@@ -277,7 +279,35 @@ function yardText(y){return y>=50?`Opp ${100-y}`:`Own ${y}`;}
 function dnTxt(d){return ['1st','2nd','3rd','4th'][d-1]}
 
 /* ===== CSV / roster ===== */
-function parseCSV(t){const lines=t.replace(/\r/g,'').trim().split('\n');if(!lines.length) return [];const head=lines[0].split(',').map(s=>s.trim());return lines.slice(1).filter(Boolean).map(line=>{const cells=line.split(',').map(s=>s.trim());const row={};head.forEach((h,i)=>row[h]=cells[i]??'');return row;});}
+function parseCSV(text){
+  const rows = [];
+  let row = [], field = '', inQuotes = false;
+  for (let i=0; i<text.length; i++){
+    const c = text[i];
+    if (inQuotes){
+      if (c === '"'){
+        if (text[i+1] === '"'){ field += '"'; i++; }
+        else { inQuotes = false; }
+      } else { field += c; }
+    } else {
+      if (c === '"') inQuotes = true;
+      else if (c === ','){ row.push(field); field=''; }
+      else if (c === '\n'){ row.push(field); rows.push(row); row=[]; field=''; }
+      else if (c !== '\r'){ field += c; }
+    }
+  }
+  row.push(field); rows.push(row);
+
+  const header = rows.shift().map(h => String(h||'').trim());
+  return rows
+    .filter(r => r.length && r.some(x => x !== ''))
+    .map(r => {
+      const obj = {};
+      header.forEach((h, i) => obj[h] = r[i] === undefined ? '' : r[i]);
+      return obj;
+    });
+}
+
 function num(x,d=70){const v=Number(x);return Number.isFinite(v)?v:d;}
 const OLp=new Set(['LT','LG','C','RG','RT','OL']), DLp=new Set(['DT','NT','DE','IDL']), EDGEp=new Set(['EDGE']), LBp=new Set(['LB','MLB','ILB','OLB']), DBp=new Set(['CB','NB','DB','S','FS','SS']);
 function pOVR(p){if(p.OVR!==undefined&&p.OVR!=='') return num(p.OVR,70);const SPD=num(p.SPD,70),STR=num(p.STR,70),AGI=num(p.AGI,70),INT=num(p.INT,70),TEC=num(p.TEC,70),H=num(p.HANDS,70),T=num(p.TACK,70),B=num(p.BLOCK,70),C=num(p.COVER,70),PA=num(p.PASS_ACC,70),PP=num(p.PASS_PWR,70);const pos=(p.Position||'').toUpperCase();if(pos==='QB')return 0.55*PA+0.25*PP+0.2*INT;if(pos==='WR'||pos==='TE'||pos==='RB')return 0.4*SPD+0.2*AGI+0.2*H+0.2*INT;if(OLp.has(pos))return 0.5*B+0.2*STR+0.2*TEC+0.1*INT;if(DLp.has(pos)||EDGEp.has(pos))return 0.35*STR+0.25*TEC+0.2*AGI+0.2*T;if(LBp.has(pos))return 0.3*T+0.25*INT+0.25*AGI+0.2*STR;if(DBp.has(pos))return 0.35*C+0.25*AGI+0.2*INT+0.2*T;return (SPD+STR+AGI+INT+TEC+H+T+B+C+PA+PP)/11;}
@@ -357,17 +387,8 @@ return{render(state){const c=field,w=c.width,h=c.height,ctx=c.getContext('2d');c
 let HOME=null, AWAY=null, running=false, paused=false, sim=null, pendingKickoff=null, pendingPAT=null, pendingScoreIdx=-1;
 let plays=[], scoring=[], drives=[]; let timeouts={Home:3,Away:3};
 let epaPlays = [];
-let XLSX_BOOK = null;
-let TEAM_SHEETS = [
-  "Arizona Cardinals", "Atlanta Falcons", "Baltimore Ravens", "Buffalo Bills",
-  "Carolina Panthers", "Chicago Bears", "Cincinnati Bengals", "Cleveland Browns",
-  "Dallas Cowboys", "Denver Broncos", "Detroit Lions", "Green Bay Packers",
-  "Houston Texans", "Indianapolis Colts", "Jacksonville Jaguars", "Kansas City Chiefs",
-  "Las Vegas Raiders", "Los Angeles Chargers", "Los Angeles Rams", "Miami Dolphins",
-  "Minnesota Vikings", "New England Patriots", "New Orleans Saints", "New York Giants",
-  "New York Jets", "Philadelphia Eagles", "Pittsburgh Steelers", "San Francisco 49ers",
-  "Seattle Seahawks", "Tampa Bay Buccaneers", "Tennessee Titans", "Washington Commanders"
-];
+let TEAM_SHEETS = [];            // list of team names (from CSV "Team" column)
+let PLAYERS_CSV_ROWS = null;     // parsed rows of players.csv
 
 function updateHUD(){const h=sim.hud;hud.textContent=`Q${h.qtr} • ${Math.floor(h.secs/60)}:${String(h.secs%60).padStart(2,'0')} • ${dnTxt(h.down)} & ${Math.max(1,Math.round(h.dist))} @ ${yardText(h.yard)} • Poss: ${h.poss}`;}
 function updateScore(){const s=sim.score;homeScore.textContent=s.home;awayScore.textContent=s.away;poss.textContent=sim.hud.poss;qtr.textContent=sim.hud.qtr;clock.textContent=`${Math.floor(sim.hud.secs/60)}:${String(sim.hud.secs%60).padStart(2,'0')}`;}
@@ -412,157 +433,103 @@ tabAdvanced.onclick=()=>{activeTab='advanced';tabAdvanced.classList.add('active'
 
 
 
-/* === Auto-load roster file from same folder === */
-const ROSTER_CANDIDATES = [
-  'roster.xlsx',
-  'Roster.xlsx',
-  'ratings.xlsx',
-  'Ratings.xlsx',
-  'Madden 22 Player Ratings - Launch (dist).xlsx' // your current file
-];
+/* === CSV roster loader (players.csv) === */
 
-async function tryLoadDefaultRoster(){
-  for (const name of ROSTER_CANDIDATES){
+const CSV_CANDIDATES = ['players.csv','Players.csv'];
+
+/** Try to load players CSV: prefer ?players= raw URL, else local file names. */
+async function tryLoadPlayersCsv(){
+  const tryUrls = [];
+  if (URL_PLAYERS) tryUrls.push(URL_PLAYERS);
+  CSV_CANDIDATES.forEach(n => tryUrls.push(n));
+
+  for (const url of tryUrls){
     try{
-      const url = encodeURI(name); // handle spaces/()
       const res = await fetch(url, { cache:'no-store' });
-      if(!res.ok) continue;
+      if (!res.ok) continue;
+      const text = await res.text();
+      const rows = parseCSV(text);
+      if (!rows.length) continue;
 
-      const buf = await res.arrayBuffer();
-      XLSX_BOOK = XLSX.read(buf, { type:'array' });
-      populateTeamsFromWorkbook();
-      logPlay('INFO', `Auto-loaded roster: ${name}`, 'Home', false, 0, 0);
+      // store rows + unique teams
+      PLAYERS_CSV_ROWS = rows;
+      const set = new Set();
+      rows.forEach(r => { const t = String(r.Team||'').trim(); if (t) set.add(t); });
+      TEAM_SHEETS = Array.from(set).sort();
 
-      // If user hasn't picked, choose two random distinct teams
-      if(!homeTeamSel.value && TEAM_SHEETS.length){
-        let i = Math.floor(Math.random()*TEAM_SHEETS.length);
-        let j = Math.floor(Math.random()*TEAM_SHEETS.length);
-        if(i===j) j = (i+1) % TEAM_SHEETS.length;
-
-        homeTeamSel.value = TEAM_SHEETS[i];
-        awayTeamSel.value = TEAM_SHEETS[j];
-
-        homeLabel.value = TEAM_SHEETS[i];
-        awayLabel.value = TEAM_SHEETS[j];
-        homeName.textContent = homeLabel.value;
-        awayName.textContent = awayLabel.value;
-      }
+      populateTeamsFromCsv();
+      rosterStatus.textContent = `Loaded ${TEAM_SHEETS.length} teams from CSV`;
       return true;
     }catch(e){}
   }
   return false;
 }
 
-function populateTeamsFromWorkbook(){
-  TEAM_SHEETS = XLSX_BOOK.SheetNames.filter(name=>{
-    const ws = XLSX_BOOK.Sheets[name];
-    const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
-    return rows.length && Object.keys(rows[0]).some(k=>/position/i.test(k));
-  });
-  const opts = TEAM_SHEETS.map(n=>`<option>${n}</option>`).join('');
+/** Fill the dropdowns from TEAM_SHEETS (CSV teams) */
+function populateTeamsFromCsv(){
+  const opts = TEAM_SHEETS.map(t => `<option>${t}</option>`).join('');
   homeTeamSel.innerHTML = opts;
   awayTeamSel.innerHTML = opts;
-  homeTeamSel.disabled = awayTeamSel.disabled = TEAM_SHEETS.length===0;
+  homeTeamSel.disabled = awayTeamSel.disabled = TEAM_SHEETS.length === 0;
 }
 
-// Keep the name inputs in sync when user changes dropdowns
-homeTeamSel.addEventListener('change', ()=>{
-  homeLabel.value = homeTeamSel.value;
-  homeName.textContent = homeLabel.value;
-});
-awayTeamSel.addEventListener('change', ()=>{
-  awayLabel.value = awayTeamSel.value;
-  awayName.textContent = awayLabel.value;
-});
-
-// Build a team from a workbook sheet name
-function teamFromSheet(sheetName){
-  if(!XLSX_BOOK) return null;
-  const ws = XLSX_BOOK.Sheets[sheetName];
-  if(!ws) return null;
-  const raw = XLSX.utils.sheet_to_json(ws, {defval:''});
-  const rows = raw.map(mapMaddenRowToSim).filter(Boolean);
-  return buildTeam(rows);
-}
-
-// Map Madden columns -> simulator columns
-function mapMaddenRowToSim(r){
-  // Position normalization (e.g., HB->RB, LE/RE->DE, etc.)
-  const posRaw = String(r['Position']||r['Pos']||'').toUpperCase().trim();
-  const posMap = {HB:'RB', FB:'RB', RE:'DE', LE:'DE', SS:'S', FS:'S', LOLB:'OLB', ROLB:'OLB', RG:'RG', LG:'LG', RT:'RT', LT:'LT', C:'C'};
+/** Map a CSV row → simulator rating object */
+function mapPlayersCsvRowToSim(r){
+  const posRaw = String(r['Position']||'').toUpperCase().trim();
+  const posMap = {HB:'RB', FB:'RB', RE:'DE', LE:'DE', SS:'S', FS:'S', LOLB:'OLB', ROLB:'OLB'};
   const pos = posMap[posRaw] || posRaw;
-  const first = r['First Name'] || r['First'] || '';
-  const last  = r['Last Name']  || r['Last']  || '';
 
-  // Ratings (safe numeric pulls with fallbacks)
-  const N = (x, d=70)=>Number.isFinite(+x)?+x:d;
+  const N = (x,d=70)=>Number.isFinite(+x)?+x:d;
   const avg = (...xs)=>Math.round(xs.reduce((a,b)=>a+N(b,0),0)/Math.max(1,xs.length));
 
-  const Speed   = N(r['Speed']);
-  const Accel   = N(r['Acceleration']);
-  const Agility = N(r['Agility']);
-  const Aware   = N(r['Awareness']);
-  const Strength= N(r['Strength']);
-  const Catch   = N(r['Catching']);
-  const Tackle  = N(r['Tackle']);
-  const PB      = N(r['Pass Block']);
-  const PBP     = N(r['Pass Block Power']);
-  const PBF     = N(r['Pass Block Finesse']);
-  const RB      = N(r['Run Block']);
-  const RBP     = N(r['Run Block Power']);
-  const RBF     = N(r['Run Block Finesse']);
-  const Man     = N(r['Man Coverage']);
-  const Zone    = N(r['Zone Coverage']);
-  const Press   = N(r['Press']);
-  const PMoves  = N(r['Power Moves']);
-  const FMoves  = N(r['Finesse Moves']);
-  const Shed    = N(r['Block Shedding']);
-  const TAS     = N(r['Throw Acc Short']);
-  const TAM     = N(r['Throw Acc Mid']);
-  const TAD     = N(r['Throw Acc Deep']);
+  const first = r['First Name'] || '';
+  const last  = r['Last Name']  || '';
+
+  const Speed   = N(r['Speed']);           const Accel   = N(r['Acceleration']);
+  const Agility = N(r['Agility']);         const Aware   = N(r['Awareness']);
+  const Strength= N(r['Strength']);        const Catch   = N(r['Catching']);
+  const Tackle  = N(r['Tackle']);          const PB      = N(r['Pass Block']);
+  const PBP     = N(r['Pass Block Power']);const PBF     = N(r['Pass Block Finesse']);
+  const RB      = N(r['Run Block']);       const RBP     = N(r['Run Block Power']);
+  const RBF     = N(r['Run Block Finesse']);const Man    = N(r['Man Coverage']);
+  const Zone    = N(r['Zone Coverage']);   const Press   = N(r['Press']);
+  const PMoves  = N(r['Power Moves']);     const FMoves  = N(r['Finesse Moves']);
+  const Shed    = N(r['Block Shedding']);  const TAS     = N(r['Throw Acc Short']);
+  const TAM     = N(r['Throw Acc Mid']);   const TAD     = N(r['Throw Acc Deep']);
   const TUP     = N(r['Throw Under Pressure']);
-  const TOR     = N(r['Throw On The Run']);
-  const TPOW    = N(r['Throw Power']);
-  const KPOW    = N(r['Kick Power']);
-  const KACC    = N(r['Kick Accuracy']);
-  const Tough   = N(r['Toughness']);
-  const PR      = N(r['Play Recognition']);
+  const TOR     = N(r['Throw On The Run']);const TPOW    = N(r['Throw Power']);
+  const KPOW    = N(r['Kick Power']);      const KACC    = N(r['Kick Accuracy']);
+  const Tough   = N(r['Toughness']);       const PR      = N(r['Play Recognition']);
 
-  // Derived simulator fields
-  const PASS_ACC = pos==='QB' ? avg(TAS,TAM,TAD, TUP, TOR) : 50;
-  const PASS_PWR = pos==='QB' ? TPOW : 50;
+  if (!(first||last) || !pos) return null;
+
+  const PASS_ACC = (pos==='QB') ? avg(TAS,TAM,TAD,TUP,TOR) : 50;
+  const PASS_PWR = (pos==='QB') ? TPOW : 50;
   const HANDS    = (pos==='WR'||pos==='TE'||pos==='RB') ? Catch : 50;
-  const BLOCK    = (pos==='LT'||pos==='LG'||pos==='C'||pos==='RG'||pos==='RT'||pos==='OL') ? avg(PB,PBP,PBF,RB,RBP,RBF) : avg(RB,PB);
+  const BLOCK    = (pos==='LT'||pos==='LG'||pos==='C'||pos==='RG'||pos==='RT'||pos==='OL')
+                    ? avg(PB,PBP,PBF,RB,RBP,RBF) : avg(RB,PB);
   const COVER    = (pos==='CB'||pos==='S'||pos==='DB') ? avg(Man,Zone,Press) : avg(Man,Zone);
-  const TEC      = avg(PB,RB,PMoves,FMoves,Shed,Press); // generic “technique” proxy
-  const DISC     = avg(Tough,Aware,PR);                  // discipline proxy
-
-  // Kickers / Punters
-  const KICK_POW = (pos==='K'||pos==='P') ? KPOW : 50;
-  const KICK_ACC = (pos==='K'||pos==='P') ? KACC : 50;
-
-  // Filter out rows that don’t have a name or pos
-  if(!(first||last) || !pos) return null;
+  const TEC      = avg(PB,RB,PMoves,FMoves,Shed,Press);
+  const DISC     = avg(Tough,Aware,PR);
 
   return {
-    "First Name":first,
-    "Last Name":last,
-    "Position":pos,
-    SPD:Speed,
-    STR:Strength,
-    AGI:Agility,
-    INT:Aware,
-    TEC:TEC,
-    HANDS:HANDS,
-    TACK:Tackle,
-    BLOCK:BLOCK,
-    COVER:COVER,
-    PASS_ACC:PASS_ACC,
-    PASS_PWR:PASS_PWR,
-    KICK_POW:KICK_POW,
-    KICK_ACC:KICK_ACC,
-    DISC:DISC
+    "First Name":first, "Last Name":last, "Position":pos,
+    OVR: N(r['Overall']),
+    SPD:Speed, STR:Strength, AGI:Agility, INT:Aware, TEC,
+    HANDS, TACK:Tackle, BLOCK, COVER, PASS_ACC, PASS_PWR,
+    KICK_POW:KPOW, KICK_ACC:KACC, DISC
   };
+}
+
+/** Build a team from CSV by team name */
+function teamFromCsv(teamName){
+  if (!PLAYERS_CSV_ROWS) return null;
+  const rows = PLAYERS_CSV_ROWS
+    .filter(r => String(r.Team||'').trim() === teamName)
+    .map(mapPlayersCsvRowToSim)
+    .filter(Boolean);
+  if (!rows.length) return null;
+  return buildTeam(rows);
 }
 
 
@@ -662,25 +629,31 @@ function startGame(){
   plays=[]; scoring=[]; drives=[]; pendingPAT=null; pendingKickoff=null; pendingScoreIdx=-1;
   timeouts={Home:3,Away:3}; toHome.textContent=3; toAway.textContent=3;
 
-  HOME = null; AWAY = null;
-
-  if (XLSX_BOOK) {
-    // Expect the selects to already be set (by URL or user)
-    if (homeTeamSel.value) HOME = teamFromSheet(homeTeamSel.value);
-    if (awayTeamSel.value) AWAY = teamFromSheet(awayTeamSel.value);
-
-    // If a requested sheet is missing, fall back only for that team
-    if (!HOME) { HOME = buildTeam(seedRoster((seed.value||'seed')+'-H')); rosterStatus.textContent = 'Home team sheet not found — generated roster used.'; }
-    if (!AWAY) { AWAY = buildTeam(seedRoster((seed.value||'seed')+'-A')); rosterStatus.textContent += ' Away team sheet not found — generated roster used.'; }
-  } else {
-    // No workbook at all
-    HOME = buildTeam(seedRoster((seed.value||'seed')+'-H'));
-    AWAY = buildTeam(seedRoster((seed.value||'seed')+'-A'));
+  // if no picks yet, pick two distinct CSV teams
+  if ((!homeTeamSel.value || !awayTeamSel.value) && TEAM_SHEETS.length >= 2){
+    const i = Math.floor(Math.random()*TEAM_SHEETS.length);
+    let j = Math.floor(Math.random()*TEAM_SHEETS.length);
+    if (i===j) j = (i+1) % TEAM_SHEETS.length;
+    homeTeamSel.value = TEAM_SHEETS[i];
+    awayTeamSel.value = TEAM_SHEETS[j];
   }
 
-  // lock the names shown to what we’re actually using
-  homeName.textContent = homeLabel.value = homeTeamSel.value || homeLabel.value || 'Home';
-  awayName.textContent = awayLabel.value = awayTeamSel.value || awayLabel.value || 'Away';
+  HOME = null; AWAY = null;
+
+  if (TEAM_SHEETS.length){
+    if (homeTeamSel.value) {
+      HOME = teamFromCsv(homeTeamSel.value) || HOME;
+      homeLabel.value = homeTeamSel.value; homeName.textContent = homeLabel.value;
+    }
+    if (awayTeamSel.value) {
+      AWAY = teamFromCsv(awayTeamSel.value) || AWAY;
+      awayLabel.value = awayTeamSel.value; awayName.textContent = awayLabel.value;
+    }
+  }
+
+  // final fallback: generated rosters
+  if(!HOME) HOME = buildTeam(seedRoster((seed.value||'seed')+'-H'));
+  if(!AWAY) AWAY = buildTeam(seedRoster((seed.value||'seed')+'-A'));
 
   HOME.stats.team={plays:0,yards:0,passYds:0,rushYds:0,punts:0,fgm:0,fga:0,td:0,ints:0,downs:0,pen:0,third:{c:0,a:0},fourth:{c:0,a:0},epa:0}; HOME.drives=[];
   AWAY.stats.team={plays:0,yards:0,passYds:0,rushYds:0,punts:0,fgm:0,fga:0,td:0,ints:0,downs:0,pen:0,third:{c:0,a:0},fourth:{c:0,a:0},epa:0}; AWAY.drives=[];
@@ -699,7 +672,31 @@ function startGame(){
 
 
 function pauseToggle(){if(!running)return;paused=!paused;pauseBtn.textContent=paused?'Resume':'Pause';if(!paused)loop(+speed.value||0);}
-function hardReset(){running=false;paused=false;pauseBtn.disabled=true;pauseBtn.textContent='Pause';exportCsv.disabled=true;plays=[];scoring=[];drives=[];pendingPAT=null;pendingKickoff=null;pendingScoreIdx=-1;wpSeries=[0.5];wpSmooth=0.5;sim={rng:rngFromSeed('seed'),score:{home:0,away:0},hud:{poss:'Home',qtr:1,secs:900,down:1,dist:10,yard:25}};updateHUD();updateScore();drawWP();feed.innerHTML='';lastPlay.textContent='Last Play: —';if(HOME){HOME.stats.team={plays:0,yards:0,passYds:0,rushYds:0,punts:0,fgm:0,fga:0,td:0,ints:0,downs:0,pen:0,third:{c:0,a:0},fourth:{c:0,a:0},epa:0};HOME.drives=[];}if(AWAY){AWAY.stats.team={plays:0,yards:0,passYds:0,rushYds:0,punts:0,fgm:0,fga:0,td:0,ints:0,downs:0,pen:0,third:{c:0,a:0},fourth:{c:0,a:0},epa:0};AWAY.drives=[];}renderBox();renderLeaders();renderTopEpa();Field.render({hud:sim.hud});}
+function hardReset(){
+  running=false; paused=false; pauseBtn.disabled=true; pauseBtn.textContent='Pause'; exportCsv.disabled=true;
+  plays=[]; scoring=[]; drives=[]; pendingPAT=null; pendingKickoff=null; pendingScoreIdx=-1; wpSeries=[0.5]; wpSmooth=0.5;
+  epaPlays = []; // <-- FIX 1: Clears the Top EPA plays array
+
+  sim={rng:rngFromSeed('seed'),score:{home:0,away:0},hud:{poss:'Home',qtr:1,secs:900,down:1,dist:10,yard:25}};
+  updateHUD(); updateScore(); drawWP(); feed.innerHTML=''; lastPlay.textContent='Last Play: —';
+
+  // FIX 2: Clear team stats AND all individual player stats
+  if(HOME){
+    HOME.stats.team={plays:0,yards:0,passYds:0,rushYds:0,punts:0,fgm:0,fga:0,td:0,ints:0,downs:0,pen:0,third:{c:0,a:0},fourth:{c:0,a:0},epa:0};
+    HOME.drives=[];
+    HOME.players.forEach(p => p.adv = {}); // Clears stats for all Home players
+  }
+  if(AWAY){
+    AWAY.stats.team={plays:0,yards:0,passYds:0,rushYds:0,punts:0,fgm:0,fga:0,td:0,ints:0,downs:0,pen:0,third:{c:0,a:0},fourth:{c:0,a:0},epa:0};
+    AWAY.drives=[];
+    AWAY.players.forEach(p => p.adv = {}); // Clears stats for all Away players
+  }
+
+  renderBox();
+  renderLeaders(); // Now this will correctly show empty/zeroed stats
+  renderTopEpa(); // Now this will correctly be empty
+  Field.render({hud:sim.hud});
+}
 startBtn.addEventListener('click',()=>{if(running)return;homeName.textContent=homeLabel.value||'Home';awayName.textContent=awayLabel.value||'Away';startGame();});
 pauseBtn.addEventListener('click',pauseToggle);
 resetBtn.addEventListener('click',hardReset);
@@ -1306,41 +1303,57 @@ function renderPlayersTables(){
 function exportBlob(name,data,type){const b=new Blob([data],{type});const url=URL.createObjectURL(b);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);}
 exportCsv.onclick=()=>{const lines=['tag,line,aux'];plays.forEach(p=>lines.push([p.tag,`"${p.line.replace(/"/g,'""')}"`,`"${(p.aux||'').replace(/"/g,'""')}"`].join(',')));exportBlob('play_log.csv',lines.join('\n'),'text/csv');};
 
-/* ===== Init ===== */
+/* ===== Init (CSV only) ===== */
 (async function init(){
-  // baseline visuals so the page isn't blank
-  sim = { rng:rngFromSeed('seed'), score:{home:0,away:0},
-          hud:{poss:'Home',qtr:1,secs:900,down:1,dist:10,yard:25} };
-  Field.render({hud:sim.hud});
-  updateHUD(); updateScore(); drawWP(); renderBox(); renderLeaders(); renderTopEpa(); renderCrowdMeter();
+  startBtn.disabled = true;
 
-  // Try to load roster workbook in this folder
-  const loaded = await tryLoadDefaultRoster();   // ← WAIT for it
+  try{
+    // baseline visuals
+    sim = { rng:rngFromSeed('seed'), score:{home:0,away:0},
+            hud:{poss:'Home',qtr:1,secs:900,down:1,dist:10,yard:25} };
+    Field.render({hud:sim.hud});
+    updateHUD(); updateScore(); drawWP(); renderBox(); renderLeaders(); renderTopEpa(); renderCrowdMeter();
 
-  if (loaded) {
-    // Ensure dropdowns are filled from the workbook
-    populateTeamsFromWorkbook();
+    // load CSV (prefer ?players=)
+    const loaded = await tryLoadPlayersCsv();
 
-    // If URL provided teams, set them (must match sheet names exactly)
-    if (URL_HOME && TEAM_SHEETS.includes(URL_HOME)) {
-      homeTeamSel.value = URL_HOME;
-      homeLabel.value   = URL_HOME;
-      homeName.textContent = URL_HOME;
+    // helper: fuzzy match for URL team names
+    const norm = s => String(s||'').toLowerCase().trim();
+    const findTeam = (name) => {
+      if (!name) return null;
+      const exact = TEAM_SHEETS.find(t => t === name);
+      if (exact) return exact;
+      const ci = TEAM_SHEETS.find(t => norm(t) === norm(name));
+      if (ci) return ci;
+      return TEAM_SHEETS.find(t => norm(t).includes(norm(name)) || norm(name).includes(norm(t))) || null;
+    };
+
+    if (loaded){
+      // apply ?home & ?away if provided
+      const h = findTeam(URL_HOME);
+      const a0 = findTeam(URL_AWAY);
+      const a  = (a0 && a0 === h) ? (TEAM_SHEETS.find(x => x !== h) || a0) : a0;
+
+      if (h){ homeTeamSel.value = h; homeLabel.value = h; homeName.textContent = h; }
+      if (a){ awayTeamSel.value = a; awayLabel.value = a; awayName.textContent = a; }
+
+      // defaults if nothing chosen
+      if (!homeTeamSel.value && TEAM_SHEETS.length){
+        homeTeamSel.value = TEAM_SHEETS[0];
+        homeLabel.value = TEAM_SHEETS[0]; homeName.textContent = TEAM_SHEETS[0];
+      }
+      if (!awayTeamSel.value && TEAM_SHEETS.length > 1){
+        const alt = TEAM_SHEETS.find(t => t !== homeTeamSel.value) || TEAM_SHEETS[0];
+        awayTeamSel.value = alt;
+        awayLabel.value = alt; awayName.textContent = alt;
+      }
+    } else {
+      rosterStatus.textContent = 'No players.csv found — using generated players.';
     }
-    if (URL_AWAY && TEAM_SHEETS.includes(URL_AWAY)) {
-      awayTeamSel.value = URL_AWAY;
-      awayLabel.value   = URL_AWAY;
-      awayName.textContent = URL_AWAY;
-    }
-
-    rosterStatus.textContent = 'Roster loaded.';
-  } else {
-    rosterStatus.textContent = 'No roster .xlsx found here — will use generated players.';
+  }catch(e){
+    console.error('init failed:', e);
+    rosterStatus.textContent = 'Roster load error — using generated players.';
+  }finally{
+    startBtn.disabled = false;
   }
-
-  // Now the Start button is safe to use
-  startBtn.disabled = false;
 })();
-
-</script>
-
