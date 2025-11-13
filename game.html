@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>NFL Sim — GMG (Players + Penalties)</title>
+<title>NFL Sim — GM</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 
 <style>
@@ -2026,9 +2026,19 @@ function loop(ms){
             if (ms>0) await new Promise(rs=>setTimeout(rs,ms));
             continue; // ← critical: prevents a run/pass from also occurring on 4th down
         }
-        }
 
       const atk=(h.poss==='Home'?HOME:AWAY), def=(h.poss==='Home'?AWAY:HOME);
+
+      // Offense vs defense advantage and sliders for this snap
+      const offAdv = (atk.offense - def.defense);             // used by run/pass models
+      const varK   = (+feelVariance.value)/100;               // variance slider (0..1)
+
+      // Blend early/late pass preference based on game clock
+      const tf = clamp(1 - ((5 - h.qtr) * 900 + h.secs) / 3600, 0, 1); // fraction of game elapsed
+      const earlyPref = (+passEarly.value) / 100;
+      const latePref  = (+passLate.value) / 100;
+      const passPref  = earlyPref * (1 - tf) + latePref * tf;
+
       // ---- Situational pass/run blend (offense-aware, symmetric) ----
       const offenseIsHome   = (h.poss === 'Home');
       const scoreDiff       = s.home - s.away; // + means Home leads
@@ -2423,6 +2433,7 @@ function loop(ms){
 
       if(ms>0) await new Promise(rs=>setTimeout(rs,ms));
     }
+  }
   })();
 }
 

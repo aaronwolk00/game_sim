@@ -155,6 +155,13 @@ async function loadGames(){
 
     grid.innerHTML = html || '<div class="small" style="color:#fca5a5">No pairable teams found.</div>';
     title.textContent = 'Week 1 Games';
+    const standingsUrl = `standings.html?players=${playersParam}`;
+    const link = document.createElement('a');
+    link.className = 'btn';
+    link.style.margin = '4px 0 0 0';
+    link.href = standingsUrl;
+    link.textContent = 'League Standings';
+    title.insertAdjacentElement('afterend', link);
 
   }catch(err){
     console.error(err);

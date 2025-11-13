@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>NFL Sim — League Standings</title>
+<style>
+:root{
+  --bg:#0b1220; --panel:#121a2a; --card:#0e1630; --text:#eef2ff; --muted:#93a0b1;
+  --accent:#5eead4; --home:#4ade80; --away:#60a5fa;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;background:var(--bg);color:var(--text);
+  font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  display:grid;place-items:center
+}
+main{width:min(980px,94vw);display:grid;gap:16px}
+h1{margin:0 0 6px;font-size:22px;letter-spacing:.2px}
+.panel{background:var(--panel);border-radius:14px;padding:12px;border:1px solid #1c2440;box-shadow:0 6px 24px rgba(0,0,0,.25)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.btn{display:inline-flex;align-items:center;justify-content:center;padding:10px 12px;border-radius:10px;background:var(--accent);color:#0a0f17;font-weight:700;font-size:14px;border:none;box-shadow:0 2px 0 rgba(0,0,0,.25);text-decoration:none}
+.btn.ghost{background:var(--card);color:#dbe3ef;border:1px solid #2a355a;box-shadow:none}
+.small{font-size:12px;color:var(--muted)}
+hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
+
+/* tabs */
+.tabs{display:flex;gap:6px;flex-wrap:wrap}
+.tab{padding:6px 10px;border-radius:999px;border:1px solid #2a355a;background:#0e1630;color:#cbd5e1;cursor:pointer;font-size:12px}
+.tab.active{background:#1e293b;color:#e5e7eb}
+
+/* tables */
+.table{width:100%;border-collapse:collapse;font-size:13px}
+.table th,.table td{border-bottom:1px solid #1f2740;padding:8px 8px;text-align:left}
+.table th{font-weight:700;color:#dbe3ef}
+.right{text-align:right}
+.section{background:rgba(255,255,255,.02);border:1px solid #1c2440;border-radius:12px;padding:8px;margin-top:8px}
+.section h3{margin:0 0 6px;font-size:14px}
+.pill{display:inline-block;padding:4px 8px;border-radius:999px;background:var(--card);border:1px solid #233055;font-size:12px;color:var(--muted)}
+.badge{display:inline-block;min-width:20px;text-align:center;font-weight:800}
+</style>
+</head>
+<body>
+  <main>
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <h1>League Standings</h1>
+      <div class="row">
+        <a id="backLink" class="btn ghost" href="index.html">← Weekly Games</a>
+        <span id="sourceHint" class="small"></span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <div class="tabs">
+          <button class="tab active" data-mode="league">League</button>
+          <button class="tab" data-mode="conference">Conference</button>
+          <button class="tab" data-mode="division">Division</button>
+          <button class="tab" data-mode="draft">Draft Order</button>
+        </div>
+        <div class="row">
+          <span class="pill" id="teamCount">— teams</span>
+          <span class="pill" id="csvPill">CSV: loading…</span>
+        </div>
+      </div>
+      <hr>
+      <div id="standings"></div>
+    </div>
+
+    <div class="small">Notes: These standings are **rating-based** (derived from rosters in <code>players.csv</code>) since there’s no season store yet. Draft order = reverse of league ranking.</div>
+  </main>
+
+<script>
+/* ========= CSV loading (param or local/fallback) ========= */
+const PARAMS = new URLSearchParams(location.search);
+const RAW_PLAYERS_PARAM = (PARAMS.get('players') || '').replace('/refs/heads/', '/');
+const CSV_URLS = RAW_PLAYERS_PARAM
+  ? [RAW_PLAYERS_PARAM, new URL('players.csv', location.href).href, 'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/players.csv']
+  : [new URL('players.csv', location.href).href, 'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/players.csv'];
+
+const csvPill = document.getElementById('csvPill');
+const sourceHint = document.getElementById('sourceHint');
+const teamCount = document.getElementById('teamCount');
+
+async function fetchCsvText(){
+  let lastErr = null;
+  for (const url of CSV_URLS){
+    try{
+      const res = await fetch(url, { cache: 'no-store', mode: 'cors' });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      const txt = await res.text();
+      return { txt, url };
+    }catch(e){ lastErr = e; }
+  }
+  throw lastErr || new Error('CSV not reachable');
+}
+
+/* ========= CSV parsing helpers (same feel as index.html) ========= */
+function parseCsvToRows(text){
+  text = String(text || '').replace(/^\uFEFF/, '');
+  const rows=[]; let row=[], field='', inQ=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(inQ){
+      if(c==='"'){ if(text[i+1]==='"'){ field+='"'; i++; } else inQ=false; }
+      else field+=c;
+    }else{
+      if(c==='"') inQ=true;
+      else if(c===','){ row.push(field); field=''; }
+      else if(c==='\n'){ row.push(field); rows.push(row); row=[]; field=''; }
+      else if(c!=='\r'){ field+=c; }
+    }
+  }
+  row.push(field); rows.push(row);
+  // drop trailing empties
+  while(rows.length && rows[rows.length-1].every(x => String(x||'').trim()==='')) rows.pop();
+  return rows.filter(r=>r.length && r.some(x=>x!==''));;
+}
+function findHeaderIndex(rows){
+  const norm = s => String(s||'').trim().toLowerCase();
+  for(let i=0;i<Math.min(rows.length,8);i++){
+    if(rows[i].some(c => norm(c)==='team')) return i;
+  }
+  return 0;
+}
+function rowsToObjects(rows, headerIdx){
+  const header = rows[headerIdx].map(h => String(h||'').trim());
+  return rows.slice(headerIdx+1).map(r => {
+    const o={}; header.forEach((h,j)=> o[h]= r[j]===undefined ? '' : r[j]); return o;
+  });
+}
+
+/* ========= Rating & classification ========= */
+// Simple player OVR fallback if not provided
+function toNum(x, d=70){ const v=Number(x); return Number.isFinite(v) ? v : d; }
+function playerOVR(p){
+  if (p.OVR !== undefined && p.OVR !== '') return toNum(p.OVR, 70);
+  const keys = ['SPD','STR','AGI','INT','TEC','HANDS','TACK','BLOCK','COVER','PASS_ACC','PASS_PWR'];
+  let sum=0, n=0;
+  keys.forEach(k => { const v = toNum(p[k], NaN); if (Number.isFinite(v)){ sum+=v; n++; } });
+  return n? (sum/n) : 70;
+}
+function rateTeam(rows){
+  // Average OVR across players (good enough for standings/power)
+  if (!rows.length) return 70;
+  const vals = rows.map(playerOVR);
+  return Math.round(vals.reduce((a,b)=>a+b,0)/vals.length);
+}
+
+// Division mapping (substring match; add common nicknames)
+const DIVISIONS = {
+  "AFC East":      ['bills','dolphins','patriots','jets'],
+  "AFC North":     ['ravens','bengals','browns','steelers'],
+  "AFC South":     ['texans','colts','jaguars','jags','titans'],
+  "AFC West":      ['broncos','chiefs','raiders','chargers'],
+  "NFC East":      ['cowboys','giants','eagles','commanders','washington','wft'],
+  "NFC North":     ['bears','lions','packers','vikings'],
+  "NFC South":     ['falcons','panthers','saints','buccaneers','bucs'],
+  "NFC West":      ['cardinals','rams','49ers','niners','seahawks']
+};
+const DIV_TO_CONF = {
+  "AFC East": "AFC","AFC North":"AFC","AFC South":"AFC","AFC West":"AFC",
+  "NFC East": "NFC","NFC North":"NFC","NFC South":"NFC","NFC West":"NFC"
+};
+function classifyTeam(teamName){
+  const n = String(teamName||'').toLowerCase();
+  for (const [div, list] of Object.entries(DIVISIONS)){
+    if (list.some(key => n.includes(key))) return { conf: DIV_TO_CONF[div], div };
+  }
+  return { conf:'—', div:'—' };
+}
+
+/* ========= Renderers ========= */
+const elStandings = document.getElementById('standings');
+const tabs = Array.from(document.querySelectorAll('.tab'));
+tabs.forEach(btn => btn.addEventListener('click', () => {
+  tabs.forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  render(mode = btn.dataset.mode);
+}));
+
+let TEAMS = []; // [{team, rating, conf, div}]
+let mode = 'league';
+
+function tableHTML(rows){
+  return `
+    <table class="table">
+      <thead><tr><th class="right">RK</th><th>Team</th><th>Conf</th><th>Division</th><th class="right">Rating</th></tr></thead>
+      <tbody>
+      ${rows.map((t,i)=>`
+        <tr>
+          <td class="right">${i+1}</td>
+          <td>${t.team}</td>
+          <td>${t.conf}</td>
+          <td>${t.div}</td>
+          <td class="right">${t.rating}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+function section(title, inner){
+  return `<div class="section"><h3>${title}</h3>${inner}</div>`;
+}
+
+function renderLeague(){
+  const rows = TEAMS.slice().sort((a,b)=> b.rating - a.rating || a.team.localeCompare(b.team));
+  elStandings.innerHTML = tableHTML(rows);
+}
+function renderDraft(){
+  const rows = TEAMS.slice().sort((a,b)=> a.rating - b.rating || a.team.localeCompare(b.team));
+  elStandings.innerHTML = tableHTML(rows);
+}
+function renderConference(){
+  const groups = { 'AFC':[], 'NFC':[], '—':[] };
+  TEAMS.forEach(t => (groups[t.conf] || groups['—']).push(t));
+  const html = ['AFC','NFC','—'].map(c=>{
+    const rows = groups[c].slice().sort((a,b)=> b.rating - a.rating || a.team.localeCompare(b.team));
+    if (!rows.length) return '';
+    return section(`${c} Conference`, tableHTML(rows));
+  }).join('');
+  elStandings.innerHTML = html || '<div class="small">No teams found.</div>';
+}
+function renderDivision(){
+  const order = ["AFC East","AFC North","AFC South","AFC West","NFC East","NFC North","NFC South","NFC West","—"];
+  const groups = {}; order.forEach(k=>groups[k]=[]);
+  TEAMS.forEach(t => (groups[t.div] || groups['—']).push(t));
+  const html = order.map(d=>{
+    const rows = groups[d].slice().sort((a,b)=> b.rating - a.rating || a.team.localeCompare(b.team));
+    if (!rows.length) return '';
+    return section(d, tableHTML(rows));
+  }).join('');
+  elStandings.innerHTML = html || '<div class="small">No teams found.</div>';
+}
+
+function render(m){
+  if (m === 'league') return renderLeague();
+  if (m === 'draft') return renderDraft();
+  if (m === 'conference') return renderConference();
+  if (m === 'division') return renderDivision();
+  renderLeague();
+}
+
+/* ========= Boot ========= */
+(async function init(){
+  try{
+    const { txt, url } = await fetchCsvText();
+    csvPill.textContent = `CSV: ${url.includes('githubusercontent')?'remote':'local'}`;
+    sourceHint.textContent = url;
+
+    // Link back to index with same players param
+    const back = document.getElementById('backLink');
+    const playersParam = encodeURIComponent(url);
+    back.href = `index.html?players=${playersParam}`;
+
+    const rows = parseCsvToRows(txt);
+    const headerIdx = findHeaderIndex(rows);
+    const objs = rowsToObjects(rows, headerIdx);
+
+    // group by team
+    const byTeam = new Map();
+    objs.forEach(r => {
+      const team = String(r.Team||'').trim();
+      if (!team) return;
+      if (!byTeam.has(team)) byTeam.set(team, []);
+      // normalize numeric-ish fields
+      const norm = {...r};
+      ['OVR','SPD','STR','AGI','INT','TEC','HANDS','TACK','BLOCK','COVER','PASS_ACC','PASS_PWR'].forEach(k=>{
+        if (norm[k] !== undefined) norm[k] = String(norm[k]).trim();
+      });
+      byTeam.get(team).push(norm);
+    });
+
+    TEAMS = Array.from(byTeam.entries()).map(([team, rows])=>{
+      const rating = rateTeam(rows);
+      const { conf, div } = classifyTeam(team);
+      return { team, rating, conf, div };
+    });
+
+    teamCount.textContent = `${TEAMS.length} teams`;
+
+    render(mode);
+  }catch(e){
+    console.error(e);
+    elStandings.innerHTML = `<div class="small" style="color:#fca5a5">Could not load <code>players.csv</code>. Make sure your file is accessible (raw link) and includes a <code>Team</code> column.</div>`;
+    csvPill.textContent = 'CSV: error';
+  }
+})();
+</script>
+</body>
+</html>
