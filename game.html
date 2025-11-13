@@ -118,7 +118,16 @@ canvas#field{width:100%;height:260px;background:#062b22;border-radius:12px;borde
       <div class="teamName" id="homeName" style="color:var(--home)">Home</div>
       <div class="score"><span id="homeScore">0</span>–<span id="awayScore">0</span></div>
       <div class="teamName" id="awayName" style="color:var(--away);text-align:right">Away</div>
-      <div class="sub" style="grid-column:1/-1">Poss: <span id="poss">Home</span> • Q<span id="qtr">1</span> • <span id="clock">15:00</span> • TO: <span id="toHome">3</span>/<span id="toAway">3</span></div>
+      <div class="sub" style="grid-column:1/-1">
+        Poss: <span id="poss">Home</span> • Q<span id="qtr">1</span> •
+        <span id="clock">15:00</span> • TO: <span id="toHome">3</span>/<span id="toAway">3</span>
+      </div>
+    </div>
+    
+    <!-- NEW: stadium line driven by stadium CSV -->
+    <div class="small" id="stadiumLine"
+         style="margin:2px 0 6px 0;color:var(--muted)">
+      Stadium: (generic)
     </div>
 
     <div class="row">
@@ -250,20 +259,152 @@ const bind = (...ids) =>
 const CSV_DEBUG = true;            // logs fetch attempts + reasons
 const CSV_USE_FALLBACK = true;
 
+/* ===== Stadium data (team_stadiums.csv) ===== */
+
+// Raw rows from team_stadiums.csv
+let STADIUM_ROWS = null;
+
+// Map "ARI", "DAL", etc → stadium row
+let STADIUM_BY_ABBR = {};
+
+// Currently active venue (home team’s stadium, usually)
+let CURRENT_STADIUM = null;
+
+/** Look up by 2–4 letter code (ARI, DAL, NYG, etc.) */
+function stadiumForAbbr(abbr){
+  if (!abbr) return null;
+  const key = String(abbr).trim().toUpperCase();
+  return STADIUM_BY_ABBR[key] || null;
+}
+
+/** Try to guess the NFL abbr from whatever is in the label/select */
+function guessTeamAbbr(label){
+  if (!label) return null;
+  const raw = String(label).trim();
+  const upper = raw.toUpperCase();
+
+  // Already an abbreviation? (e.g. "ARI", "BUF")
+  if (/^[A-Z]{2,4}$/.test(upper) && STADIUM_BY_ABBR[upper]) return upper;
+
+  // Try tokens
+  const tokens = upper.split(/[^A-Z0-9]+/).filter(Boolean);
+  for (const t of tokens){
+    if (STADIUM_BY_ABBR[t]) return t;
+  }
+
+  // Fallback: if the label contains any known abbr substring
+  for (const k in STADIUM_BY_ABBR){
+    if (upper.includes(k)) return k;
+  }
+  return null;
+}
+
+/** Short stadium text for UI */
+function shortStadiumLine(row){
+  if (!row) return 'Stadium: (generic)';
+  const bits = [];
+  bits.push(row.stadium_name || 'Unknown stadium');
+  const loc = [row.city, row.state].filter(Boolean).join(', ');
+  if (loc) bits.push(loc);
+  const extras = [];
+  if (row.surface_type) extras.push(row.surface_type);
+  if (row.roof_type)    extras.push(row.roof_type);
+  if (row.capacity)     extras.push(`${row.capacity} cap`);
+  return 'Stadium: ' + bits.join(' — ') + (extras.length ? ' • ' + extras.join(' • ') : '');
+}
+
+/** Blend team strength with stadium home-field advantage into a prior WP */
+function priorWithStadium(homeTeam, awayTeam){
+  const base = priorFromTeams(homeTeam, awayTeam);
+  if (!CURRENT_STADIUM) return base;
+
+  const hfa = +CURRENT_STADIUM.hfa_all_time || +CURRENT_STADIUM.hfa_l80 || 0; // pts
+  // Convert “extra points at home” into a small WP shift
+  const shift = clamp(hfa / 7 / 3.5, -0.15, 0.15);
+  return clamp(base + shift, 0.30, 0.70);
+}
+
+/** Use the current home/away labels to set CURRENT_STADIUM and crowd/env */
+function applyStadiumFromTeams(){
+  if (!STADIUM_ROWS || !sim || !sim.crowd) {
+    stadiumLine.textContent = 'Stadium: (generic)';
+    return;
+  }
+
+  const homeAbbr = guessTeamAbbr(homeLabel.value || homeTeamSel.value);
+  const awayAbbr = guessTeamAbbr(awayLabel.value || awayTeamSel.value);
+
+  // Usually: home team’s own stadium; fall back to away’s if needed.
+  CURRENT_STADIUM = stadiumForAbbr(homeAbbr) || stadiumForAbbr(awayAbbr) || null;
+
+  if (!CURRENT_STADIUM){
+    stadiumLine.textContent = 'Stadium: (generic)';
+    sim.crowd.cap = 72000;
+    sim.crowd.present = Math.floor(0.85 * sim.crowd.cap);
+    sim.crowd.mood = 0;
+    renderCrowdMeter();
+    return;
+  }
+
+  const row = CURRENT_STADIUM;
+  stadiumLine.textContent = shortStadiumLine(row);
+
+  // Crowd capacity + initial attendance
+  const cap = +row.capacity || 72000;
+  sim.crowd.cap = cap;
+  sim.crowd.present = Math.round(cap * (0.88 + Math.random()*0.06)); // 88–94%
+  sim.crowd.mood = ( (+row.hfa_all_time || 0) >= 0 ? 0.12 : -0.05 );
+
+  // Weather presets based on roof & latitude
+  const roof = String(row.roof_type || '').toLowerCase();
+  const lat  = +row.lat || 38;
+
+  if (roof.includes('dome')){
+    precip.value = 'None';
+    wind.value   = 0;
+    temp.value   = 70;
+  } else if (roof.includes('retractable')){
+    // Mild outdoor effect
+    wind.value = Math.round(4 + Math.random()*8);
+    const base = lat > 42 ? 42 : lat < 33 ? 72 : 60;
+    temp.value = Math.round(base + (Math.random()*8-4));
+    const p = Math.random();
+    if (p < 0.8)       precip.value = 'None';
+    else if (p < 0.95) precip.value = 'Light Rain';
+    else               precip.value = (lat>40 ? 'Snow' : 'Heavy Rain');
+  } else {
+    // Fully outdoors
+    wind.value = Math.round(5 + Math.random()*12);
+    const base = lat > 42 ? 36 : lat < 33 ? 78 : 60;
+    temp.value = Math.round(base + (Math.random()*10-5));
+    const p = Math.random();
+    if (p < 0.72)       precip.value = 'None';
+    else if (p < 0.9)   precip.value = 'Light Rain';
+    else                precip.value = (lat>40 ? 'Snow' : 'Heavy Rain');
+  }
+
+  fansPill.textContent = `Fans: ${sim.crowd.present.toLocaleString()}`;
+  renderCrowdMeter();
+}
+
+
 // One compact grab that preserves your variable names
 const {
   crowdPct, crowdBar, startBtn, pauseBtn, resetBtn, exportCsv, topEpa, rosterStatus, toggleAdv,
   field, wpChart, homeName, awayName, homeScore, awayScore, poss, qtr, clock, toHome, toAway,
+  stadiumLine,
   wpVal, feed, lastPlay, boxWrap, leaders, tabPlays, tabScoring, tabDrives, tabAdvanced, fansPill,
   hud, homeTeamSel, awayTeamSel, homeLabel, awayLabel, seed, speed, feelVariance, feelRefs, feelCrowd,
   feelPace, precip, wind, temp, passEarly, passLate, aggr4th, twoPct, btnListCsvTeams, csvOut, btnForceLocalCsv
 } = bind(
   'crowdPct','crowdBar','startBtn','pauseBtn','resetBtn','exportCsv','topEpa','rosterStatus','toggleAdv',
   'field','wpChart','homeName','awayName','homeScore','awayScore','poss','qtr','clock','toHome','toAway',
+  'stadiumLine',
   'wpVal','feed','lastPlay','boxWrap','leaders','tabPlays','tabScoring','tabDrives','tabAdvanced','fansPill',
   'hud','homeTeamSel','awayTeamSel','homeLabel','awayLabel','seed','speed','feelVariance','feelRefs','feelCrowd',
   'feelPace','precip','wind','temp','passEarly','passLate','aggr4th','twoPct','btnListCsvTeams','csvOut','btnForceLocalCsv'
 );
+
 
 btnListCsvTeams.onclick = () => {
   let msg = '';
@@ -1033,7 +1174,52 @@ tabDrives.onclick=()=>{activeTab='drives';tabDrives.classList.add('active');[tab
 tabAdvanced.onclick=()=>{activeTab='advanced';tabAdvanced.classList.add('active');[tabPlays,tabScoring,tabDrives].forEach(x=>x.classList.remove('active'));renderAdvanced();}
 
 
-// === Paste over your existing tryLoadPlayersCsv and populateTeamsFromCsv ===
+// === Stadium CSV loader (team_stadiums.csv in same folder as this HTML) ===
+async function tryLoadStadiumCsv(){
+  const tried = [];
+  const withTimeout = (p, ms=2000) =>
+    Promise.race([p, new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')),ms))]);
+
+  const urls = [];
+  try { urls.push(new URL('team_stadiums.csv', location.href).href); }
+  catch { urls.push('team_stadiums.csv'); }
+
+  for (const url of urls){
+    tried.push(url);
+    try{
+      const res = await withTimeout(fetch(url, { cache:'no-store', mode:'cors' }));
+      if (!res.ok) { console.warn('[STADIUM] HTTP', res.status, url); continue; }
+
+      const text = await res.text();
+      const rows = parseCSV(text);       // header is first line in this file
+      if (!rows.length){ console.warn('[STADIUM] empty parse', url); continue; }
+
+      if (!('team' in rows[0]) && !('team_fastr' in rows[0])){
+        console.warn('[STADIUM] missing "team" columns', Object.keys(rows[0]||{}));
+        continue;
+      }
+
+      STADIUM_ROWS = rows;
+      STADIUM_BY_ABBR = {};
+
+      rows.forEach(r => {
+        const a1 = String(r.team       || '').trim().toUpperCase();
+        const a2 = String(r.team_fastr || '').trim().toUpperCase();
+        if (a1) STADIUM_BY_ABBR[a1] = r;
+        if (a2) STADIUM_BY_ABBR[a2] = r;
+      });
+
+      console.log('[STADIUM] loaded', Object.keys(STADIUM_BY_ABBR).length, 'teams');
+      return true;
+    }catch(e){
+      console.warn('[STADIUM] failed', url, e.message || e);
+    }
+  }
+  console.warn('[STADIUM] all sources failed. Tried:', tried);
+  return false;
+}
+
+
 
 async function tryLoadPlayersCsv(forceLocal = true){
   const tried = [];
@@ -1337,28 +1523,80 @@ function decidePAT({ team } = {}){
   return goForTwo ? 'two' : 'xp';
 }
 
-
+let preSnapStreak = 0;
 
 /* ===== Penalties ===== */
-function chancePenalty(context){
-  const refs=(+feelRefs.value)/100, crowd=(+feelCrowd.value)/100, varK=(+feelVariance.value)/100;
-  const base=0.045 + 0.02*refs + 0.01*varK; if(Math.random()>base) return null;
-  const preSnapBias = 0.25*refs + 0.35*crowd + (context.down>=3?0.1:0);
-  if(Math.random()<preSnapBias){
-    return Math.random()<0.7?{type:'False start',yards:-5,onDefense:false,preSnap:true}:{type:'Offside',yards:+5,onDefense:true,preSnap:true};
+function chancePenalty(ctx = {}){
+  // Phase gating: pre-snap pass in the loop uses isPass:false BEFORE the play,
+  // live-ball checks use isPass:true AFTER the snap (in pass logic).
+  const isPre  = ctx.isPass === false;
+  const isLive = ctx.isPass === true;
+
+  const refs  = (+feelRefs.value)/100;
+  const crowd = (+feelCrowd.value)/100;
+  const varK  = (+feelVariance.value)/100;
+
+  // --- Total penalty per snap (NFL-ish scale ~3–9%) ---
+  const down    = ctx.down|0;
+  const isLong  = (ctx.dist||10) >= 8;
+  const situ    = (down>=3? 0.012 : 0) + (isLong? 0.008 : 0);
+  const pBase   = clamp(0.035 + 0.02*refs + 0.005*varK, 0.015, 0.09);
+  const pTotal  = clamp(pBase + situ, 0.015, 0.11);
+
+  // If we’re only deciding *pre-snap*, don’t do a second roll for live-ball later.
+  if (isPre){
+    // Pre-snap share, with small “jitter” memory for realistic clusters
+    let wPre = 0.40 + 0.25*crowd + 0.10*refs + (down>=3?0.05:0); // 25–85%
+    wPre = clamp(wPre * (1 + 0.5*preSnapStreak), 0.25, 0.85);
+
+    if (Math.random() < pTotal * wPre){
+      // we got a pre-snap flag; increase jitter a bit
+      preSnapStreak = Math.min(1, preSnapStreak + 0.35);
+
+      // Offense vs defense split (crowd tilts toward false starts)
+      const defSkew = 0.40 + 0.15*refs - 0.10*crowd; // ~25–55%
+      const onDefense = Math.random() < clamp(defSkew, 0.25, 0.55);
+
+      return onDefense
+        ? { type:'Offside',     yards:+5, onDefense:true,  preSnap:true }
+        : { type:'False start', yards:-5, onDefense:false, preSnap:true };
+    } else {
+      // no pre-snap this time; decay the jitter
+      preSnapStreak = Math.max(0, preSnapStreak - 0.20);
+      return null;
+    }
   }
-  const roll=Math.random();
-  if(context.isPass){
-    if(roll<0.20) return {type:'Defensive holding',yards:+5,onDefense:true,autoFirst:true};
-    if(roll<0.48) return {type:'DPI',yards:clamp(Math.round(randNorm(sim.rng,12+context.airDepth*0.6,6)),8,35),onDefense:true,spot:true,autoFirst:true};
-    if(roll<0.58) return {type:'Roughing the passer',yards:+15,onDefense:true,autoFirst:true};
-    return {type:'Offensive holding',yards:-10,onDefense:false};
-  }else{
-    if(roll<0.35) return {type:'Offensive holding',yards:-10,onDefense:false};
-    if(roll<0.43) return {type:'Facemask',yards:+15,onDefense:true,autoFirst:true};
-    return null;
+
+  // Live-ball only (in-play), no pre-snap output here.
+  if (isLive){
+    if (Math.random() >= pTotal) return null;
+
+    if (ctx.isPass){
+      // proportions sum to <=1; leftover → no flag
+      const roll = Math.random();
+      const pDH  = 0.25; // defensive holding
+      const pDPI = 0.38; // DPI (spot)
+      const pRTP = 0.10; // roughing passer
+      if (roll < pDH)  return { type:'Defensive holding', yards:+5,  onDefense:true,  autoFirst:true };
+      if (roll < pDH+pDPI){
+        const yards = clamp(Math.round(randNorm(sim.rng, 12 + (ctx.airDepth||0)*0.6, 6)), 8, 35);
+        return { type:'DPI', yards, onDefense:true, spot:true, autoFirst:true };
+      }
+      if (roll < pDH+pDPI+pRTP) return { type:'Roughing the passer', yards:+15, onDefense:true, autoFirst:true };
+      if (Math.random() < 0.20) return { type:'Offensive holding', yards:-10, onDefense:false };
+      return null;
+    } else {
+      const roll = Math.random();
+      if (roll < 0.45) return { type:'Offensive holding', yards:-10, onDefense:false };
+      if (roll < 0.55) return { type:'Facemask', yards:+15, onDefense:true,  autoFirst:true };
+      return null;
+    }
   }
+
+  // If phase not specified, be safe.
+  return null;
 }
+
 
 function applyPenalty(p){
   const h = sim.hud;
@@ -1485,11 +1723,26 @@ function startGame(){
   AWAY.stats.team={plays:0,yards:0,passYds:0,rushYds:0,punts:0,fgm:0,fga:0,td:0,ints:0,downs:0,pen:0,third:{c:0,a:0},fourth:{c:0,a:0},epa:0}; AWAY.drives=[];
   renderBox(); renderLeaders(); renderTopEpa();
 
-  const r=rngFromSeed(seed.value||'seed');
-  const receive=r()<0.5?'Home':'Away';
-  sim={rng:r,score:{home:0,away:0},hud:{poss:receive,qtr:1,secs:900,down:1,dist:10,yard:25},crowd:{cap:72000,present:Math.floor(0.85*72000),mood:0}};
-  wpSeries=[0.5]; wpSmooth=0.5; wpPrior=priorFromTeams(HOME,AWAY);
-  fansPill.textContent=`Fans: ${sim.crowd.present.toLocaleString()}`;
+  const r = rngFromSeed(seed.value||'seed');
+  const receive = r()<0.5 ? 'Home' : 'Away';
+
+  // Basic sim; crowd/env will be overwritten by stadium data if available
+  sim = {
+    rng: r,
+    score: { home:0, away:0 },
+    hud:   { poss:receive, qtr:1, secs:900, down:1, dist:10, yard:25 },
+    crowd: { cap:72000, present:Math.floor(0.85*72000), mood:0 }
+  };
+
+  // Stadium → capacity, weather, crowd, CURRENT_STADIUM
+  applyStadiumFromTeams();
+
+  wpSeries = [0.5];
+  wpSmooth = 0.5;
+  wpPrior  = priorWithStadium(HOME, AWAY);
+
+  fansPill.textContent = `Fans: ${sim.crowd.present.toLocaleString()}`;
+
 
   beginKickoff(receive==='Home'?'Away':'Home'); doKickoff();
   updateHUD(); updateScore(); drawWP(); renderPlays(); Field.render({hud:sim.hud});
@@ -1544,15 +1797,18 @@ function hardReset(){
   sim = {
     rng: rngFromSeed('seed'),
     score: { home:0, away:0 },
-    hud:   { poss:'Home', qtr:1, secs:900, down:1, dist:10, yard:25 }
+    hud:   { poss:'Home', qtr:1, secs:900, down:1, dist:10, yard:25 },
+    crowd: { cap:72000, present:Math.floor(0.85*72000), mood:0 }
   };
 
-  // recompute prior from the current (possibly CSV) rosters
-  if (typeof priorFromTeams === 'function' && HOME && AWAY){
-    wpPrior = priorFromTeams(HOME, AWAY);
+  // Re-apply stadium environment & prior
+  applyStadiumFromTeams();
+  if (HOME && AWAY){
+    wpPrior = priorWithStadium(HOME, AWAY);
   } else {
     wpPrior = 0.50;
   }
+
 
   // UI refresh
   feed.innerHTML = '';
@@ -1905,14 +2161,15 @@ function loop(ms){
         continue;
       }
 
-    // Pre-snap penalty check happens BEFORE we snapshot EP/WP
+    // Pre-snap penalty check BEFORE we snapshot EP/WP (streaks allowed)
     const pre = chancePenalty({ down: h.down, isPass: false, airDepth: 0 });
     if (pre && pre.preSnap) {
       applyPenalty(pre);
       updateHUD(); Field.render({ hud:h });
       if (ms > 0) await new Promise(rs => setTimeout(rs, ms));
-      continue;       // replay down from new spot, then we'll re-snapshot next loop
+      continue; // replay the down from the new spot
     }
+
 
     // snapshot AFTER pre-snap penalties are cleared, BEFORE any play logic
     const snap = snapshotHUD();
@@ -2124,19 +2381,18 @@ function loop(ms){
         if(!qb.adv) qb.adv={};
         qb.adv.dropbacks=(qb.adv.dropbacks||0)+1;
 
+        // Air yards for the throw
         const air = clamp(Math.round(randNorm(r, 6 + offAdv*0.008, 5*(1+0.5*varK))), -1, 26);
+
+        // Live-ball penalty check (pre-snap penalties are handled before the snap)
         const pen = chancePenalty({ down: h.down, isPass: true, airDepth: air });
         if (pen) {
-        if (pen.preSnap) {
-            // Pre-snap penalty: NO PLAY. Enforce and replay down from previous spot.
-            applyPenalty(pen);
-        } else {
-            // Live-ball penalty (e.g., holding/DPI): NO RESULT. Enforce from previous spot and replay.
-            applyPenalty(pen);
-        }
-        updateHUD(); Field.render({ hud: h });
-        if (ms > 0) await new Promise(rs => setTimeout(rs, ms));
-        continue; // <- critical: never run the play on any penalty
+          // Live-ball penalty: enforce from previous spot and replay the down
+          applyPenalty(pen);
+          updateHUD();
+          Field.render({ hud: h });
+          if (ms > 0) await new Promise(rs => setTimeout(rs, ms));
+          continue; // never run the play when a flag occurs
         }
 
         // Pressure → possible scramble → else resolve (sack / complete / incomplete)
@@ -2440,20 +2696,39 @@ function loop(ms){
 
 /* ===== Advanced Tab (team + players) ===== */
 function renderAdvanced(){
+  const recAgg = (T)=>{
+    let targets=0,air=0,yac=0,catches=0;
+    (T.wr||[]).concat(T.te||[]).concat(T.rb||[]).forEach(p=>{
+      const a=p.adv||{};
+      targets+=a.targets||0;catches+=a.catches||0;
+      air+=a.air||0; yac+=a.yac||0;
+    });
+    return {adot:targets?air/targets:0, yacPer:catches?yac/catches:0};
+  };
+
   const teamTable = (name,T)=>{
-    const qb=T.qb?.adv||{}; const epaP=(T.stats.team.epa/(T.stats.team.plays||1)).toFixed(2); const db=qb.dropbacks||0, pr=db?(qb.pressures/db*100).toFixed(1):'0.0'; const ttt=qb.tttN?(qb.ttt/qb.tttN).toFixed(2):'0.00'; const cpoe= qb.expN?(((qb.comp||0)/qb.expN - qb.expSum/qb.expN)*100).toFixed(1):'0.0'; const adot = recAgg(T).adot.toFixed(1), yacPer=recAgg(T).yacPer.toFixed(1), topSpeed=(T.players||[]).reduce((m,p)=>Math.max(m,p.adv?.fast||0),0).toFixed(1);
+    const qb=T.qb?.adv||{};
+    const epaP=(T.stats.team.epa/(T.stats.team.plays||1)).toFixed(2);
+    const db=qb.dropbacks||0, pr=db?(qb.pressures/db*100).toFixed(1):'0.0';
+    const ttt=qb.tttN?(qb.ttt/qb.tttN).toFixed(2):'0.00';
+    const cpoe= qb.expN?(((qb.comp||0)/qb.expN - qb.expSum/qb.expN)*100).toFixed(1):'0.0';
+    const adot = recAgg(T).adot.toFixed(1),
+          yacPer=recAgg(T).yacPer.toFixed(1),
+          topSpeed=(T.players||[]).reduce((m,p)=>Math.max(m,p.adv?.fast||0),0).toFixed(1);
     return `<tr><th>${name}</th><td>${epaP}</td><td>${db}</td><td>${pr}%</td><td>${ttt}</td><td>${cpoe}%</td><td>${adot}</td><td>${yacPer}</td><td>${topSpeed}</td></tr>`;
   };
-  const recAgg = (T)=>{let targets=0,air=0,yac=0,catches=0;(T.wr||[]).concat(T.te||[]).concat(T.rb||[]).forEach(p=>{const a=p.adv||{};targets+=a.targets||0;catches+=a.catches||0;air+=a.air||0;yac+=a.yac||0;});return {adot:targets?air/targets:0,yacPer:catches?yac/catches:0};};
 
   const teamHTML = `
-  <div class="small" style="margin-bottom:6px">Team Advanced</div>
-  <table class="table"><thead><tr><th></th><th>EPA/play</th><th>Dropbacks</th><th>Pressure%</th><th>TTT (s)</th><th>CPOE</th><th>aDOT</th><th>YAC/rec</th><th>Top speed (mph)</th></tr></thead>
-  <tbody>${teamTable(homeLabel.value,HOME)}${teamTable(awayLabel.value,AWAY)}</tbody></table>`;
+    <div class="small" style="margin-bottom:6px">Team Advanced</div>
+    <table class="table">
+      <thead><tr><th></th><th>EPA/play</th><th>Dropbacks</th><th>Pressure%</th><th>TTT (s)</th><th>CPOE</th><th>aDOT</th><th>YAC/rec</th><th>Top speed (mph)</th></tr></thead>
+      <tbody>${teamTable(homeLabel.value,HOME)}${teamTable(awayLabel.value,AWAY)}</tbody>
+    </table>`;
 
   const playersHTML = renderPlayersTables();
   feed.innerHTML = teamHTML + '<div class="line"></div>' + playersHTML;
 }
+
 function renderPlayersTables(){
   const rowsQBs = (T)=> T.qb?[T.qb]:[]; const rowsRBs = (T)=> T.rb||[]; const rowsWRs = (T)=> (T.wr||[]).concat(T.te||[]); const rowsDEF = (T)=> (T.dl||[]).concat(T.lb||[]).concat(T.db||[]);
   const fmt=(n)=> (n??0);
@@ -2505,53 +2780,69 @@ exportCsv.onclick = () => {
 };
 
 
-/* ===== Init (CSV only) ===== */
+/* ===== Init (rosters + (optional) stadiums) ===== */
 (async function init(){
   startBtn.disabled = true;
 
-  // safe boot visuals before rosters exist
-  try{
+  // 1) Safe boot visuals before any CSVs load
+  try {
     sim = {
-      rng: rngFromSeed('seed'),
-      score: { home:0, away:0 },
-      hud:   { poss:'Home', qtr:1, secs:900, down:1, dist:10, yard:25 }
+      rng:  rngFromSeed('seed'),
+      score:{ home:0, away:0 },
+      hud:  { poss:'Home', qtr:1, secs:900, down:1, dist:10, yard:25 }
     };
     Field.render({ hud: sim.hud });
-    updateHUD(); updateScore(); drawWP(); renderBox(); renderLeaders(); renderTopEpa(); renderCrowdMeter();
-  }catch{}
+    updateHUD();
+    updateScore();
+    drawWP();
+    renderBox();
+    renderLeaders();
+    renderTopEpa();
+    renderCrowdMeter();
+  } catch (e) {
+    console.warn('boot visuals failed:', e);
+  }
 
   // helper to pick two distinct teams if URLs are missing/bad
   function pickTwoDistinct(list){
-    if (!list || list.length < 2) return [list?.[0] || '', list?.[0] || ''];
-    const i = Math.floor(Math.random()*list.length);
-    let j = Math.floor(Math.random()*list.length);
-    if (j === i) j = (i+1) % list.length;
+    if (!list || !list.length) return ['', ''];
+    if (list.length === 1) return [list[0], list[0]];
+
+    const i = Math.floor(Math.random() * list.length);
+    let   j = Math.floor(Math.random() * list.length);
+    if (j === i) j = (i + 1) % list.length;
     return [list[i], list[j]];
   }
 
-  try{
-    // If ?players= is present, try that FIRST (so index.html → game.html works),
-    // then local; otherwise do local first, then remote.
+  try {
+    // 2) Load stadiums (no-op if file missing, just logs a warning)
+    if (typeof loadStadiumsCsv === 'function') {
+      await loadStadiumsCsv();
+    }
+
+    // 3) Load players.csv with smart ordering:
+    //    - if ?players= is present → try that path first, then local
+    //    - otherwise → local first, then remote/fallback
     let loaded = false;
     const haveParamCsv = !!RAW_PLAYERS_PARAM;
 
     if (haveParamCsv){
-      // try param / remote path first
-      loaded = await tryLoadPlayersCsv(false);   // tries ?players= then fallback
-      if (!loaded) loaded = await tryLoadPlayersCsv(true);  // then local
+      // prefer the ?players= CSV
+      loaded = await tryLoadPlayersCsv(false);
+      if (!loaded) loaded = await tryLoadPlayersCsv(true);
     } else {
-      // no param → behave like before (local first)
-      loaded = await tryLoadPlayersCsv(true);    // local
-      if (!loaded) loaded = await tryLoadPlayersCsv(false); // then fallback
+      // no param → local first, then remote
+      loaded = await tryLoadPlayersCsv(true);
+      if (!loaded) loaded = await tryLoadPlayersCsv(false);
     }
 
-    if (loaded && TEAM_SHEETS.length){
-      // Respect ?home=&away= from index.html
+    if (loaded && TEAM_SHEETS && TEAM_SHEETS.length){
+      // respect ?home=&away= if present, otherwise pick two distinct teams
       const hFromUrl = fuzzyFindTeam(URL_HOME);
       const aFromUrl = fuzzyFindTeam(URL_AWAY);
 
-      let homeT = hFromUrl;
-      let awayT = aFromUrl;
+      let homeT = hFromUrl || null;
+      let awayT = aFromUrl || null;
 
       if (!homeT && !awayT){
         [homeT, awayT] = pickTwoDistinct(TEAM_SHEETS);
@@ -2561,18 +2852,23 @@ exportCsv.onclick = () => {
         awayT = TEAM_SHEETS.find(t => t !== homeT) || TEAM_SHEETS[0];
       }
 
-      // Reflect in dropdowns AND labels immediately (no manual clicking)
-      homeTeamSel.value = homeT; homeLabel.value = homeT; homeName.textContent = homeT;
-      awayTeamSel.value = awayT; awayLabel.value = awayT; awayName.textContent = awayT;
+      // sync dropdowns + labels + header names
+      homeTeamSel.value   = homeT;
+      homeLabel.value     = homeT;
+      homeName.textContent= homeT;
 
-      rosterStatus.textContent = `Loaded ${TEAM_SHEETS.length} teams from CSV`;
+      awayTeamSel.value   = awayT;
+      awayLabel.value     = awayT;
+      awayName.textContent= awayT;
+
+      rosterStatus.textContent = 'Loaded ' + TEAM_SHEETS.length + ' teams from CSV';
     } else {
       rosterStatus.textContent = 'No players.csv found — using generated players.';
     }
-  }catch(e){
+  } catch (e) {
     console.error('init failed:', e);
     rosterStatus.textContent = 'Roster load error — using generated players.';
-  }finally{
+  } finally {
     startBtn.disabled = false;
   }
 })();
