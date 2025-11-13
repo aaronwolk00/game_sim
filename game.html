@@ -17,14 +17,13 @@ header{padding:10px 14px;border-bottom:1px solid #1c2440;display:flex;align-item
 h1{margin:0;font-size:16px}
 main{
   display:grid;
-  grid-template-columns:320px 1fr 380px;
+  grid-template-columns:120px 1fr 600px;
   gap:12px;
   padding:12px;
-  width:min(1600px,96vw);
-  margin:0 auto;
+  width:min(1600px,98vw);
 }
-@media (max-width:1200px){
-  main{ grid-template-columns:1fr; width:min(960px,96vw); }
+@media (max-width:1400px){
+  main{ grid-template-columns:1fr; width:min(1100px,98vw); }
 }
 
 .panel{background:var(--panel);border-radius:14px;padding:12px;box-shadow:0 6px 24px rgba(0,0,0,.25)}
@@ -71,7 +70,7 @@ main{
   /* keep your grid but allow more breathing room */
   max-width: 1560px;       /* was ~1200; expand */
   margin: 0 auto;
-  grid-template-columns: 340px minmax(700px,1fr) 420px;  /* wider middle & right */
+  grid-template-columns: 340px minmax(700px,1fr) 540px;  /* wider middle & right */
   gap: 16px;
 }
 
@@ -200,7 +199,7 @@ canvas#field{width:100%;height:260px;background:#062b22;border-radius:12px;borde
     </div>
     <div id="feed" class="feed"></div>
   </section>
-
+  
   <!-- RIGHT -->
   <section class="panel">
     <div style="font-weight:800;margin-bottom:6px">Team Box</div>
@@ -247,17 +246,18 @@ const {
   'feelPace','precip','wind','temp','passEarly','passLate','aggr4th','twoPct'
 );
 
-// URL params (required by the CSV loader and team preselect)
+// URL params
 const PARAMS = new URLSearchParams(location.search);
+const URL_HOME = (PARAMS.get('home') || '').trim();
+const URL_AWAY = (PARAMS.get('away') || '').trim();
 
-// Normalize the GitHub raw URL if someone passed refs/heads
-const RAW_PLAYERS  = PARAMS.get('players') || '';
-const URL_PLAYERS  = RAW_PLAYERS.replace('/refs/heads/', '/'); // turns .../refs/heads/main/... → .../main/...
+// If players param given, normalize possible refs/heads URL → raw
+const RAW_PLAYERS_PARAM = (PARAMS.get('players') || '').replace('/refs/heads/', '/');
 
-const URL_HOME     = (PARAMS.get('home')  || '').trim();
-const URL_AWAY     = (PARAMS.get('away')  || '').trim();
-const FALLBACK_PLAYERS =
+// Fallback CSV so the app works even with no ?players= in the URL
+const FALLBACK_PLAYERS_URL =
   'https://raw.githubusercontent.com/aaronwolk00/game_sim/main/players.csv';
+
 
 
 function logPlay(tag,line,off,scoring=false,epa=null,wpd=null){
@@ -285,7 +285,10 @@ function yardText(y){return y>=50?`Opp ${100-y}`:`Own ${y}`;}
 function dnTxt(d){return ['1st','2nd','3rd','4th'][d-1]}
 
 /* ===== CSV / roster ===== */
+function stripBOM(s){ return s.replace(/^\uFEFF/, ''); }
+
 function parseCSV(text){
+  text = stripBOM(text);
   const rows = [];
   let row = [], field = '', inQuotes = false;
   for (let i=0; i<text.length; i++){
@@ -315,34 +318,33 @@ function parseCSV(text){
 }
 
 function parseCSVSmart(text){
+  text = stripBOM(text);
   const lines = text.split(/\r?\n/);
 
-  // Find a header candidate within the first 5 non-empty lines
-  let headerIdx = 0;
-  for (let i = 0; i < Math.min(5, lines.length); i++){
-    const li = lines[i].toLowerCase();
-    if (!li.trim()) continue;
-    // Look for telltale columns likely to exist in your sheet
-    if (
-      (li.includes('team') || li.includes('teams')) &&
-      (li.includes('position') || li.includes('first') || li.includes('last'))
-    ){
-      headerIdx = i;
-      break;
-    }
+  // find the first non-empty line that looks like a real header
+  // e.g. "#,Team,Position,Archetype,..." OR contains both "Team" and "Position"
+  let headerIdx = -1;
+  for (let i = 0, seen = 0; i < lines.length && seen < 10; i++){
+    const raw = lines[i];
+    if (!raw.trim()) continue;
+    seen++;
+    const li = raw.toLowerCase();
+    const looksLikeHeader =
+      /^#\s*,\s*team\s*,\s*position/i.test(raw) ||
+      (li.includes('team') && li.includes('position'));
+    if (looksLikeHeader){ headerIdx = i; break; }
   }
+  if (headerIdx < 0) headerIdx = 0; // worst case: assume first line
 
-  // Re-run your existing CSV parser starting at detected header line
   const sliced = lines.slice(headerIdx).join('\n');
-  const rows = parseCSV(sliced);
-
-  // Normalize common header quirks (alias "Teams" → "Team")
-  return rows.map(r => {
+  const rows = parseCSV(sliced).map(r => {
+    // Normalize common header variants
     if (r.Team === undefined && r.Teams !== undefined) r.Team = r.Teams;
-    // Optional: trim all string fields
     for (const k in r) if (typeof r[k] === 'string') r[k] = r[k].trim();
     return r;
   });
+
+  return rows;
 }
 
 function num(x,d=70){const v=Number(x);return Number.isFinite(v)?v:d;}
@@ -469,13 +471,16 @@ tabDrives.onclick=()=>{activeTab='drives';tabDrives.classList.add('active');[tab
 tabAdvanced.onclick=()=>{activeTab='advanced';tabAdvanced.classList.add('active');[tabPlays,tabScoring,tabDrives].forEach(x=>x.classList.remove('active'));renderAdvanced();}
 
 
-
-const CSV_CANDIDATES = ['players.csv','Players.csv'];
-
 async function tryLoadPlayersCsv(){
+  // Try explicit ?players= first, else your fallback GitHub raw
   const tryUrls = [];
-  tryUrls.push(URL_PLAYERS || FALLBACK_PLAYERS);
-  CSV_CANDIDATES.forEach(n => tryUrls.push(new URL(n, location.href).href));
+  if (RAW_PLAYERS_PARAM) tryUrls.push(RAW_PLAYERS_PARAM);
+  tryUrls.push(FALLBACK_PLAYERS_URL);
+
+  // Also allow local players.csv if you happen to host it next to game.html
+  ['players.csv','Players.csv'].forEach(n => {
+    tryUrls.push(new URL(n, location.href).href);
+  });
 
   for (const url of tryUrls){
     try{
@@ -486,32 +491,42 @@ async function tryLoadPlayersCsv(){
       const text = await res.text();
       const rows = parseCSVSmart(text);
       if (!rows.length){ console.warn('[CSV] empty after parse', url); continue; }
-      if (!('Team' in rows[0])){ console.warn('[CSV] no Team/Teams column', url); continue; }
+
+      if (!('Team' in rows[0]) && !('Teams' in rows[0])){
+        console.warn('[CSV] no Team/Teams column', url, Object.keys(rows[0]||{}));
+        continue;
+      }
+
+      // Normalize Team key
+      rows.forEach(r => { if (r.Team === undefined && r.Teams !== undefined) r.Team = r.Teams; });
 
       PLAYERS_CSV_ROWS = rows;
 
-      // Build unique team list from the normalized "Team" key
+      // Build team list
       const set = new Set();
       rows.forEach(r => { const t = String(r.Team||'').trim(); if (t) set.add(t); });
       TEAM_SHEETS = Array.from(set).sort();
 
       populateTeamsFromCsv();
-      rosterStatus.textContent = `Loaded ${TEAM_SHEETS.length} teams from CSV (${url})`;
-      console.log('[CSV] loaded', TEAM_SHEETS.length, 'teams from', url);
-      console.log('[CSV] header keys:', Object.keys(rows[0] || {}));
-      console.log('[CSV] sample counts:',
-        'Saints=', rows.filter(r => (r.Team||'').trim()==='Saints').length,
-        'Rams=',   rows.filter(r => (r.Team||'').trim()==='Rams').length
-      );
+
+      // quick sanity counts for Saints/Rams
+      const cSaints = rows.filter(r => (r.Team||'').trim() === 'Saints').length;
+      const cRams   = rows.filter(r => (r.Team||'').trim() === 'Rams').length;
+      console.log('[CSV] loaded', TEAM_SHEETS.length, 'teams from', url,
+                  '| Saints:', cSaints, 'Rams:', cRams);
+
+      rosterStatus.textContent = `Loaded ${TEAM_SHEETS.length} teams from CSV`;
       return true;
     }catch(e){
-      console.error('[CSV] fetch failed', url, e);
+      console.error('[CSV] fetch/parse failed', url, e);
+      // try the next URL
     }
   }
 
   rosterStatus.textContent = 'No players.csv found — using generated players.';
   return false;
 }
+
 
 /** Fill the dropdowns from TEAM_SHEETS (CSV teams) */
 function populateTeamsFromCsv(){
@@ -1355,46 +1370,87 @@ exportCsv.onclick=()=>{const lines=['tag,line,aux'];plays.forEach(p=>lines.push(
 (async function init(){
   startBtn.disabled = true;
 
+  // ---- small helpers (no hard-coding, robust to any two teams) ----
+  const normalize = s => String(s || '').toLowerCase().trim();
+  function findTeam(name){
+    if (!name || !TEAM_SHEETS.length) return null;
+    const exact = TEAM_SHEETS.find(t => normalize(t) === normalize(name));
+    if (exact) return exact;
+    return TEAM_SHEETS.find(t => normalize(t).includes(normalize(name)) || normalize(name).includes(normalize(t))) || null;
+  }
+  function pickTwoDistinct(list){
+    if (!list || list.length < 2) return [list?.[0] || '', list?.[0] || ''];
+    const i = Math.floor(Math.random()*list.length);
+    let j = Math.floor(Math.random()*list.length);
+    if (j === i) j = (i+1) % list.length;
+    return [list[i], list[j]];
+  }
+  async function loadCsvFallbackFromGithub(){
+    try{
+      const fallbackUrl = 'https://raw.githubusercontent.com/aaronwolk00/game_sim/main/players.csv';
+      console.log('[CSV fallback] trying', fallbackUrl);
+      const res = await fetch(fallbackUrl, { cache:'no-store', mode:'cors' });
+      if (!res.ok) { console.warn('[CSV fallback] HTTP', res.status); return false; }
+      const text = await res.text();
+      const rows = parseCSVSmart(text);   // handles BOM + header-on-line-2 + Teams→Team
+      if (!rows.length || (!('Team' in rows[0]) && !('Teams' in rows[0]))) {
+        console.warn('[CSV fallback] no rows or no Team column');
+        return false;
+      }
+      // normalize Teams→Team just in case (parseCSVSmart also does this)
+      rows.forEach(r => { if (r.Team === undefined && r.Teams !== undefined) r.Team = r.Teams; });
+      PLAYERS_CSV_ROWS = rows;
+
+      const set = new Set();
+      rows.forEach(r => { const t = String(r.Team||'').trim(); if (t) set.add(t); });
+      TEAM_SHEETS = Array.from(set).sort();
+
+      populateTeamsFromCsv();
+      rosterStatus.textContent = `Loaded ${TEAM_SHEETS.length} teams from CSV (GitHub)`;
+      console.log('[CSV fallback] loaded', TEAM_SHEETS.length, 'teams');
+      return true;
+    }catch(e){
+      console.error('[CSV fallback] error', e);
+      return false;
+    }
+  }
+
   try{
-    // baseline visuals
+    // baseline visuals (safe prior to roster load)
     sim = { rng:rngFromSeed('seed'), score:{home:0,away:0},
             hud:{poss:'Home',qtr:1,secs:900,down:1,dist:10,yard:25} };
     Field.render({hud:sim.hud});
     updateHUD(); updateScore(); drawWP(); renderBox(); renderLeaders(); renderTopEpa(); renderCrowdMeter();
 
-    // load CSV (prefer ?players=)
-    const loaded = await tryLoadPlayersCsv();
+    // 1) Try normal CSV load (uses ?players= if present; else local players.csv/Players.csv)
+    let loaded = await tryLoadPlayersCsv();
 
-    // helper: fuzzy match for URL team names
-    const norm = s => String(s||'').toLowerCase().trim();
-    const findTeam = (name) => {
-      if (!name) return null;
-      const exact = TEAM_SHEETS.find(t => t === name);
-      if (exact) return exact;
-      const ci = TEAM_SHEETS.find(t => norm(t) === norm(name));
-      if (ci) return ci;
-      return TEAM_SHEETS.find(t => norm(t).includes(norm(name)) || norm(name).includes(norm(t))) || null;
-    };
+    // 2) If that failed, automatically fall back to your GitHub raw file.
+    if (!loaded) loaded = await loadCsvFallbackFromGithub();
 
-    if (loaded){
-      // apply ?home & ?away if provided
-      const h = findTeam(URL_HOME);
-      const a0 = findTeam(URL_AWAY);
-      const a  = (a0 && a0 === h) ? (TEAM_SHEETS.find(x => x !== h) || a0) : a0;
+    if (loaded && TEAM_SHEETS.length){
+      // 3) Choose teams purely from URL (?home & ?away) with fuzzy matching; if missing/invalid, pick any two distinct.
+      const hFromUrl = findTeam(URL_HOME);
+      const aFromUrl = findTeam(URL_AWAY);
 
-      if (h){ homeTeamSel.value = h; homeLabel.value = h; homeName.textContent = h; }
-      if (a){ awayTeamSel.value = a; awayLabel.value = a; awayName.textContent = a; }
+      let homeT = hFromUrl;
+      let awayT = aFromUrl;
 
-      // defaults if nothing chosen
-      if (!homeTeamSel.value && TEAM_SHEETS.length){
-        homeTeamSel.value = TEAM_SHEETS[0];
-        homeLabel.value = TEAM_SHEETS[0]; homeName.textContent = TEAM_SHEETS[0];
+      if (!homeT && !awayT){
+        [homeT, awayT] = pickTwoDistinct(TEAM_SHEETS);
+      } else if (!homeT){
+        // only away provided/valid → choose a distinct home
+        homeT = TEAM_SHEETS.find(t => t !== awayT) || TEAM_SHEETS[0];
+      } else if (!awayT || awayT === homeT){
+        // only home provided/valid OR duplicate → choose a distinct away
+        awayT = TEAM_SHEETS.find(t => t !== homeT) || TEAM_SHEETS[0];
       }
-      if (!awayTeamSel.value && TEAM_SHEETS.length > 1){
-        const alt = TEAM_SHEETS.find(t => t !== homeTeamSel.value) || TEAM_SHEETS[0];
-        awayTeamSel.value = alt;
-        awayLabel.value = alt; awayName.textContent = alt;
-      }
+
+      // 4) Reflect in UI (dropdowns + labels); no manual typing required
+      homeTeamSel.value = homeT; homeLabel.value = homeT; homeName.textContent = homeT;
+      awayTeamSel.value = awayT; awayLabel.value = awayT; awayName.textContent = awayT;
+
+      console.log('[Teams]', { URL_HOME, URL_AWAY, chosenHome: homeT, chosenAway: awayT });
     } else {
       rosterStatus.textContent = 'No players.csv found — using generated players.';
     }
@@ -1405,4 +1461,5 @@ exportCsv.onclick=()=>{const lines=['tag,line,aux'];plays.forEach(p=>lines.push(
     startBtn.disabled = false;
   }
 })();
+
 </script>
