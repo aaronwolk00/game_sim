@@ -1870,14 +1870,16 @@ function hardReset(){
   }
 
   // rebuild sim HUD at game start (no kickoff pending)
+  const resetSeed = seed.value || 'seed';
   sim = {
-    rng: rngFromSeed('seed'),
+    rng: rngFromSeed(resetSeed),
     score: { home:0, away:0 },
     hud:   { poss:'Home', qtr:1, secs:900, down:1, dist:10, yard:25 },
-    crowd: { cap:72000, present:Math.floor(0.85*72000), mood:0 }
+    // crowd will be set based on CURRENT_STADIUM below
+    crowd: { cap:0, present:0, mood:0 }
   };
 
-  // Re-apply stadium environment & prior
+  // Re-apply stadium environment & prior using the real venue
   applyStadiumFromTeams();
   if (HOME && AWAY){
     wpPrior = priorWithStadium(HOME, AWAY);
@@ -1903,6 +1905,13 @@ startBtn.addEventListener('click',()=>{if(running)return;homeName.textContent=ho
 pauseBtn.addEventListener('click',pauseToggle);
 resetBtn.addEventListener('click',hardReset);
 document.addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault();pauseToggle();}});
+
+['change','input'].forEach(evt => {
+  homeTeamSel.addEventListener(evt, () => applyStadiumFromTeams());
+  awayTeamSel.addEventListener(evt, () => applyStadiumFromTeams());
+  homeLabel.addEventListener(evt,   () => applyStadiumFromTeams());
+  awayLabel.addEventListener(evt,   () => applyStadiumFromTeams());
+});
 
 /* ===== Helpers ===== */
 
@@ -2495,7 +2504,15 @@ function loop(ms){
         }
 
         // Pressure → possible scramble → else resolve (sack / complete / incomplete)
-        const pressureP = clamp(0.24 + (def.defense - atk.offense) / 180, 0.12, 0.45);
+        let pressureP = clamp(0.24 + (def.defense - atk.offense) / 180, 0.12, 0.45);
+
+        // Loud home crowds make life tougher on the road QB
+        const offenseIsAway = (h.poss === 'Away');
+        if (offenseIsAway && typeof crowdVolume === 'function') {
+          const noise = crowdVolume(); // 0–1
+          pressureP = clamp(pressureP * (1 + 0.25 * noise), 0.12, 0.55);
+        }
+
         const pressured  = (r() < pressureP);
         if (pressured) qb.adv.pressures = (qb.adv.pressures || 0) + 1;
 
@@ -2887,7 +2904,8 @@ exportCsv.onclick = () => {
     sim = {
       rng:  rngFromSeed('seed'),
       score:{ home:0, away:0 },
-      hud:  { poss:'Home', qtr:1, secs:900, down:1, dist:10, yard:25 }
+      hud:  { poss:'Home', qtr:1, secs:900, down:1, dist:10, yard:25 },
+      crowd:{ cap:0, present:0, mood:0 }
     };
     Field.render({ hud: sim.hud });
     updateHUD();
@@ -2913,10 +2931,9 @@ exportCsv.onclick = () => {
   }
 
   try {
-    // 2) Load stadiums (no-op if file missing, just logs a warning)
-    if (typeof loadStadiumsCsv === 'function') {
-      await tryLoadStadiumCsv();
-    }
+    
+    await tryLoadStadiumCsv();
+
 
     // 3) Load players.csv with smart ordering:
     //    - if ?players= is present → try that path first, then local
@@ -2960,6 +2977,7 @@ exportCsv.onclick = () => {
       awayName.textContent= awayT;
 
       rosterStatus.textContent = 'Loaded ' + TEAM_SHEETS.length + ' teams from CSV';
+      applyStadiumFromTeams();
     } else {
       rosterStatus.textContent = 'No players.csv found — using generated players.';
     }

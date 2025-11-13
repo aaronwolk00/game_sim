@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>NFL Sim — Schedule</title>
+<style>
+:root{
+  --bg:#0b1220; --panel:#121a2a; --card:#0e1630; --text:#eef2ff; --muted:#93a0b1;
+  --accent:#5eead4; --home:#4ade80; --away:#60a5fa;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;background:var(--bg);color:var(--text);
+  font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  display:grid;place-items:center
+}
+main{width:min(980px,94vw);display:grid;gap:16px}
+h1{margin:0 0 6px;font-size:22px;letter-spacing:.2px}
+.panel{background:var(--panel);border-radius:14px;padding:12px;border:1px solid #1c2440;box-shadow:0 6px 24px rgba(0,0,0,.25)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.btn{display:inline-flex;align-items:center;justify-content:center;padding:10px 12px;border-radius:10px;background:var(--accent);color:#0a0f17;font-weight:700;font-size:14px;border:none;box-shadow:0 2px 0 rgba(0,0,0,.25);text-decoration:none;cursor:pointer}
+.btn.ghost{background:var(--card);color:#dbe3ef;border:1px solid #2a355a;box-shadow:none}
+.small{font-size:12px;color:var(--muted)}
+hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
+
+/* view toggle pills */
+.viewtabs{display:flex;gap:6px}
+.viewtab{padding:6px 10px;border-radius:999px;border:1px solid #2a355a;background:#0e1630;color:#cbd5e1;cursor:pointer;font-size:12px}
+.viewtab.active{background:#1e293b;color:#e5e7eb}
+
+/* tables */
+.table{width:100%;border-collapse:collapse;font-size:13px}
+.table th,.table td{border-bottom:1px solid #1f2740;padding:8px 8px;text-align:left}
+.table th{font-weight:700;color:#dbe3ef}
+.right{text-align:right}
+.section{background:rgba(255,255,255,.02);border:1px solid #1c2440;border-radius:12px;padding:8px;margin-top:8px}
+.section h3{margin:0 0 6px;font-size:14px}
+.pill{display:inline-block;padding:4px 8px;border-radius:999px;background:var(--card);border:1px solid #233055;font-size:12px;color:var(--muted)}
+.badge{display:inline-block;min-width:20px;text-align:center;font-weight:800}
+.team{font-weight:700}
+.away{color:var(--away)}
+.home{color:var(--home)}
+.nowrap{white-space:nowrap}
+.stickyhead{position:sticky;top:0;background:linear-gradient(var(--panel),var(--panel));z-index:2;border-bottom:1px solid #1f2740}
+</style>
+</head>
+<body>
+  <main>
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <h1>Schedule</h1>
+      <div class="row">
+        <a id="toStandings" class="btn ghost" href="standings.html">← Standings</a>
+        <a id="toGames" class="btn ghost" href="index.html">Weekly Games</a>
+        <a id="simSeasonBtn" class="btn">▶ Sim Season</a>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <div class="viewtabs">
+          <button class="viewtab active" data-mode="week">By Week</button>
+          <button class="viewtab" data-mode="team">By Team</button>
+        </div>
+        <div class="row">
+          <span class="pill" id="gamesPill">— games</span>
+          <span class="pill" id="teamsPill">— teams</span>
+          <span class="pill" id="csvPill">CSV: loading…</span>
+        </div>
+      </div>
+      <hr>
+      <div id="scheduleRoot"></div>
+    </div>
+
+    <div class="small">
+      Notes: provide a <code>schedule.csv</code> with columns like
+      <code>Week, Away, Home</code> (optional: <code>Date, Time, Venue</code>).
+      You can also pass a raw URL via <code>?schedule=&lt;raw csv url&gt;</code>.
+      The Sim Season button forwards both <code>?players=</code> and <code>?schedule=</code> to <code>sim_season.html</code>.
+    </div>
+  </main>
+
+<script>
+/* ====== Params & sources ====== */
+const PARAMS = new URLSearchParams(location.search);
+
+// allow overriding both players.csv and schedule.csv via query
+const RAW_PLAYERS_PARAM = (PARAMS.get('players') || '').replace('/refs/heads/', '/');
+const RAW_SCHEDULE_PARAM = (PARAMS.get('schedule') || '').replace('/refs/heads/', '/');
+
+const PLAYERS_URLS = RAW_PLAYERS_PARAM
+  ? [RAW_PLAYERS_PARAM, new URL('players.csv', location.href).href, 'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/players.csv']
+  : [new URL('players.csv', location.href).href, 'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/players.csv'];
+
+const SCHEDULE_URLS = RAW_SCHEDULE_PARAM
+  ? [RAW_SCHEDULE_PARAM, new URL('schedule.csv', location.href).href]
+  : [new URL('schedule.csv', location.href).href];
+
+const csvPill = document.getElementById('csvPill');
+const gamesPill = document.getElementById('gamesPill');
+const teamsPill = document.getElementById('teamsPill');
+const scheduleRoot = document.getElementById('scheduleRoot');
+
+const simBtn = document.getElementById('simSeasonBtn');
+const toStandings = document.getElementById('toStandings');
+const toGames = document.getElementById('toGames');
+
+/* ====== Link targets keep params ====== */
+(function wireLinks(){
+  const playersParam = RAW_PLAYERS_PARAM ? `?players=${encodeURIComponent(RAW_PLAYERS_PARAM)}` : '';
+  const schedParam = RAW_SCHEDULE_PARAM ? (playersParam ? `&schedule=${encodeURIComponent(RAW_SCHEDULE_PARAM)}` : `?schedule=${encodeURIComponent(RAW_SCHEDULE_PARAM)}`) : '';
+  const both = playersParam + schedParam;
+
+  toStandings.href = `standings.html${playersParam}`;
+  toGames.href = `index.html${playersParam}`;
+  simBtn.addEventListener('click', () => {
+    location.href = `sim_season.html${both}`;
+  });
+})();
+
+/* ====== Fetch helpers ====== */
+async function fetchCsvFrom(urls){
+  let lastErr=null;
+  for(const url of urls){
+    try{
+      const res = await fetch(url, { cache:'no-store', mode:'cors' });
+      if(!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      return { text: await res.text(), url };
+    }catch(e){ lastErr=e; }
+  }
+  throw lastErr || new Error('CSV not reachable');
+}
+
+/* ====== CSV parsing (same style as standings) ====== */
+function parseCsvToRows(text){
+  text = String(text||'').replace(/^\uFEFF/,'');
+  const rows=[]; let row=[], field='', q=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(q){
+      if(c==='"'){ if(text[i+1]==='"'){ field+='"'; i++; } else q=false; }
+      else field+=c;
+    }else{
+      if(c==='"') q=true;
+      else if(c===','){ row.push(field); field=''; }
+      else if(c==='\n'){ row.push(field); rows.push(row); row=[]; field=''; }
+      else if(c!=='\r'){ field+=c; }
+    }
+  }
+  row.push(field); rows.push(row);
+  while(rows.length && rows[rows.length-1].every(x => String(x||'').trim()==='')) rows.pop();
+  return rows.filter(r=>r.length && r.some(x=>String(x||'').trim()!==''));
+}
+function findHeaderIndex(rows){
+  const norm=s=>String(s||'').trim().toLowerCase();
+  for(let i=0;i<Math.min(rows.length,8);i++){
+    const r=rows[i].map(norm);
+    if(r.includes('week') || (r.includes('home') && r.includes('away'))) return i;
+  }
+  return 0;
+}
+function rowsToObjects(rows, headerIdx){
+  const header = rows[headerIdx].map(h => String(h||'').trim());
+  return rows.slice(headerIdx+1).map(r => {
+    const o={}; header.forEach((h,j)=> o[h]= r[j]===undefined ? '' : r[j]); return o;
+  });
+}
+
+/* ====== Normalize schedule rows ====== */
+function normTeam(x){ return String(x||'').trim(); }
+function toWeek(x){
+  const n = parseInt(String(x||'').replace(/[^\d]/g,''),10);
+  return Number.isFinite(n) ? n : 1;
+}
+function mapScheduleRow(r){
+  // Accept many headers: Away/Away Team/Visitor, Home/Home Team
+  const home = r.Home || r.HOME || r['Home Team'] || r['HomeTeam'] || r['home'] || '';
+  const away = r.Away || r.AWAY || r['Away Team'] || r['AwayTeam'] || r['Visitor'] || r['visitor'] || '';
+  const wk   = r.Week || r.WEEK || r.week || r['Wk'] || r['WK'] || '';
+  const date = r.Date || r.DATE || r.date || '';
+  const time = r.Time || r.TIME || r.time || '';
+  const venue= r.Venue || r.Stadium || r.Location || '';
+  return {
+    week: toWeek(wk),
+    home: normTeam(home),
+    away: normTeam(away),
+    date: String(date||'').trim(),
+    time: String(time||'').trim(),
+    venue: String(venue||'').trim(),
+  };
+}
+
+/* ====== Render helpers ====== */
+function gameRowHTML(g){
+  const meta = [g.date, g.time, g.venue].filter(Boolean).join(' • ');
+  return `<tr>
+    <td class="right nowrap">W${g.week}</td>
+    <td><span class="team away">${g.away}</span> @ <span class="team home">${g.home}</span></td>
+    <td class="small">${meta}</td>
+  </tr>`;
+}
+function weekTable(weekNum, games){
+  return `
+    <div class="section">
+      <h3>Week ${weekNum}</h3>
+      <table class="table">
+        <thead class="stickyhead"><tr><th class="right">Wk</th><th>Matchup</th><th>Details</th></tr></thead>
+        <tbody>${games.map(gameRowHTML).join('')}</tbody>
+      </table>
+    </div>`;
+}
+function teamTable(team, list){
+  return `
+    <div class="section">
+      <h3>${team}</h3>
+      <table class="table">
+        <thead class="stickyhead"><tr><th class="right">Wk</th><th>Opponent</th><th>Details</th></tr></thead>
+        <tbody>
+          ${list.map(g=>{
+            const isHome = g.home===team;
+            const opp = isHome ? g.away : g.home;
+            const meta = [g.date, g.time, g.venue].filter(Boolean).join(' • ');
+            return `<tr>
+              <td class="right nowrap">W${g.week}</td>
+              <td>${isHome ? 'vs' : '@'} <span class="team ${isHome?'home':'away'}">${opp}</span></td>
+              <td class="small">${meta}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+/* ====== State & View ====== */
+let SCHEDULE = []; // [{week, home, away, date, time, venue}]
+let VIEW = 'week';
+
+const viewTabs = Array.from(document.querySelectorAll('.viewtab'));
+viewTabs.forEach(b=>{
+  b.addEventListener('click', ()=>{
+    viewTabs.forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    VIEW = b.dataset.mode;
+    render();
+  });
+});
+
+function render(){
+  if(!SCHEDULE.length){ scheduleRoot.innerHTML = '<div class="small">No games found.</div>'; return; }
+
+  if (VIEW==='team'){
+    const byTeam = new Map();
+    SCHEDULE.forEach(g=>{
+      if(!byTeam.has(g.home)) byTeam.set(g.home, []);
+      if(!byTeam.has(g.away)) byTeam.set(g.away, []);
+      byTeam.get(g.home).push(g);
+      byTeam.get(g.away).push(g);
+    });
+    const teams = Array.from(byTeam.keys()).sort((a,b)=>a.localeCompare(b));
+    const html  = teams.map(t=>{
+      const list = byTeam.get(t).slice().sort((a,b)=>a.week-b.week || (a.home+a.away).localeCompare(b.home+b.away));
+      return teamTable(t, list);
+    }).join('');
+    scheduleRoot.innerHTML = html;
+  } else {
+    const byWeek = new Map();
+    SCHEDULE.forEach(g=>{
+      if(!byWeek.has(g.week)) byWeek.set(g.week, []);
+      byWeek.get(g.week).push(g);
+    });
+    const weeks = Array.from(byWeek.keys()).sort((a,b)=>a-b);
+    const html  = weeks.map(w=>{
+      const games = byWeek.get(w).slice().sort((a,b)=> (a.away+a.home).localeCompare(b.away+b.home));
+      return weekTable(w, games);
+    }).join('');
+    scheduleRoot.innerHTML = html;
+  }
+}
+
+/* ====== Boot ====== */
+(async function init(){
+  try{
+    const { text, url } = await fetchCsvFrom(SCHEDULE_URLS);
+    csvPill.textContent = `CSV: ${url.includes('githubusercontent')?'remote':'local'}`;
+
+    const rows = parseCsvToRows(text);
+    const hi = findHeaderIndex(rows);
+    const objs = rowsToObjects(rows, hi);
+
+    SCHEDULE = objs.map(mapScheduleRow).filter(g => g.home && g.away);
+    const teams = Array.from(new Set(SCHEDULE.flatMap(g=>[g.home,g.away]))).sort();
+
+    gamesPill.textContent = `${SCHEDULE.length} games`;
+    teamsPill.textContent = `${teams.length} teams`;
+
+    render();
+  }catch(e){
+    console.error(e);
+    csvPill.textContent = 'CSV: error';
+    scheduleRoot.innerHTML = `<div class="small" style="color:#fca5a5">Could not load <code>schedule.csv</code>. Make sure it exists (or pass <code>?schedule=</code>) and includes <code>Home</code> and <code>Away</code> columns.</div>`;
+  }
+})();
+</script>
+</body>
+</html>
