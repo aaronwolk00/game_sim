@@ -216,21 +216,15 @@ canvas#field{width:100%;height:260px;background:#062b22;border-radius:12px;borde
 
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-  try {
-      const PARAMS = new URLSearchParams(location.search);
-      const URL_HOME  = PARAMS.get('home');
-      const URL_AWAY  = PARAMS.get('away');
-      const URL_PLAYERS = PARAMS.get('players'); // raw CSV URL from index.html
-
-    if (homeName) {
-      document.getElementById('homeLabel').value = homeName;
-    }
-    if (awayName) {
-      document.getElementById('awayLabel').value = awayName;
-    }
-  } catch (e) {
-    console.error("Error loading team names from URL:", e);
-  }
+  try {
+    const params = new URLSearchParams(location.search);
+    const homeParam = params.get('home');
+    const awayParam = params.get('away');
+    if (homeParam) document.getElementById('homeLabel').value = homeParam;
+    if (awayParam) document.getElementById('awayLabel').value = awayParam;
+  } catch (e) {
+    console.error("Error loading team names from URL:", e);
+  }
 });
 /* ===== Utilities ===== */
 const crowdPct = document.getElementById('crowdPct');
@@ -249,9 +243,6 @@ const PARAMS = new URLSearchParams(location.search);
 const URL_HOME  = PARAMS.get('home');
 const URL_AWAY  = PARAMS.get('away');
 const URL_PLAYERS = PARAMS.get('players'); // raw CSV URL from index.html
-
-
-const ui={homeName,awayName,homeScore,awayScore,poss,qtr,clock,toHome,toAway,wpVal,feed,lastPlay,boxWrap,leaders,tabPlays,tabScoring,tabDrives,tabAdvanced,toggleAdv,fansPill};
 
 
 function logPlay(tag,line,off,scoring=false,epa=null,wpd=null){
