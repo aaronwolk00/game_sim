@@ -387,6 +387,32 @@ function applyStadiumFromTeams(){
   renderCrowdMeter();
 }
 
+/** 0–1 crowd loudness, based on stadium + attendance + mood */
+function crowdVolume(){
+  if (!sim || !sim.crowd) return 0.5;
+
+  const c = sim.crowd;
+  const row = CURRENT_STADIUM || {};
+  const cap = Math.max(c.cap || 0, 1);
+  const present = Math.max(c.present || 0, 0);
+
+  // How full is the building?
+  const filled = clamp(present / cap, 0, 1);
+
+  let vol = 0.35 + 0.55 * filled;   // base loudness from 0.35–0.90
+
+  const roof = String(row.roof_type || '').toLowerCase();
+  if (roof.includes('dome'))        vol += 0.08; // domes are louder
+  else if (roof.includes('retract')) vol += 0.03;
+
+  // Mood (your mood values are small, so clamp just in case)
+  const mood = clamp(c.mood || 0, -1, 1);
+  vol += mood * 0.15; // ±0.15 at extreme moods
+
+  return clamp(vol, 0, 1);
+}
+
+
 
 // One compact grab that preserves your variable names
 const {
@@ -1532,30 +1558,61 @@ function chancePenalty(ctx = {}){
   const isPre  = ctx.isPass === false;
   const isLive = ctx.isPass === true;
 
-  const refs  = (+feelRefs.value)/100;
-  const crowd = (+feelCrowd.value)/100;
-  const varK  = (+feelVariance.value)/100;
+  const refsSlider  = (+feelRefs.value)/100;
+  const crowdSlider = (+feelCrowd.value)/100;
+  const varK        = (+feelVariance.value)/100;
 
-  // --- Total penalty per snap (NFL-ish scale ~3–9%) ---
+  // Real stadium-driven loudness (0–1), if crowdVolume() is wired in
+  let envNoise = 0.5;
+  if (typeof crowdVolume === 'function'){
+    envNoise = crowdVolume();           // 0–1 based on CURRENT_STADIUM + sim.crowd
+  }
+
+  // Blend slider with environment so both still matter
+  const crowdFactor = clamp(0.5 * crowdSlider + 0.5 * envNoise, 0, 1);
+
   const down    = ctx.down|0;
   const isLong  = (ctx.dist||10) >= 8;
+  const offenseIsAway = !!(sim && sim.hud && sim.hud.poss === 'Away');
+
+  // --- Total penalty per snap (NFL-ish scale ~3–9%) ---
   const situ    = (down>=3? 0.012 : 0) + (isLong? 0.008 : 0);
-  const pBase   = clamp(0.035 + 0.02*refs + 0.005*varK, 0.015, 0.09);
-  const pTotal  = clamp(pBase + situ, 0.015, 0.11);
+  const pBase   = clamp(0.035 + 0.02*refsSlider + 0.005*varK, 0.015, 0.09);
+  let   pTotal  = clamp(pBase + situ, 0.015, 0.11);
+
+  // Slight extra juice on high-leverage downs with a loud house vs road offense
+  if (isLive && offenseIsAway && down >= 3){
+    pTotal = clamp(pTotal + crowdFactor * 0.015, 0.015, 0.13);
+  }
 
   // If we’re only deciding *pre-snap*, don’t do a second roll for live-ball later.
   if (isPre){
     // Pre-snap share, with small “jitter” memory for realistic clusters
-    let wPre = 0.40 + 0.25*crowd + 0.10*refs + (down>=3?0.05:0); // 25–85%
-    wPre = clamp(wPre * (1 + 0.5*preSnapStreak), 0.25, 0.85);
+    let wPre = 0.40
+             + 0.20*crowdFactor     // louder building → more flags pre-snap
+             + 0.10*refsSlider
+             + (down>=3?0.05:0);    // 3rd/4th-down nerves
+
+    // Extra pre-snap chaos when the AWAY offense has the ball
+    if (offenseIsAway){
+      wPre += 0.08 * crowdFactor;
+    }
+
+    wPre = clamp(wPre * (1 + 0.5*preSnapStreak), 0.25, 0.90);
 
     if (Math.random() < pTotal * wPre){
       // we got a pre-snap flag; increase jitter a bit
       preSnapStreak = Math.min(1, preSnapStreak + 0.35);
 
-      // Offense vs defense split (crowd tilts toward false starts)
-      const defSkew = 0.40 + 0.15*refs - 0.10*crowd; // ~25–55%
-      const onDefense = Math.random() < clamp(defSkew, 0.25, 0.55);
+      // Offense vs defense split (crowd + refs tilt toward false starts on noisy road snaps)
+      let defSkew = 0.40 + 0.15*refsSlider - 0.10*crowdFactor; // base: ~25–55% on defense
+
+      // If the offense is the AWAY team in a loud place, push flags toward the offense
+      if (offenseIsAway){
+        defSkew -= 0.12 * crowdFactor; // fewer defensive offsides, more false starts
+      }
+
+      const onDefense = Math.random() < clamp(defSkew, 0.20, 0.60);
 
       return onDefense
         ? { type:'Offside',     yards:+5, onDefense:true,  preSnap:true }
@@ -1577,13 +1634,23 @@ function chancePenalty(ctx = {}){
       const pDH  = 0.25; // defensive holding
       const pDPI = 0.38; // DPI (spot)
       const pRTP = 0.10; // roughing passer
-      if (roll < pDH)  return { type:'Defensive holding', yards:+5,  onDefense:true,  autoFirst:true };
+
+      if (roll < pDH){
+        return { type:'Defensive holding', yards:+5,  onDefense:true,  autoFirst:true };
+      }
       if (roll < pDH+pDPI){
-        const yards = clamp(Math.round(randNorm(sim.rng, 12 + (ctx.airDepth||0)*0.6, 6)), 8, 35);
+        const yards = clamp(
+          Math.round(randNorm(sim.rng, 12 + (ctx.airDepth||0)*0.6, 6)),
+          8, 35
+        );
         return { type:'DPI', yards, onDefense:true, spot:true, autoFirst:true };
       }
-      if (roll < pDH+pDPI+pRTP) return { type:'Roughing the passer', yards:+15, onDefense:true, autoFirst:true };
-      if (Math.random() < 0.20) return { type:'Offensive holding', yards:-10, onDefense:false };
+      if (roll < pDH+pDPI+pRTP){
+        return { type:'Roughing the passer', yards:+15, onDefense:true, autoFirst:true };
+      }
+      if (Math.random() < 0.20){
+        return { type:'Offensive holding', yards:-10, onDefense:false };
+      }
       return null;
     } else {
       const roll = Math.random();
@@ -1727,9 +1794,7 @@ function startGame(){
 
   const r = rngFromSeed(seed.value||'seed');
   const receive = r()<0.5 ? 'Home' : 'Away';
-  // Who kicks to start the 2nd half?
-  sim.initReceive = receive;
-  sim.kickAtHalf  = (receive === 'Home') ? 'Away' : 'Home';
+  
 
 
   // Basic sim; crowd/env will be overwritten by stadium data if available
@@ -1742,6 +1807,11 @@ function startGame(){
 
   // Stadium → capacity, weather, crowd, CURRENT_STADIUM
   applyStadiumFromTeams();
+
+  sim.initReceive = receive;
+  sim.kickAtHalf  = (receive === 'Home') ? 'Away' : 'Home';
+
+
 
   wpSeries = [0.5];
   wpSmooth = 0.5;
@@ -2026,12 +2096,12 @@ function computeCrowdIntensity(){
   const mood = clamp(c.mood || 0, -1, 1); // -1..1
 
   // Baseline + situational boosts (so it's not 0 unless stadium empty)
-  let ctx = 0.15;                                              // baseline hum
-  if ((h.down===3 && h.dist<=5) || h.down===4) ctx += 0.25;   // big down
-  if (h.yard>=80) ctx += 0.15;                                // red zone
-  if (h.qtr===2 && h.secs<=120) ctx += 0.08;                  // late 1H
-  if (h.qtr===4){ ctx += 0.10; if (h.secs<=300) ctx += 0.10;} // late 4Q
-  if (Math.abs(sim.score.home - sim.score.away)<=8) ctx += 0.10; // one-score
+  let ctx = 0.15;                                                // baseline hum
+  if ((h.down===3 && h.dist<=5) || h.down===4) ctx += 0.25;      // big down
+  if (h.yard>=80) ctx += 0.15;                                   // red zone
+  if (h.qtr===2 && h.secs<=120) ctx += 0.08;                     // late 1H
+  if (h.qtr===4){ ctx += 0.10; if (h.secs<=300) ctx += 0.10; }   // late 4Q
+  if (Math.abs(sim.score.home - sim.score.away) <= 8) ctx += 0.10; // one-score
   ctx = clamp(ctx, 0, 1);
 
   const base = att * (0.7 + 0.3 * mood);
@@ -2041,7 +2111,7 @@ function computeCrowdIntensity(){
 function renderCrowdMeter(){
   const x = computeCrowdIntensity();     // 0..1
   const pct = (x*100);
-  crowdPct.textContent = pct.toFixed(1) + '%';     // ← show decimal
+  crowdPct.textContent = pct.toFixed(1) + '%';
   crowdBar.style.width = pct + '%';
 }
 
@@ -2116,22 +2186,29 @@ function calcPlayTime(isScored){
 }
 
 
+// Global: prevent immediate back-to-back pre-snap flags
+let _preSnapPenaltyCooldown = 0;
+
 
 /* ===== Main loop ===== */
 function loop(ms){
-  const r=sim.rng,h=sim.hud,s=sim.score;
+  const r = (typeof sim.rng === 'function') ? sim.rng : Math.random;
+  const h=sim.hud, s=sim.score;
+
   (async function tick(){
-    while(running&&!paused){
-        if(pendingKickoff){
-            doKickoff(); updateHUD(); updateScore(); Field.render({hud:h});
-            const t=stateWP(s.home,s.away,h.qtr,h.secs,h.yard,h.poss,wpPrior);
-            wpSmooth=0.97*wpSmooth+0.03*t; wpSeries.push(wpSmooth);
-            wpVal.textContent=(wpSmooth*100).toFixed(1)+'%'; drawWP();
-            updateCrowd(); // ← added
-            if(ms>0) await new Promise(rs=>setTimeout(rs,ms));
-            continue;
-            }
-      if(pendingPAT){
+    while (running && !paused){
+
+      if (pendingKickoff){
+        doKickoff(); updateHUD(); updateScore(); Field.render({hud:h});
+        const t=stateWP(s.home,s.away,h.qtr,h.secs,h.yard,h.poss,wpPrior);
+        wpSmooth=0.97*wpSmooth+0.03*t; wpSeries.push(wpSmooth);
+        wpVal.textContent=(wpSmooth*100).toFixed(1)+'%'; drawWP();
+        updateCrowd();
+        if (ms>0) await new Promise(rs=>setTimeout(rs,ms));
+        continue;
+      }
+
+      if (pendingPAT){
         const {team, type} = pendingPAT;
         const atk = (team==='Home'?HOME:AWAY);
         const def = (team==='Home'?AWAY:HOME);
@@ -2144,14 +2221,14 @@ function loop(ms){
 
         if (type==='xp'){
           const xpP = clamp(0.93 + (k.KICK_ACC-70)/250 - (+wind.value/20)*0.08 - ((precip.value==='Heavy Rain'||precip.value==='Snow')?0.04:0), 0.85, 0.99);
-          const make = sim.rng() < xpP;
+          const make = r() < xpP;
           realizedPts = make ? 1 : 0; expectedPts = xpP;
 
           if (make){ if(team==='Home') s.home += 1; else s.away += 1; }
           text = `XP — ${k.first} ${k.last} ${make?'GOOD':'NO GOOD'}`;
         } else {
           const twoP = clamp(0.48 + (atk.offense - def.defense)/220, 0.35, 0.63);
-          const make = sim.rng() < twoP;
+          const make = r() < twoP;
           realizedPts = make ? 2 : 0; expectedPts = 2*twoP;
 
           if (make){ if(team==='Home') s.home += 2; else s.away += 2; }
@@ -2174,7 +2251,7 @@ function loop(ms){
 
         applyClock(0, { inBounds:false, offense: team, pat:true });
         pendingPAT = null;
-        beginKickoff(team, { onside: shouldOnsideNow(team) });;
+        beginKickoff(team, { onside: shouldOnsideNow(team) });
 
         updateHUD(); updateScore(); Field.render({hud:h});
         const t = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
@@ -2185,134 +2262,137 @@ function loop(ms){
         continue;
       }
 
-    // Pre-snap penalty check BEFORE we snapshot EP/WP (streaks allowed)
-    const pre = chancePenalty({ down: h.down, isPass: false, airDepth: 0 });
-    if (pre && pre.preSnap) {
-      applyPenalty(pre);
-      updateHUD(); Field.render({ hud:h });
-      if (ms > 0) await new Promise(rs => setTimeout(rs, ms));
-      continue; // replay the down from the new spot
-    }
+      // --- Pre-snap penalty check (with 1-tick cooldown) ---
+      if (_preSnapPenaltyCooldown > 0) {
+        _preSnapPenaltyCooldown--;
+      } else {
+        const pre = chancePenalty({ down: h.down, isPass: false, airDepth: 0 });
+        if (pre && pre.preSnap) {
+          _preSnapPenaltyCooldown = 1; // block immediate repeats
+          applyPenalty(pre);
+          updateHUD(); Field.render({ hud:h });
+          if (ms > 0) await new Promise(rs => setTimeout(rs, ms));
+          continue; // replay the down from the new spot
+        }
+      }
 
-
-    // snapshot AFTER pre-snap penalties are cleared, BEFORE any play logic
-    const snap = snapshotHUD();
-    const ep0 = driveEPForState(snap, HOME, AWAY); // decision-aware EP_before
-    const wp0 = stateWP(s.home, s.away, snap.qtr, snap.secs, snap.yard, snap.poss, wpPrior);
-    const startPoss = snap.poss;
-    const driveEP0 = driveEPForState(snap, HOME, AWAY);
+      // Snapshot AFTER pre-snap penalties cleared
+      const snap = snapshotHUD();
+      const ep0  = driveEPForState(snap, HOME, AWAY); // decision-aware EP_before
+      const wp0  = stateWP(s.home, s.away, snap.qtr, snap.secs, snap.yard, snap.poss, wpPrior);
+      const startPoss = snap.poss;
+      const driveEP0  = driveEPForState(snap, HOME, AWAY);
 
       /* >>> Early 4th-down decision: if not going for it, do FG/Punt here and stop <<< */
-        if (h.down === 4) {
+      if (h.down === 4) {
         const distGL = 100 - h.yard;
         const FGdist = Math.round(distGL + 17);
         const aggr = (+aggr4th.value);
         const goThresh = (h.yard >= 50 ? 4.0 : 2.0) - (aggr - 50)/25 - (h.qtr === 4 ? 0.6 : 0);
 
         if (h.dist > goThresh) {
-            // Not going for it → choose FG if reasonable, else punt. Log ONLY that play.
-            const teamObj = (h.poss === 'Home' ? HOME : AWAY).stats.team;
-            const k = (h.poss === 'Home' ? HOME : AWAY).k;
+          // Not going for it → choose FG if reasonable, else punt. Log ONLY that play.
+          const teamObj = (h.poss === 'Home' ? HOME : AWAY).stats.team;
+          const k = (h.poss === 'Home' ? HOME : AWAY).k;
 
-            if (k && FGdist <= 68 && h.dist > 1) {
-                // ΔWP: snapshot before we mutate score/possession
-                const wpBefore = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
+          if (k && FGdist <= 68 && h.dist > 1) {
+            // ΔWP: snapshot before we mutate score/possession
+            const wpBefore = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
 
-                teamObj.fga++;
-                const make = Math.random() < fgMakeProb(FGdist, k.KICK_POW, k.KICK_ACC);
+            teamObj.fga++;
+            const make = r() < fgMakeProb(FGdist, k.KICK_POW, k.KICK_ACC);
 
-                if (make) {
-                  teamObj.fgm++;
-                  if (h.poss === 'Home') s.home += 3; else s.away += 3;
+            if (make) {
+              teamObj.fgm++;
+              if (h.poss === 'Home') s.home += 3; else s.away += 3;
 
-                  const epaFG = 3 - ep0;
+              const epaFG = 3 - ep0;
 
-                  // WP after: scoring updated, possession unchanged (kickoff is pending)
-                  const wpAfter = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
-                  const wpdFG   = clamp(wpAfter - wpBefore, -wpCap(h.qtr, h.secs), wpCap(h.qtr, h.secs));
+              // WP after: scoring updated, possession unchanged (kickoff is pending)
+              const wpAfter = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
+              const wpdFG   = clamp(wpAfter - wpBefore, -wpCap(h.qtr, h.secs), wpCap(h.qtr, h.secs));
 
-                  scoring.push({ text: `${h.poss} FG (${FGdist})`, score: `${s.home}-${s.away}` });
-                  logPlay('PLAY', `${headerFrom(snap)} — FG — ${k.first} ${k.last} GOOD from ${FGdist}`,h.poss, true, epaFG, wpdFG, driveEP0);
+              scoring.push({ text: `${h.poss} FG (${FGdist})`, score: `${s.home}-${s.away}` });
+              logPlay('PLAY', `${headerFrom(snap)} — FG — ${k.first} ${k.last} GOOD from ${FGdist}`, h.poss, true, epaFG, wpdFG, driveEP0);
 
-                  closeDrive('FG', h.yard);
-                  beginKickoff(h.poss, { onside: shouldOnsideNow(h.poss) });;
-                } else {
-                  // Miss → opponent ball at 100 - yard
-                  const newForDef = clamp(100 - h.yard, 1, 99);
-                  const epaFG = 0 - ep0;
+              closeDrive('FG', h.yard);
+              beginKickoff(h.poss, { onside: shouldOnsideNow(h.poss) });
+            } else {
+              // Miss → opponent ball at 100 - yard
+              const newForDef = clamp(100 - h.yard, 1, 99);
+              const epaFG = 0 - ep0;
 
-                  // Mutate to the missed-FG state BEFORE computing wpAfter
-                  closeDrive('Missed FG', h.yard);
-                  h.poss = (h.poss === 'Home' ? 'Away' : 'Home'); h.down = 1; h.dist = 10; h.yard = newForDef;
-                  pushDriveStart(h.poss, h.yard);
-
-                  const wpAfter = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
-                  const wpdFG   = clamp(wpAfter - wpBefore, -wpCap(h.qtr, h.secs), wpCap(h.qtr, h.secs));
-
-                  logPlay('PLAY', `${headerFrom(snap)} — FG — ${k.first} ${k.last} NO GOOD from ${FGdist}`, snap.poss, false, epaFG, wpdFG, driveEP0);
-                }
-              }
-            else {
-              // Punt (early 4th-down block)
-              const wpBefore = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
-
-              const punter = (h.poss === 'Home' ? HOME : AWAY).p || { first:'P', last:'', KICK_POW:70 };
-              const gross = clamp(Math.round(46 + (punter.KICK_POW - 70)/2 + randNorm(sim.rng,0,7)), 35, 70);
-              const land  = h.yard + gross;
-
-              let text = '';
-              if (land >= 100) {
-                text = `${headerFrom(snap)} — Punt ${gross} by ${punter.first} ${punter.last} — touchback`;
-                (h.poss==='Home'?HOME:AWAY).stats.team.punts++;
-                closeDrive('Punt (TB)', h.yard);
-
-                // flip
-                h.poss = (h.poss === 'Home' ? 'Away' : 'Home'); h.down = 1; h.dist = 10; h.yard = 20;
-                pushDriveStart(h.poss, h.yard);
-              } else {
-                const retMan = ((h.poss === 'Home' ? AWAY : HOME).wr[0] || (h.poss === 'Home' ? AWAY : HOME).rb[0] || (h.poss === 'Home' ? AWAY : HOME).players[0]);
-                const recvAt = 100 - land;
-                const ret    = clamp(Math.round(randNorm(sim.rng,10,8)), 0, 40);
-                const end    = clamp(recvAt + ret, 1, 99);
-                text = `${headerFrom(snap)} — Punt ${gross} by ${punter.first} ${punter.last}, ${retMan.first} ${retMan.last} returns ${ret} to ${yardText(end)}`;
-
-                (h.poss==='Home'?HOME:AWAY).stats.team.punts++;
-                closeDrive('Punt', h.yard);
-
-                // flip
-                h.poss = (h.poss === 'Home' ? 'Away' : 'Home'); h.down = 1; h.dist = 10; h.yard = end;
-                pushDriveStart(h.poss, h.yard);
-              }
+              // Mutate to the missed-FG state BEFORE computing wpAfter
+              closeDrive('Missed FG', h.yard);
+              h.poss = (h.poss === 'Home' ? 'Away' : 'Home'); h.down = 1; h.dist = 10; h.yard = newForDef;
+              pushDriveStart(h.poss, h.yard);
 
               const wpAfter = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
-              const wpdPunt = clamp(wpAfter - wpBefore, -wpCap(h.qtr, h.secs), wpCap(h.qtr, h.secs));
+              const wpdFG   = clamp(wpAfter - wpBefore, -wpCap(h.qtr, h.secs), wpCap(h.qtr, h.secs));
 
-              logPlay('PLAY', text, snap.poss, false, -ep0, wpdPunt, driveEP0);
+              logPlay('PLAY', `${headerFrom(snap)} — FG — ${k.first} ${k.last} NO GOOD from ${FGdist}`, snap.poss, false, epaFG, wpdFG, driveEP0);
+            }
+          } else {
+            // Punt (early 4th-down block)
+            const wpBefore = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
+
+            const punter = (h.poss === 'Home' ? HOME : AWAY).p || { first:'P', last:'', KICK_POW:70 };
+            const gross = clamp(Math.round(46 + (punter.KICK_POW - 70)/2 + randNorm(sim.rng,0,7)), 35, 70);
+            const land  = h.yard + gross;
+
+            let text = '';
+            if (land >= 100) {
+              text = `${headerFrom(snap)} — Punt ${gross} by ${punter.first} ${punter.last} — touchback`;
+              (h.poss==='Home'?HOME:AWAY).stats.team.punts++;
+              closeDrive('Punt (TB)', h.yard);
+
+              // flip
+              h.poss = (h.poss === 'Home' ? 'Away' : 'Home'); h.down = 1; h.dist = 10; h.yard = 20;
+              pushDriveStart(h.poss, h.yard);
+            } else {
+              const retMan = ((h.poss === 'Home' ? AWAY : HOME).wr[0] || (h.poss === 'Home' ? AWAY : HOME).rb[0] || (h.poss === 'Home' ? AWAY : HOME).players[0]);
+              const recvAt = 100 - land;
+              const ret    = clamp(Math.round(randNorm(sim.rng,10,8)), 0, 40);
+              const end    = clamp(recvAt + ret, 1, 99);
+              text = `${headerFrom(snap)} — Punt ${gross} by ${punter.first} ${punter.last}, ${retMan.first} ${retMan.last} returns ${ret} to ${yardText(end)}`;
+
+              (h.poss==='Home'?HOME:AWAY).stats.team.punts++;
+              closeDrive('Punt', h.yard);
+
+              // flip
+              h.poss = (h.poss === 'Home' ? 'Away' : 'Home'); h.down = 1; h.dist = 10; h.yard = end;
+              pushDriveStart(h.poss, h.yard);
             }
 
+            const wpAfter = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
+            const wpdPunt = clamp(wpAfter - wpBefore, -wpCap(h.qtr, h.secs), wpCap(h.qtr, h.secs));
 
-            // consume a bit of clock for special teams, render, and skip normal play
-            applyClock(clockDrainFor('st', (+feelPace.value)/100), { inBounds:true, offense: snap.poss });
+            logPlay('PLAY', text, snap.poss, false, -ep0, wpdPunt, driveEP0);
+          }
 
-            updateHUD(); updateScore(); Field.render({ hud:h });
-            const t = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
-            wpSmooth = 0.97*wpSmooth + 0.03*t; wpSeries.push(wpSmooth);
-            wpVal.textContent = (wpSmooth*100).toFixed(1) + '%'; if (wpSeries.length>600) wpSeries.shift();
-            drawWP(); renderBox(); renderLeaders(); renderTopEpa(); updateCrowd();
+          // consume a bit of clock for special teams, render, and skip normal play
+          applyClock(clockDrainFor('st', (+feelPace.value)/100), { inBounds:true, offense: snap.poss });
 
-            if (h.secs <= 0) handleQuarterEnd();
-            if (ms>0) await new Promise(rs=>setTimeout(rs,ms));
-            continue; // ← critical: prevents a run/pass from also occurring on 4th down
+          updateHUD(); updateScore(); Field.render({ hud:h });
+          const t = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
+          wpSmooth = 0.97*wpSmooth + 0.03*t; wpSeries.push(wpSmooth);
+          wpVal.textContent = (wpSmooth*100).toFixed(1) + '%'; if (wpSeries.length>600) wpSeries.shift();
+          drawWP(); renderBox(); renderLeaders(); renderTopEpa(); updateCrowd();
+
+          if (h.secs <= 0) handleQuarterEnd();
+          if (ms>0) await new Promise(rs=>setTimeout(rs,ms));
+          continue; // prevents a run/pass from also occurring on 4th down
         }
+      }
 
       const atk=(h.poss==='Home'?HOME:AWAY), def=(h.poss==='Home'?AWAY:HOME);
 
       // Offense vs defense advantage and sliders for this snap
-      const offAdv = (atk.offense - def.defense);             // used by run/pass models
-      const varK   = (+feelVariance.value)/100;               // variance slider (0..1)
+      const offAdv = (atk.offense - def.defense);
+      const varK   = (+feelVariance.value)/100;
 
       // Blend early/late pass preference based on game clock
-      const tf = clamp(1 - ((5 - h.qtr) * 900 + h.secs) / 3600, 0, 1); // fraction of game elapsed
+      const tf = clamp(1 - ((5 - h.qtr) * 900 + h.secs) / 3600, 0, 1);
       const earlyPref = (+passEarly.value) / 100;
       const latePref  = (+passLate.value) / 100;
       const passPref  = earlyPref * (1 - tf) + latePref * tf;
@@ -2326,15 +2406,14 @@ function loop(ms){
       let passRate = 0.54 + (passPref - 0.55) * 0.50;  // anchor near NFL avg, respect slider
       if (h.down >= 3) passRate += 0.10;
       if (h.dist >= 7) passRate += 0.06;
-      if (offenseTrailing) passRate += 0.05;           // trailing offense throws more
-      if (!offenseTrailing && offenseLeading && h.qtr >= 4) passRate -= 0.08; // protect lead late
+      if (offenseTrailing) passRate += 0.05;
+      if (!offenseTrailing && offenseLeading && h.qtr >= 4) passRate -= 0.08;
       passRate = clamp(passRate, 0.40, 0.65);
 
       const runRate = 1 - passRate;
 
-
       let deltaY=0, kind='', scored=false, playText='';
-      const playTime = calcPlayTime(scored);
+      const playTime = calcPlayTime(scored); // (kept for consistency)
 
       if (r() < runRate){
         const runner = pickRusher(atk, h);
@@ -2355,8 +2434,8 @@ function loop(ms){
         // NFL-ish yard distributions
         let mean   = 3.9 + offAdv*0.025;
         let spread = 3.2*(1 + 0.6*varK);
-        if (isQB && h.dist <= 2){ mean = 2.3; spread = 1.4; }            // QB sneak/keeper
-        else if (isQB){ mean = 5.2 + (runner.SPD-78)/18; spread = 2.8; } // scramble-like keepers
+        if (isQB && h.dist <= 2){ mean = 2.3; spread = 1.4; }
+        else if (isQB){ mean = 5.2 + (runner.SPD-78)/18; spread = 2.8; }
 
         const yRaw = clamp(Math.round(randNorm(r, mean, spread)), -4, 35);
         const yds  = Math.min(yRaw, 100 - h.yard);
@@ -2368,7 +2447,7 @@ function loop(ms){
           playText = `${runner.first} ${runner.last} rushes for ${yds} yards, TOUCHDOWN`;
           atk.stats.team.td++;
 
-          // TD logging (pre-PAT), then set pendingPAT (will suppress the generic logger later)
+          // TD logging (pre-PAT), then set pendingPAT
           const kAcc = ((h.poss==='Home'?HOME:AWAY).k?.KICK_ACC ?? 70);
           const xpP  = clamp(0.93 + (kAcc-70)/250 - (+wind.value/20)*0.08 - ((precip.value==='Heavy Rain'||precip.value==='Snow')?0.04:0), 0.85, 0.99);
           const tdEPA = 6 - ep0;
@@ -2397,18 +2476,17 @@ function loop(ms){
 
         atk.stats.team.rushYds += Math.max(0, deltaY);
       } else {
-                // PASS
-                const qb=atk.qb ? atk.qb : {first:'QB',last:'',PASS_ACC:70,INT:70,adv:{att:0,comp:0,yards:0,td:0,int:0,sacks:0,dropbacks:0,pressures:0,ttt:0,tttN:0,air:0,yac:0}};
+        // PASS
+        const qb=atk.qb ? atk.qb : {first:'QB',last:'',PASS_ACC:70,INT:70,adv:{att:0,comp:0,yards:0,td:0,int:0,sacks:0,dropbacks:0,pressures:0,ttt:0,tttN:0,air:0,yac:0}};
         if(!qb.adv) qb.adv={};
         qb.adv.dropbacks=(qb.adv.dropbacks||0)+1;
 
         // Air yards for the throw
         const air = clamp(Math.round(randNorm(r, 6 + offAdv*0.008, 5*(1+0.5*varK))), -1, 26);
 
-        // Live-ball penalty check (pre-snap penalties are handled before the snap)
+        // Live-ball penalty check (pre-snap handled earlier)
         const pen = chancePenalty({ down: h.down, isPass: true, airDepth: air });
         if (pen) {
-          // Live-ball penalty: enforce from previous spot and replay the down
           applyPenalty(pen);
           updateHUD();
           Field.render({ hud: h });
@@ -2421,8 +2499,7 @@ function loop(ms){
         const pressured  = (r() < pressureP);
         if (pressured) qb.adv.pressures = (qb.adv.pressures || 0) + 1;
 
-        /* ---- QB SCRAMBLE (when pressured) ----
-          Mobile QBs (higher SPD) and long yardage slightly increase scramble rate. */
+        // ---- QB SCRAMBLE (when pressured) ----
         const scrambleP = clamp(
           0.08 + (qb.SPD - 78) / 120 + (pressured ? 0.10 : 0) + (h.dist >= 8 ? 0.03 : 0),
           0.02, 0.28
@@ -2604,13 +2681,12 @@ function loop(ms){
           const tLeft = (5 - h.qtr) * 900 + h.secs;
           const late = (h.qtr === 4) && (tLeft <= 300);
           const oobBias = late && offenseTrailing ? 0.18 : 0.06;
-          const wentOOB = (kind !== 'sack') && (Math.random() < oobBias);
+          const wentOOB = (kind !== 'sack') && (r() < oobBias);
           if (wentOOB) ctx.inBounds = false;
         }
 
         applyClock(clockDrainFor(ctx.outcome, pace), { inBounds: ctx.inBounds, offense: startPoss });
       }
-
 
       // 4th down decisions (go-for-it resolution only; FG/punts handled earlier)
       if (!scored && h.down === 5) {
@@ -2626,7 +2702,7 @@ function loop(ms){
 
           const atkTeam  = (h.poss === 'Home' ? HOME : AWAY);
           const defTeam  = (h.poss === 'Home' ? AWAY : HOME);
-          const success  = Math.random() < clamp(
+          const success  = r() < clamp(
             0.48 + (atkTeam.offense - defTeam.defense)/220,
             0.30,
             0.70
@@ -2661,7 +2737,6 @@ function loop(ms){
         }
       }
 
-
       // EPA/WP annotate and log with the PRE-PLAY header (drive-EP consistent)
       const wp1 = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
 
@@ -2672,17 +2747,16 @@ function loop(ms){
       );
 
       // If the play scored, realized drive points are 6 (TD) or 3 (FG); else ΔEP
-      const realizedPts = scored ? 6 : 0;   // (FG/Punt handled in the special-teams blocks below)
+      const realizedPts = scored ? 6 : 0; // (FG/Punt handled in special-teams blocks)
       const epa = scored ? (realizedPts - ep0) : (ep1Drive - ep0);
 
       // ΔWP cap by time
       const wpd = clamp(wp1 - wp0, -wpCap(h.qtr, h.secs), wpCap(h.qtr, h.secs));
 
-
-      // DriveEP: post-play EP, but if a TD just occurred,
+      // DriveEP for logger
       let driveEpForLog = null;
       if (scored && pendingPAT && typeof pendingPAT.exp === 'number') {
-        driveEpForLog = pendingPAT.exp;             // (<= 1 for XP, <= 2 for two-point)
+        driveEpForLog = pendingPAT.exp;
       } else if (!scored) {
         driveEpForLog = clamp(EP(h.down, h.dist, h.yard), 0, 6.99);
       }
@@ -2692,27 +2766,26 @@ function loop(ms){
         logPlay('PLAY', `${headerFrom(snap)} — ${playText}`, startPoss, scored, epa, wpd, driveEP0);
       }
 
-
       (h.poss==='Home'?HOME:AWAY).stats.team.epa += (epa||0);
 
       // visuals
       updateHUD(); updateScore(); Field.render({hud:h});
       wpSmooth=0.97*wpSmooth+0.03*wp1; wpSeries.push(wpSmooth);
       wpVal.textContent=(wpSmooth*100).toFixed(1)+'%';
-      if(wpSeries.length>600) wpSeries.shift();
-      drawWP(); renderBox(); renderLeaders(); renderTopEpa();
+      if (wpSeries.length>600) wpSeries.shift();
+      drawWP(); renderBox(); renderLeaders(); renderTopEpa(); updateCrowd();
 
-      if(h.secs<=0){
-        h.qtr++;
-        if(h.qtr<=4){ h.secs=900; beginKickoff('Away'); }
-        else { running=false; pauseBtn.disabled=true; logPlay('FINAL',`FINAL: ${homeLabel.value} ${s.home} – ${awayLabel.value} ${s.away}`,'Home',true,0,0); break; }
+      // Quarter/end handling (use your helper)
+      if (h.secs <= 0) {
+        handleQuarterEnd();
+        if (!running) break; // game ended inside handleQuarterEnd
       }
 
-      if(ms>0) await new Promise(rs=>setTimeout(rs,ms));
-    }
-  }
-  })();
-}
+      if (ms > 0) await new Promise(rs => setTimeout(rs, ms));
+    } // ← END while(running && !paused)
+  })(); // ← END async tick()
+} // ← END function loop
+
 
 
 /* ===== Advanced Tab (team + players) ===== */
@@ -2733,9 +2806,9 @@ function renderAdvanced(){
     const db=qb.dropbacks||0, pr=db?(qb.pressures/db*100).toFixed(1):'0.0';
     const ttt=qb.tttN?(qb.ttt/qb.tttN).toFixed(2):'0.00';
     const cpoe= qb.expN?(((qb.comp||0)/qb.expN - qb.expSum/qb.expN)*100).toFixed(1):'0.0';
-    const adot = recAgg(T).adot.toFixed(1),
-          yacPer=recAgg(T).yacPer.toFixed(1),
-          topSpeed=(T.players||[]).reduce((m,p)=>Math.max(m,p.adv?.fast||0),0).toFixed(1);
+    const rec = recAgg(T);
+    const adot = rec.adot.toFixed(1), yacPer = rec.yacPer.toFixed(1);
+    const topSpeed=(T.players||[]).reduce((m,p)=>Math.max(m,p.adv?.fast||0),0).toFixed(1);
     return `<tr><th>${name}</th><td>${epaP}</td><td>${db}</td><td>${pr}%</td><td>${ttt}</td><td>${cpoe}%</td><td>${adot}</td><td>${yacPer}</td><td>${topSpeed}</td></tr>`;
   };
 
@@ -2751,7 +2824,10 @@ function renderAdvanced(){
 }
 
 function renderPlayersTables(){
-  const rowsQBs = (T)=> T.qb?[T.qb]:[]; const rowsRBs = (T)=> T.rb||[]; const rowsWRs = (T)=> (T.wr||[]).concat(T.te||[]); const rowsDEF = (T)=> (T.dl||[]).concat(T.lb||[]).concat(T.db||[]);
+  const rowsQBs = (T)=> T.qb?[T.qb]:[];
+  const rowsRBs = (T)=> T.rb||[];
+  const rowsWRs = (T)=> (T.wr||[]).concat(T.te||[]);
+  const rowsDEF = (T)=> (T.dl||[]).concat(T.lb||[]).concat(T.db||[]);
   const fmt=(n)=> (n??0);
 
   const qbTable = (teamName,T)=>`<div class="small" style="margin-top:6px">${teamName} — Quarterbacks</div>
@@ -2775,6 +2851,7 @@ function renderPlayersTables(){
        + wrTable(homeLabel.value,HOME)+wrTable(awayLabel.value,AWAY)
        + defTable(homeLabel.value,HOME)+defTable(awayLabel.value,AWAY);
 }
+
 
 /* ===== Export ===== */
 function exportBlob(name,data,type){const b=new Blob([data],{type});const url=URL.createObjectURL(b);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);}
@@ -2838,7 +2915,7 @@ exportCsv.onclick = () => {
   try {
     // 2) Load stadiums (no-op if file missing, just logs a warning)
     if (typeof loadStadiumsCsv === 'function') {
-      await loadStadiumsCsv();
+      await tryLoadStadiumCsv();
     }
 
     // 3) Load players.csv with smart ordering:
