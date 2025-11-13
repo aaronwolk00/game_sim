@@ -964,67 +964,71 @@ tabAdvanced.onclick=()=>{activeTab='advanced';tabAdvanced.classList.add('active'
 
 // === Paste over your existing tryLoadPlayersCsv and populateTeamsFromCsv ===
 
-async function tryLoadPlayersCsv(forceLocal = false){
+async function tryLoadPlayersCsv(forceLocal = true){
   const tried = [];
 
-  // Build candidate URLs (URL param takes precedence if present)
-  const tryUrls = [];
-  if (RAW_PLAYERS_PARAM && !forceLocal) tryUrls.push(RAW_PLAYERS_PARAM);
+  // small per-URL timeout so a bad remote can't stall the sequence
+  const withTimeout = (p, ms=2000) =>
+    Promise.race([p, new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')),ms))]);
 
-  // Local files next
+  // ---- Build candidate URLs ----
+  const tryUrls = [];
+
+  // 1) LOCAL first (same folder as the HTML)
   try {
     tryUrls.push(new URL('players.csv', location.href).href);
     tryUrls.push(new URL('Players.csv', location.href).href);
   } catch { /* ignore */ }
 
-  // Optional fallback (GitHub raw) gated by switch
-  if (!forceLocal && CSV_USE_FALLBACK) {
+  // 2) Optional URL param (?players=...) *after* local unless forceLocal === false
+  if (!forceLocal && RAW_PLAYERS_PARAM) tryUrls.push(RAW_PLAYERS_PARAM);
+
+  // 3) Optional GitHub fallback (only if you keep it enabled)
+  if (!forceLocal && typeof CSV_USE_FALLBACK !== 'undefined' && CSV_USE_FALLBACK){
     tryUrls.push('https://raw.githubusercontent.com/aaronwolk00/game_sim/main/players.csv');
   }
 
   for (const url of tryUrls){
     tried.push(url);
     try{
-      CSV_DEBUG && console.log('[CSV] trying', url);
-      const res = await fetch(url, { cache:'no-store', mode:'cors' });
-      if (!res.ok){ CSV_DEBUG && console.warn('[CSV] HTTP', res.status, url); continue; }
+      const res = await withTimeout(fetch(url, { cache:'no-store', mode:'cors' }));
+      if (!res.ok) { console.warn('[CSV] HTTP', res.status, url); continue; }
 
       const text = await res.text();
       const rows = parseCSVSmart(text);
-      if (!rows.length){ CSV_DEBUG && console.warn('[CSV] empty after parse', url); continue; }
+      if (!rows.length){ console.warn('[CSV] empty after parse', url); continue; }
+      if (!('Team' in rows[0])){ console.warn('[CSV] missing "Team" col', Object.keys(rows[0]||{})); continue; }
 
-      if (!('Team' in rows[0])){
-        CSV_DEBUG && console.warn('[CSV] missing "Team" column; keys:', Object.keys(rows[0]||{}));
-        continue;
-      }
-
-      // Normalize/trimming already handled in parseCSVSmart; keep a copy
       PLAYERS_CSV_ROWS = rows;
 
-      // Build team list
       const set = new Set();
       rows.forEach(r => { const t = String(r.Team||'').trim(); if (t) set.add(t); });
       TEAM_SHEETS = Array.from(set).sort();
 
       populateTeamsFromCsv();
-
       rosterStatus.textContent = `Loaded ${TEAM_SHEETS.length} teams from CSV`;
-      CSV_DEBUG && console.log('[CSV] success:', { url, teams: TEAM_SHEETS.slice(0,20), total: TEAM_SHEETS.length });
 
-      // expose for console poking
+      // quick preview in the debug <pre> if present
+      const out = document.getElementById('csvOut');
+      if (out){
+        out.textContent = `Teams found (${TEAM_SHEETS.length}):\n` + TEAM_SHEETS.join(', ');
+        out.style.display = 'block';
+      }
+
+      // make available in console
       window.__CSV_ROWS = rows;
       window.__CSV_TEAMS = TEAM_SHEETS;
-
       return true;
     }catch(e){
-      CSV_DEBUG && console.error('[CSV] fetch/parse failed', url, e);
+      console.warn('[CSV] failed', url, e.message || e);
     }
   }
 
   rosterStatus.textContent = 'No players.csv found — using generated players.';
-  CSV_DEBUG && console.warn('[CSV] all sources failed. Tried:', tried);
+  console.warn('[CSV] all sources failed. Tried:', tried);
   return false;
 }
+
 
 
 /** Fill the dropdowns from TEAM_SHEETS (CSV teams) */
@@ -2287,7 +2291,10 @@ exportCsv.onclick = () => {
     Field.render({hud:sim.hud});
     updateHUD(); updateScore(); drawWP(); renderBox(); renderLeaders(); renderTopEpa(); renderCrowdMeter();
 
-    const loaded = await tryLoadPlayersCsv();
+    let loaded = await tryLoadPlayersCsv(true);
+    if (!loaded && (typeof CSV_USE_FALLBACK !== 'undefined') && CSV_USE_FALLBACK){
+      loaded = await tryLoadPlayersCsv(false); // allow param/remote as a backup
+    }
 
     if (loaded && TEAM_SHEETS.length){
       // Choose teams purely from URL (?home & ?away) with fuzzy matching; if missing/invalid, pick any two distinct.
