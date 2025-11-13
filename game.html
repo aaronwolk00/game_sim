@@ -1607,7 +1607,9 @@ function applyPenalty(p){
   const wpBefore = stateWP(sim.score.home, sim.score.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
 
   // Count penalty
-  const atkTeam=(h.poss==='Home'?HOME:AWAY).stats.team; atkTeam.pen++;
+  const offenseTeam = (h.poss === 'Home' ? HOME : AWAY).stats.team;
+  const defenseTeam = (h.poss === 'Home' ? AWAY : HOME).stats.team;
+  (p.onDefense ? defenseTeam : offenseTeam).pen++;
 
   // ---------- Enforce ----------
   if (p.preSnap){
@@ -1725,6 +1727,10 @@ function startGame(){
 
   const r = rngFromSeed(seed.value||'seed');
   const receive = r()<0.5 ? 'Home' : 'Away';
+  // Who kicks to start the 2nd half?
+  sim.initReceive = receive;
+  sim.kickAtHalf  = (receive === 'Home') ? 'Away' : 'Home';
+
 
   // Basic sim; crowd/env will be overwritten by stadium data if available
   sim = {
@@ -1829,6 +1835,24 @@ resetBtn.addEventListener('click',hardReset);
 document.addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault();pauseToggle();}});
 
 /* ===== Helpers ===== */
+
+function handleQuarterEnd() {
+  const h = sim.hud, s = sim.score;
+  if (h.secs > 0) return;
+
+  h.qtr++;
+  if (h.qtr <= 4) {
+    h.secs = 900;
+    // Only at halftime do we kickoff to start Q3
+    if (h.qtr === 3) beginKickoff(sim.kickAtHalf);
+  } else {
+    running = false;
+    pauseBtn.disabled = true;
+    logPlay('FINAL', `FINAL: ${homeLabel.value} ${s.home} – ${awayLabel.value} ${s.away}`, 'Home', true, 0, 0);
+  }
+}
+
+
 // === Clock helpers ===
 function clockDrainFor(outcome, pace){
   // outcome: 'run' | 'comp' | 'incomp' | 'sack' | 'st'
@@ -2276,10 +2300,7 @@ function loop(ms){
             wpVal.textContent = (wpSmooth*100).toFixed(1) + '%'; if (wpSeries.length>600) wpSeries.shift();
             drawWP(); renderBox(); renderLeaders(); renderTopEpa(); updateCrowd();
 
-            if (h.secs<=0){
-            h.qtr++; if(h.qtr<=4){ h.secs=900; beginKickoff('Away'); }
-            else { running=false; pauseBtn.disabled=true; logPlay('FINAL',`FINAL: ${homeLabel.value} ${s.home} – ${awayLabel.value} ${s.away}`,'Home',true,0,0); }
-            }
+            if (h.secs <= 0) handleQuarterEnd();
             if (ms>0) await new Promise(rs=>setTimeout(rs,ms));
             continue; // ← critical: prevents a run/pass from also occurring on 4th down
         }
