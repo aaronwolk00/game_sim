@@ -883,12 +883,48 @@ function renderPlays(){
 function renderBox(){const H=HOME?.stats.team||{},A=AWAY?.stats.team||{};boxWrap.innerHTML=`<table class="table"><thead><tr><th></th><th>Plays</th><th>Yards</th><th>Pass</th><th>Rush</th><th>Punts</th><th>FG</th><th>TD</th><th>INT</th><th>Pen</th><th>3rd</th><th>4th</th><th>EPA</th></tr></thead><tbody>
 <tr><th>${homeLabel.value}</th><td>${H.plays||0}</td><td>${H.yards||0}</td><td>${H.passYds||0}</td><td>${H.rushYds||0}</td><td>${H.punts||0}</td><td>${H.fgm||0}/${H.fga||0}</td><td>${H.td||0}</td><td>${H.ints||0}</td><td>${H.pen||0}</td><td>${(H.third?.c||0)}/${(H.third?.a||0)}</td><td>${(H.fourth?.c||0)}/${(H.fourth?.a||0)}</td><td>${(H.epa||0).toFixed?.(2)||'0.00'}</td></tr>
 <tr><th>${awayLabel.value}</th><td>${A.plays||0}</td><td>${A.yards||0}</td><td>${A.passYds||0}</td><td>${A.rushYds||0}</td><td>${A.punts||0}</td><td>${A.fgm||0}/${A.fga||0}</td><td>${A.td||0}</td><td>${A.ints||0}</td><td>${A.pen||0}</td><td>${(A.third?.c||0)}/${(A.third?.a||0)}</td><td>${(A.fourth?.c||0)}/${(A.fourth?.a||0)}</td><td>${(A.epa||0).toFixed?.(2)||'0.00'}</td></tr></tbody></table>`;}
+
 function renderLeaders(){
-  function qbLine(T){const q=T.qb?.adv||{};return `${T===HOME?homeLabel.value:awayLabel.value}: ${(T.qb?.first||'QB')} ${(T.qb?.last||'')} — ${q.comp||0}/${q.att||0}, ${q.yards||0}y, TD ${q.td||0}, INT ${q.int||0}, Sk ${q.sacks||0}`}
-  function rbLine(T){const r=T.rb?.[0];const a=r?.adv||{};return `${T===HOME?homeLabel.value:awayLabel.value}: ${r?`${r.first} ${r.last}`:'RB'} — ${a.carries||0} rush, ${a.ry||0}y, TD ${a.td||0}`}
-  function wrLine(T){const w=T.wr?.[0];const a=w?.adv||{};return `${T===HOME?homeLabel.value:awayLabel.value}: ${w?`${w.first} ${w.last}`:'WR'} — ${a.catches||0}/${a.targets||0}, ${a.recY||0}y, TD ${a.td||0}`}
-  leaders.innerHTML=`<div class="small">${qbLine(HOME)}</div><div class="small">${qbLine(AWAY)}</div><div class="small" style="margin-top:6px">${rbLine(HOME)}</div><div class="small">${rbLine(AWAY)}</div><div class="small" style="margin-top:6px">${wrLine(HOME)}</div><div class="small">${wrLine(AWAY)}</div>`;
+  const leaderQB = (T) => {
+    const q = T.qb?.adv || {};
+    const name = T.qb ? `${T.qb.first} ${T.qb.last}` : 'QB';
+    return `${T===HOME?homeLabel.value:awayLabel.value}: ${name} — ${q.comp||0}/${q.att||0}, ${q.yards||0}y, TD ${q.td||0}, INT ${q.int||0}, Sk ${q.sacks||0}`;
+  };
+
+  // Top rusher: any position (RB/QB/WR/FB) by rush yards
+  const leaderRush = (T) => {
+    const best = (T.players||[]).reduce((m,p)=>{
+      const a = p.adv||{};
+      const y = a.ry||0;
+      return y > (m?.adv?.ry||0) ? p : m;
+    }, null);
+    if (!best) return `${T===HOME?homeLabel.value:awayLabel.value}: —`;
+    const a = best.adv||{};
+    return `${T===HOME?homeLabel.value:awayLabel.value}: ${best.first} ${best.last} — ${a.carries||0} rush, ${a.ry||0}y, TD ${a.td||0||0}`;
+  };
+
+  // Top receiver: WR/TE/RB by receiving yards
+  const leaderRecv = (T) => {
+    const elig = (T.wr||[]).concat(T.te||[]).concat(T.rb||[]);
+    const best = elig.reduce((m,p)=>{
+      const y = (p.adv?.recY)||0;
+      return y > (m?.adv?.recY||0) ? p : m;
+    }, null);
+    if (!best) return `${T===HOME?homeLabel.value:awayLabel.value}: —`;
+    const a = best.adv||{};
+    return `${T===HOME?homeLabel.value:awayLabel.value}: ${best.first} ${best.last} — ${a.catches||0}/${a.targets||0}, ${a.recY||0}y, TD ${a.td||0}`;
+  };
+
+  leaders.innerHTML = [
+    `<div class="small">${leaderQB(HOME)}</div>`,
+    `<div class="small">${leaderQB(AWAY)}</div>`,
+    `<div class="small" style="margin-top:6px">${leaderRush(HOME)}</div>`,
+    `<div class="small">${leaderRush(AWAY)}</div>`,
+    `<div class="small" style="margin-top:6px">${leaderRecv(HOME)}</div>`,
+    `<div class="small">${leaderRecv(AWAY)}</div>`
+  ].join('');
 }
+
 function renderTopEpa(){
   const el = document.getElementById('topEpa');
   if (!el) return;
@@ -1260,7 +1296,34 @@ function doKickoff(){
 }
 
 
-function decidePAT(lead){const slider=(+twoPct.value)/100; if(lead.force2) return 'two'; if(lead.forceXP) return 'xp'; return (Math.random()<slider)?'two':'xp';}
+function shouldGoForTwo(team){
+  const h = sim.hud, s = sim.score;
+  const tLeft = (5 - h.qtr) * 900 + h.secs;
+  const isQ4  = (h.qtr === 4);
+
+  // Margin for the *scoring* team after the TD, before the try
+  const margin = (team === 'Home') ? (s.home - s.away) : (s.away - s.home);
+
+  // Default: kick. Only go for 2 when it clearly changes the possession math late.
+  if (isQ4 && tLeft <= 360){ // last 6:00
+    // Classic chart points when trailing
+    if (margin === -8) return true;  // to get within 6
+    if (margin === -5) return true;  // to get within a FG
+    if (margin === -2) return true;  // to tie
+  }
+
+  // Super rare “coach’s gut” earlier in game if trailing (≈1.5%)
+  if (!isQ4 && margin < 0 && Math.random() < 0.015) return true;
+
+  return false;
+}
+
+function decidePAT(opts={}){
+  if (opts.forceXP) return 'xp';
+  if (opts.force2)  return 'two';
+  return shouldGoForTwo(sim.hud.poss) ? 'two' : 'xp';
+}
+
 
 /* ===== Penalties ===== */
 function chancePenalty(context){
@@ -1623,6 +1686,44 @@ function headerFrom(snap){
   return `Q${snap.qtr} ${Math.floor(snap.secs/60)}:${String(snap.secs%60).padStart(2,'0')} | ${dnTxt(snap.down)} & ${snap.dist} @ ${yardText(snap.yard)}`;
 }
 function chooseReceiver(atk){const r=sim.rng(); let group=null;if(r<0.65&&atk.wr.length)group=atk.wr;else if(r<0.85&&atk.te.length)group=atk.te;else group=atk.rb.length?atk.rb:atk.wr;return group[Math.floor(sim.rng()*group.length)]||atk.qb;}
+
+function pickRusher(atk, h){
+  const pool = [];
+  const rb1 = atk.rb?.[0], rb2 = atk.rb?.[1], rb3 = atk.rb?.[2];
+  const qb  = atk.qb;
+  const wr  = (atk.wr && atk.wr.length) ? atk.wr[Math.floor(sim.rng()*atk.wr.length)] : null;
+  const fb  = (atk.players||[]).find(p => p.pos === 'FB') || null;
+  const short = h.dist <= 2;
+
+  const fatigueDrop = p => (p && (p.adv?.carries||0) > 22) ? 0.6 : 1.0;
+
+  if (rb1) pool.push([rb1, 0.55 * fatigueDrop(rb1)]);
+  if (rb2) pool.push([rb2, 0.30 * fatigueDrop(rb2)]);
+  if (rb3) pool.push([rb3, 0.12 * fatigueDrop(rb3)]);
+
+  // WR jet/end-around ~3%
+  if (wr) pool.push([wr, 0.03]);
+
+  // FB dive very occasional
+  if (fb) pool.push([fb, 0.03]);
+
+  // QB sneak/keeper weight: bigger on short yardage and for mobile QBs
+  if (qb){
+    const mobile = (qb.SPD||70) >= 82;
+    let w = mobile ? 0.06 : 0.03;
+    if (short) w += mobile ? 0.12 : 0.06;
+    pool.push([qb, w]);
+  }
+
+  const total = pool.reduce((a,[,w]) => a+w, 0) || 1;
+  let x = sim.rng()*total;
+  for (const [p,w] of pool){
+    x -= w; if (x <= 0) return p;
+  }
+  return rb1 || qb || wr || (atk.players?.[0]); // ultimate fallback
+}
+
+
 // ===== Crowd helpers (GLOBAL) =====
 function computeCrowdIntensity(){
   const c = sim?.crowd || {present:0, cap:1, mood:0};
@@ -1931,50 +2032,66 @@ function loop(ms){
       let deltaY=0, kind='', scored=false, playText='';
       const playTime = calcPlayTime(scored);
 
-      if(r()<runRate && atk.rb.length){
-        const rb=atk.rb[0]; 
+      if (r() < runRate){
+        const runner = pickRusher(atk, h);
+
         let ppen = chancePenalty({ down: h.down, isPass: false, airDepth: 0 });
-        // Safety guard: DPI cannot occur on a running play. Convert to Defensive holding (5y, auto 1st).
+        // No DPI on runs — convert to defensive holding 5y, auto 1st
         if (ppen && !ppen.preSnap && ppen.type === 'DPI') {
           ppen = { type:'Defensive holding', yards:+5, onDefense:true, autoFirst:true };
         }
         if (ppen) {
           applyPenalty(ppen);
           updateHUD(); Field.render({ hud:h });
-          if (ms > 0) await new Promise(rs=>setTimeout(rs,ms));
+          if (ms > 0) await new Promise(rs => setTimeout(rs, ms));
           continue;
         }
-        const mean=3.9+offAdv*0.025, spread=3.2*(1+0.6*varK); const yRaw=clamp(Math.round(randNorm(r,mean,spread)),-4,35); const yds=Math.min(yRaw,100-h.yard);
-        const tack=pickDefender(def,'tackleRun'); tack.adv.tkl=(tack.adv.tkl||0)+ (h.yard+yds>=100?0:1);
-        if (h.yard + yds >= 100) {
+
+        const isQB = (runner === atk.qb);
+        // NFL-ish yard distributions
+        let mean   = 3.9 + offAdv*0.025;
+        let spread = 3.2*(1 + 0.6*varK);
+        if (isQB && h.dist <= 2){ mean = 2.3; spread = 1.4; }            // QB sneak/keeper
+        else if (isQB){ mean = 5.2 + (runner.SPD-78)/18; spread = 2.8; } // scramble-like keepers
+
+        const yRaw = clamp(Math.round(randNorm(r, mean, spread)), -4, 35);
+        const yds  = Math.min(yRaw, 100 - h.yard);
+        const tack = pickDefender(def,'tackleRun');
+
+        if (h.yard + yds >= 100){
           if (h.poss === 'Home') s.home += 6; else s.away += 6;
           scored = true; kind = 'rush';
-          playText = `${rb.first} ${rb.last} rushes for ${yds} yards, TOUCHDOWN`;
+          playText = `${runner.first} ${runner.last} rushes for ${yds} yards, TOUCHDOWN`;
           atk.stats.team.td++;
 
-          // ---- TD logging with realized EPA/WP (before PAT) ----
+          // TD logging (pre-PAT), then set pendingPAT (will suppress the generic logger later)
           const kAcc = ((h.poss==='Home'?HOME:AWAY).k?.KICK_ACC ?? 70);
           const xpP  = clamp(0.93 + (kAcc-70)/250 - (+wind.value/20)*0.08 - ((precip.value==='Heavy Rain'||precip.value==='Snow')?0.04:0), 0.85, 0.99);
           const tdEPA = 6 - ep0;
           const wpAfterTD = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
           const wpdTD = clamp(wpAfterTD - wp0, -0.30, 0.30);
           logPlay('PLAY', `${headerFrom(snap)} — ${playText}`, snap.poss, true, tdEPA, wpdTD, 0);
-          // -------------------------------------
 
           const twoP = clamp(0.48 + (atk.offense - def.defense)/220, 0.35, 0.63);
-          const patType = decidePAT({ 
-            force2: (h.qtr===4 && h.secs<360 && ((h.poss==='Home'?s.home-s.away:s.away-s.home)===-2)), 
-            forceXP: false 
-          });
+          const patType = decidePAT({});
           pendingPAT = { team: h.poss, type: patType, exp: (patType==='xp' ? xpP : 2*twoP) };
           pendingScoreIdx = scoring.push({ text: `${h.poss} TD run`, score: `${s.home}-${s.away}` }) - 1;
           closeDrive('TD', 100);
+        } else {
+          h.yard = clamp(h.yard + yds, 0, 99);
+          deltaY = yds; kind = 'rush';
+          setFirstDownOrAdvance(yds);
+          tack.adv.tkl = (tack.adv.tkl||0) + (h.yard+yds>=100?0:1);
+          playText = `${runner.first} ${runner.last} rushes for ${yds} yards, tackled by ${tack.first} ${tack.last} at ${yardText(h.yard)}`;
         }
 
-        else{h.yard=clamp(h.yard+yds,0,99);deltaY=yds;kind='rush';setFirstDownOrAdvance(yds);playText=`${rb.first} ${rb.last} rushes for ${yds} yards, tackled by ${tack.first} ${tack.last} at ${yardText(h.yard)}`;}
-        rb.adv.carries=(rb.adv.carries||0)+1; rb.adv.ry=(rb.adv.ry||0)+Math.max(0,yds);
-        const mph=clamp(13+(rb.SPD-70)/3+randNorm(r,0,1.5),11,22); rb.adv.fast=Math.max(rb.adv.fast||0,mph);
-        atk.stats.team.rushYds+=Math.max(0,deltaY);
+        // Stats
+        runner.adv.carries = (runner.adv.carries||0)+1;
+        runner.adv.ry      = (runner.adv.ry||0) + Math.max(0, yds);
+        const mph = clamp(13 + (runner.SPD-70)/3 + randNorm(r,0,1.5), 11, 22);
+        runner.adv.fast = Math.max(runner.adv.fast||0, mph);
+
+        atk.stats.team.rushYds += Math.max(0, deltaY);
       } else {
                 // PASS
                 const qb=atk.qb ? atk.qb : {first:'QB',last:'',PASS_ACC:70,INT:70,adv:{att:0,comp:0,yards:0,td:0,int:0,sacks:0,dropbacks:0,pressures:0,ttt:0,tttN:0,air:0,yac:0}};
@@ -1996,111 +2113,166 @@ function loop(ms){
         continue; // <- critical: never run the play on any penalty
         }
 
-        const pressureP=clamp(0.24+(def.defense-atk.offense)/180,0.12,0.45);
-        const pressured=(r()<pressureP);
-        if(pressured) qb.adv.pressures=(qb.adv.pressures||0)+1;
+        // Pressure → possible scramble → else resolve (sack / complete / incomplete)
+        const pressureP = clamp(0.24 + (def.defense - atk.offense) / 180, 0.12, 0.45);
+        const pressured  = (r() < pressureP);
+        if (pressured) qb.adv.pressures = (qb.adv.pressures || 0) + 1;
 
-        const sackP=pressured?0.18:0.06;
-        const expComp = clamp(
-          0.58 + (qb.PASS_ACC-80)/220 - (def.defense-70)/300 - (air>12?0.09:0) - (pressured?0.08:0),
-          0.42, 0.72
+        /* ---- QB SCRAMBLE (when pressured) ----
+          Mobile QBs (higher SPD) and long yardage slightly increase scramble rate. */
+        const scrambleP = clamp(
+          0.08 + (qb.SPD - 78) / 120 + (pressured ? 0.10 : 0) + (h.dist >= 8 ? 0.03 : 0),
+          0.02, 0.28
         );
 
-        qb.adv.expSum=(qb.adv.expSum||0)+expComp;
-        qb.adv.expN=(qb.adv.expN||0)+1;
+        if (pressured && r() < scrambleP) {
+          // Treat as a run: do NOT count as a pass attempt
+          const y = Math.min(
+            clamp(Math.round(randNorm(r, 7 + (qb.SPD - 80) / 8, 4.5)), -2, 35),
+            100 - h.yard
+          );
 
-        const ttt=clamp(randNorm(r,2.65+(pressured?-0.3:0),0.35),1.3,4.5);
-        qb.adv.ttt=(qb.adv.ttt||0)+ttt; qb.adv.tttN=(qb.adv.tttN||0)+1;
+          if (h.yard + y >= 100) {
+            if (h.poss === 'Home') s.home += 6; else s.away += 6;
+            scored = true; kind = 'rush';
+            playText = `${qb.first} ${qb.last} scrambles ${y} yards for a TOUCHDOWN`;
+            atk.stats.team.td++;
 
-        const x=r();
-        if(x<sackP){
-          const loss=clamp(Math.round(randNorm(r,6,3)),3,13);
-          const sacker=pickDefender(def,'sack');
-          sacker.adv.sk=(sacker.adv.sk||0)+1;
-          h.yard=Math.max(0,h.yard-loss);
-          deltaY=-loss; kind='pass';
-          setFirstDownOrAdvance(-loss);
-          playText=`${qb.first} ${qb.last} sacked by ${sacker.first} ${sacker.last} for -${loss} at ${yardText(h.yard)}`;
-          qb.adv.sacks=(qb.adv.sacks||0)+1;
-        } else {
-          if(r()<expComp){
-            const wr=chooseReceiver(atk);
-            const yac = Math.max(0, Math.round(randNorm(r, 3.0 + (atk.offense-def.defense)/140, 2.2*(1+0.5*varK))));
+            // Log TD pre-PAT and set pendingPAT
+            const kAcc = ((h.poss==='Home'?HOME:AWAY).k?.KICK_ACC ?? 70);
+            const xpP  = clamp(0.93 + (kAcc-70)/250 - (+wind.value/20)*0.08 - ((precip.value==='Heavy Rain'||precip.value==='Snow')?0.04:0), 0.85, 0.99);
+            const tdEPA = 6 - ep0;
+            const wpAfterTD = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
+            const wpdTD = clamp(wpAfterTD - wp0, -0.30, 0.30);
+            logPlay('PLAY', `${headerFrom(snap)} — ${playText}`, snap.poss, true, tdEPA, wpdTD, 0);
 
-            // cap total gain by yards-to-goal so a 20-yd TD from Opp 6 can't occur
-            const gain=Math.min(Math.max(0,air)+yac, 100-h.yard);
-
-            if (h.yard + gain >= 100) {
-              if (h.poss === 'Home') s.home += 6; else s.away += 6;
-              scored = true; kind = 'pass';
-              playText = `${qb.first} ${qb.last} completes to ${wr.first} ${wr.last} for ${gain} yards, TOUCHDOWN`;
-              atk.stats.team.td++;
-
-              // ---- TD logging with realized EPA/WP (before PAT) ----
-              const kAcc = ((h.poss==='Home'?HOME:AWAY).k?.KICK_ACC ?? 70);
-              const xpP  = clamp(0.93 + (kAcc-70)/250 - (+wind.value/20)*0.08 - ((precip.value==='Heavy Rain'||precip.value==='Snow')?0.04:0), 0.85, 0.99);
-              const tdEPA = 6 - ep0;
-              const wpAfterTD = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
-              const wpdTD = clamp(wpAfterTD - wp0, -0.30, 0.30);
-              logPlay('PLAY', `${headerFrom(snap)} — ${playText}`, snap.poss, true, tdEPA, wpdTD, 0);
-              // -------------------------------------
-
-              const twoP = clamp(0.48 + (atk.offense - def.defense)/220, 0.35, 0.63);
-              const patType = decidePAT({ 
-                force2: (h.qtr===4 && h.secs<360 && ((h.poss==='Home'?s.home-s.away:s.away-s.home)===-2)), 
-                forceXP: false 
-              });
-              pendingPAT = { team: h.poss, type: patType, exp: (patType==='xp' ? xpP : 2*twoP) };
-              pendingScoreIdx = scoring.push({ text: `${h.poss} TD pass`, score: `${s.home}-${s.away}` }) - 1;
-              closeDrive('TD', 100);
-
-              // keep your stat accruals
-              qb.adv.td = (qb.adv.td||0) + 1;
-              qb.adv.comp = (qb.adv.comp||0) + 1; qb.adv.att = (qb.adv.att||0) + 1;
-              qb.adv.yards = (qb.adv.yards||0) + gain; qb.adv.air += Math.max(0, air); qb.adv.yac += yac;
-              wr.adv.catches = (wr.adv.catches||0) + 1; wr.adv.targets = (wr.adv.targets||0) + 1;
-              wr.adv.recY = (wr.adv.recY||0) + gain; wr.adv.air = (wr.adv.air||0) + Math.max(0, air);
-              wr.adv.yac = (wr.adv.yac||0) + yac; wr.adv.td = (wr.adv.td||0) + 1;
-            } else {
-              h.yard=clamp(h.yard+gain,0,99);
-              deltaY=gain; kind='pass';
-              setFirstDownOrAdvance(gain);
-              const tack=pickDefender(def,'tacklePass');
-              tack.adv.tkl=(tack.adv.tkl||0)+1;
-              playText=`${qb.first} ${qb.last} completes to ${wr.first} ${wr.last} for ${gain} yards, tackled by ${tack.first} ${tack.last} at ${yardText(h.yard)}`;
-              wr.adv.targets=(wr.adv.targets||0)+1; wr.adv.catches=(wr.adv.catches||0)+1;
-              wr.adv.recY=(wr.adv.recY||0)+gain; wr.adv.air=(wr.adv.air||0)+Math.max(0,air);
-              wr.adv.yac=(wr.adv.yac||0)+yac; wr.adv.ayDepth=(wr.adv.ayDepth||0)+Math.max(0,air);
-              wr.adv.ayN=(wr.adv.ayN||0)+1;
-              const sep=clamp(2.7+(wr.SPD-70)/25-(def.defense-70)/120+randNorm(r,0,0.6),0.5,4.5);
-              wr.adv.sep=(wr.adv.sep||0)+sep; wr.adv.sepN=(wr.adv.sepN||0)+1;
-              qb.adv.comp=(qb.adv.comp||0)+1; qb.adv.att=(qb.adv.att||0)+1;
-              qb.adv.yards=(qb.adv.yards||0)+gain; qb.adv.air+=Math.max(0,air); qb.adv.yac+=yac;
-            }
+            const twoP = clamp(0.48 + (atk.offense - def.defense)/220, 0.35, 0.63);
+            const patType = decidePAT({});
+            pendingPAT = { team: h.poss, type: patType, exp: (patType==='xp' ? xpP : 2*twoP) };
+            pendingScoreIdx = scoring.push({ text: `${h.poss} TD run (QB scramble)`, score: `${s.home}-${s.away}` }) - 1;
+            closeDrive('TD', 100);
           } else {
-            // incomplete or INT chance
-            if(r()<0.04){
-              const pick=pickDefender(def,'int'); pick.adv.ints=(pick.adv.ints||0)+1;
-              const ret=clamp(Math.round(randNorm(r,10,7)),0,60);
-              const newForDef=clamp(100-(h.yard+ret),1,99);
-              playText=`${qb.first} ${qb.last} pass is INTERCEPTED by ${pick.first} ${pick.last}, return to ${yardText(newForDef)}`;
-              (h.poss==='Home'?HOME:AWAY).stats.team.ints++;
-              closeDrive('INT', h.yard);
-              h.poss=(h.poss==='Home'?'Away':'Home'); h.down=1; h.dist=10; h.yard=newForDef;
-              pushDriveStart(h.poss,h.yard);
+            h.yard = clamp(h.yard + y, 0, 99);
+            deltaY = y; kind = 'rush';
+            setFirstDownOrAdvance(y);
+            const tack = pickDefender(def, 'tackleRun'); tack.adv.tkl = (tack.adv.tkl||0) + 1;
+            playText = `${qb.first} ${qb.last} scrambles for ${y} yards, tackled by ${tack.first} ${tack.last} at ${yardText(h.yard)}`;
+            qb.adv.carries = (qb.adv.carries||0) + 1;
+            qb.adv.ry      = (qb.adv.ry||0) + Math.max(0, y);
+            atk.stats.team.rushYds += Math.max(0, y);
+          }
+
+        } else {
+          // ---- Pure pass resolution (no scramble) ----
+          const sackP = pressured ? 0.18 : 0.06;
+          const expComp = clamp(
+            0.58 + (qb.PASS_ACC - 80) / 220
+                - (def.defense - 70) / 300
+                - (air > 12 ? 0.09 : 0)
+                - (pressured ? 0.08 : 0),
+            0.42, 0.72
+          );
+
+          qb.adv.expSum = (qb.adv.expSum || 0) + expComp;
+          qb.adv.expN   = (qb.adv.expN   || 0) + 1;
+
+          const ttt = clamp(randNorm(r, 2.65 + (pressured ? -0.3 : 0), 0.35), 1.3, 4.5);
+          qb.adv.ttt  = (qb.adv.ttt  || 0) + ttt;
+          qb.adv.tttN = (qb.adv.tttN || 0) + 1;
+
+          const x = r();
+          if (x < sackP) {
+            const loss = clamp(Math.round(randNorm(r, 6, 3)), 3, 13);
+            const sacker = pickDefender(def, 'sack');
+            sacker.adv.sk = (sacker.adv.sk || 0) + 1;
+            h.yard = Math.max(0, h.yard - loss);
+            deltaY = -loss; kind = 'pass';
+            setFirstDownOrAdvance(-loss);
+            playText = `${qb.first} ${qb.last} sacked by ${sacker.first} ${sacker.last} for -${loss} at ${yardText(h.yard)}`;
+            qb.adv.sacks = (qb.adv.sacks || 0) + 1;
+
+          } else {
+            if (r() < expComp) {
+              const wr  = chooseReceiver(atk);
+              const yac = Math.max(0, Math.round(randNorm(r, 3.0 + (atk.offense - def.defense)/140, 2.2*(1+0.5*varK))));
+              // Cap total gain by yards-to-goal
+              const gain = Math.min(Math.max(0, air) + yac, 100 - h.yard);
+
+              if (h.yard + gain >= 100) {
+                if (h.poss === 'Home') s.home += 6; else s.away += 6;
+                scored = true; kind = 'pass';
+                playText = `${qb.first} ${qb.last} completes to ${wr.first} ${wr.last} for ${gain} yards, TOUCHDOWN`;
+                atk.stats.team.td++;
+
+                // TD logging (pre-PAT)
+                const kAcc = ((h.poss==='Home'?HOME:AWAY).k?.KICK_ACC ?? 70);
+                const xpP  = clamp(0.93 + (kAcc-70)/250 - (+wind.value/20)*0.08 - ((precip.value==='Heavy Rain'||precip.value==='Snow')?0.04:0), 0.85, 0.99);
+                const tdEPA = 6 - ep0;
+                const wpAfterTD = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
+                const wpdTD = clamp(wpAfterTD - wp0, -0.30, 0.30);
+                logPlay('PLAY', `${headerFrom(snap)} — ${playText}`, snap.poss, true, tdEPA, wpdTD, 0);
+
+                const twoP = clamp(0.48 + (atk.offense - def.defense)/220, 0.35, 0.63);
+                const patType = decidePAT({});
+                pendingPAT = { team: h.poss, type: patType, exp: (patType==='xp' ? xpP : 2*twoP) };
+                pendingScoreIdx = scoring.push({ text: `${h.poss} TD pass`, score: `${s.home}-${s.away}` }) - 1;
+                closeDrive('TD', 100);
+
+                // Stats
+                qb.adv.td    = (qb.adv.td||0) + 1;
+                qb.adv.comp  = (qb.adv.comp||0) + 1; qb.adv.att = (qb.adv.att||0) + 1;
+                qb.adv.yards = (qb.adv.yards||0) + gain; qb.adv.air += Math.max(0, air); qb.adv.yac += yac;
+                wr.adv.catches = (wr.adv.catches||0) + 1; wr.adv.targets = (wr.adv.targets||0) + 1;
+                wr.adv.recY = (wr.adv.recY||0) + gain; wr.adv.air = (wr.adv.air||0) + Math.max(0, air);
+                wr.adv.yac = (wr.adv.yac||0) + yac; wr.adv.td = (wr.adv.td||0) + 1;
+
+              } else {
+                h.yard = clamp(h.yard + gain, 0, 99);
+                deltaY = gain; kind = 'pass';
+                setFirstDownOrAdvance(gain);
+                const tack = pickDefender(def, 'tacklePass'); tack.adv.tkl = (tack.adv.tkl||0) + 1;
+                playText = `${qb.first} ${qb.last} completes to ${wr.first} ${wr.last} for ${gain} yards, tackled by ${tack.first} ${tack.last} at ${yardText(h.yard)}`;
+
+                wr.adv.targets = (wr.adv.targets||0) + 1; wr.adv.catches = (wr.adv.catches||0) + 1;
+                wr.adv.recY = (wr.adv.recY||0) + gain; wr.adv.air = (wr.adv.air||0) + Math.max(0, air);
+                wr.adv.yac = (wr.adv.yac||0) + yac; wr.adv.ayDepth = (wr.adv.ayDepth||0) + Math.max(0, air);
+                wr.adv.ayN = (wr.adv.ayN||0) + 1;
+                const sep = clamp(2.7 + (wr.SPD - 70) / 25 - (def.defense - 70) / 120 + randNorm(r, 0, 0.6), 0.5, 4.5);
+                wr.adv.sep = (wr.adv.sep||0) + sep; wr.adv.sepN = (wr.adv.sepN||0) + 1;
+
+                qb.adv.comp  = (qb.adv.comp||0) + 1; qb.adv.att = (qb.adv.att||0) + 1;
+                qb.adv.yards = (qb.adv.yards||0) + gain; qb.adv.air += Math.max(0, air); qb.adv.yac += yac;
+              }
+
             } else {
-              setFirstDownOrAdvance(0);
-              const db=pickDefender(def,'tacklePass'); db.adv.pd=(db.adv.pd||0)+1;
-              playText=`${qb.first} ${qb.last} pass incomplete`;
-              qb.adv.att=(qb.adv.att||0)+1;
-              const wr=chooseReceiver(atk); wr.adv.targets=(wr.adv.targets||0)+1;
-              if(r()<clamp(0.03+(70-(wr.HANDS||70))/400,0.01,0.08)){
-                wr.adv.drops=(wr.adv.drops||0)+1; playText+=' (drop)';
+              // incomplete or INT chance
+              if (r() < 0.04) {
+                const pick = pickDefender(def, 'int'); pick.adv.ints = (pick.adv.ints||0) + 1;
+                const ret  = clamp(Math.round(randNorm(r, 10, 7)), 0, 60);
+                const newForDef = clamp(100 - (h.yard + ret), 1, 99);
+                playText = `${qb.first} ${qb.last} pass is INTERCEPTED by ${pick.first} ${pick.last}, return to ${yardText(newForDef)}`;
+                (h.poss==='Home'?HOME:AWAY).stats.team.ints++;
+                closeDrive('INT', h.yard);
+                h.poss = (h.poss === 'Home' ? 'Away' : 'Home'); h.down = 1; h.dist = 10; h.yard = newForDef;
+                pushDriveStart(h.poss, h.yard);
+              } else {
+                setFirstDownOrAdvance(0);
+                const db = pickDefender(def, 'tacklePass'); db.adv.pd = (db.adv.pd||0) + 1;
+                playText = `${qb.first} ${qb.last} pass incomplete`;
+                qb.adv.att = (qb.adv.att||0) + 1;
+                const wrMiss = chooseReceiver(atk); wrMiss.adv.targets = (wrMiss.adv.targets||0) + 1;
+                if (r() < clamp(0.03 + (70 - (wrMiss.HANDS||70)) / 400, 0.01, 0.08)) {
+                  wrMiss.adv.drops = (wrMiss.adv.drops||0) + 1; playText += ' (drop)';
+                }
               }
             }
           }
+
+          // Only passes contribute to team.passYds
+          if (kind === 'pass') {
+            atk.stats.team.passYds += Math.max(0, deltaY);
+          }
         }
-        atk.stats.team.passYds+=Math.max(0,deltaY);
       }
 
       // Update team/drives
