@@ -885,45 +885,60 @@ function renderBox(){const H=HOME?.stats.team||{},A=AWAY?.stats.team||{};boxWrap
 <tr><th>${awayLabel.value}</th><td>${A.plays||0}</td><td>${A.yards||0}</td><td>${A.passYds||0}</td><td>${A.rushYds||0}</td><td>${A.punts||0}</td><td>${A.fgm||0}/${A.fga||0}</td><td>${A.td||0}</td><td>${A.ints||0}</td><td>${A.pen||0}</td><td>${(A.third?.c||0)}/${(A.third?.a||0)}</td><td>${(A.fourth?.c||0)}/${(A.fourth?.a||0)}</td><td>${(A.epa||0).toFixed?.(2)||'0.00'}</td></tr></tbody></table>`;}
 
 function renderLeaders(){
-  const leaderQB = (T) => {
-    const q = T.qb?.adv || {};
-    const name = T.qb ? `${T.qb.first} ${T.qb.last}` : 'QB';
-    return `${T===HOME?homeLabel.value:awayLabel.value}: ${name} — ${q.comp||0}/${q.att||0}, ${q.yards||0}y, TD ${q.td||0}, INT ${q.int||0}, Sk ${q.sacks||0}`;
-  };
+  function topBy(T, key){
+    let best = null, bestVal = -Infinity;
+    (T.players || []).forEach(p => {
+      const v = +(p.adv?.[key] || 0);
+      if (v > bestVal){ bestVal = v; best = p; }
+    });
+    return { p: best, v: Math.max(0, bestVal|0) };
+  }
+  function topPasser(T){
+    // Prefer actual QBs, fallback to anyone with pass yards recorded
+    const qbs = (T.players||[]).filter(p => p.pos === 'QB');
+    let best = null, bestVal = -Infinity;
+    (qbs.length ? qbs : (T.players||[])).forEach(p => {
+      const v = +(p.adv?.yards || 0);
+      if (v > bestVal){ bestVal = v; best = p; }
+    });
+    return { p: best, v: Math.max(0, bestVal|0), extra: best?.adv ? {
+      c:best.adv.comp||0, a:best.adv.att||0, td:best.adv.td||0, ints:best.adv.int||0, sk:best.adv.sacks||0
+    } : {} };
+  }
 
-  // Top rusher: any position (RB/QB/WR/FB) by rush yards
-  const leaderRush = (T) => {
-    const best = (T.players||[]).reduce((m,p)=>{
-      const a = p.adv||{};
-      const y = a.ry||0;
-      return y > (m?.adv?.ry||0) ? p : m;
-    }, null);
-    if (!best) return `${T===HOME?homeLabel.value:awayLabel.value}: —`;
-    const a = best.adv||{};
-    return `${T===HOME?homeLabel.value:awayLabel.value}: ${best.first} ${best.last} — ${a.carries||0} rush, ${a.ry||0}y, TD ${a.td||0||0}`;
-  };
+  const Hpass = topPasser(HOME), Apass = topPasser(AWAY);
+  const Hrush = topBy(HOME, 'ry'),   Arush = topBy(AWAY, 'ry');
+  const Hrec  = topBy(HOME, 'recY'), Arec  = topBy(AWAY, 'recY');
 
-  // Top receiver: WR/TE/RB by receiving yards
-  const leaderRecv = (T) => {
-    const elig = (T.wr||[]).concat(T.te||[]).concat(T.rb||[]);
-    const best = elig.reduce((m,p)=>{
-      const y = (p.adv?.recY)||0;
-      return y > (m?.adv?.recY||0) ? p : m;
-    }, null);
-    if (!best) return `${T===HOME?homeLabel.value:awayLabel.value}: —`;
-    const a = best.adv||{};
-    return `${T===HOME?homeLabel.value:awayLabel.value}: ${best.first} ${best.last} — ${a.catches||0}/${a.targets||0}, ${a.recY||0}y, TD ${a.td||0}`;
-  };
+  function linePass(teamName, X){
+    if (!X.p) return `${teamName}: —`;
+    const e = X.extra||{};
+    return `${teamName}: ${X.p.first||''} ${X.p.last||''} — ${e.c||0}/${e.a||0}, ${X.v}y, TD ${e.td||0}, INT ${e.ints||0}, Sk ${e.sk||0}`;
+  }
+  function lineRush(teamName, X){
+    if (!X.p) return `${teamName}: —`;
+    const a = X.p.adv||{};
+    return `${teamName}: ${X.p.first||''} ${X.p.last||''} — ${a.carries||0} rush, ${X.v}y, TD ${a.td||0}`;
+  }
+  function lineRec(teamName, X){
+    if (!X.p) return `${teamName}: —`;
+    const a = X.p.adv||{};
+    return `${teamName}: ${X.p.first||''} ${X.p.last||''} — ${a.catches||0}/${a.targets||0}, ${X.v}y, TD ${a.td||0}`;
+  }
 
-  leaders.innerHTML = [
-    `<div class="small">${leaderQB(HOME)}</div>`,
-    `<div class="small">${leaderQB(AWAY)}</div>`,
-    `<div class="small" style="margin-top:6px">${leaderRush(HOME)}</div>`,
-    `<div class="small">${leaderRush(AWAY)}</div>`,
-    `<div class="small" style="margin-top:6px">${leaderRecv(HOME)}</div>`,
-    `<div class="small">${leaderRecv(AWAY)}</div>`
-  ].join('');
+  leaders.innerHTML = `
+    <div class="small"><strong>Passing</strong></div>
+    <div class="small">${linePass(homeLabel.value, Hpass)}</div>
+    <div class="small">${linePass(awayLabel.value, Apass)}</div>
+    <div class="small" style="margin-top:6px"><strong>Rushing</strong></div>
+    <div class="small">${lineRush(homeLabel.value, Hrush)}</div>
+    <div class="small">${lineRush(awayLabel.value, Arush)}</div>
+    <div class="small" style="margin-top:6px"><strong>Receiving</strong></div>
+    <div class="small">${lineRec(homeLabel.value, Hrec)}</div>
+    <div class="small">${lineRec(awayLabel.value, Arec)}</div>
+  `;
 }
+
 
 function renderTopEpa(){
   const el = document.getElementById('topEpa');
@@ -1296,33 +1311,32 @@ function doKickoff(){
 }
 
 
-function shouldGoForTwo(team){
+function decidePAT({ team } = {}){
   const h = sim.hud, s = sim.score;
-  const tLeft = (5 - h.qtr) * 900 + h.secs;
-  const isQ4  = (h.qtr === 4);
+  const forHome   = (team === 'Home');
+  const us        = forHome ? s.home : s.away;   // score AFTER TD has been added
+  const them      = forHome ? s.away : s.home;
+  const leadAfter = us - them;                   // margin after TD, before try
+  const tLeft     = (5 - h.qtr) * 900 + h.secs;
 
-  // Margin for the *scoring* team after the TD, before the try
-  const margin = (team === 'Home') ? (s.home - s.away) : (s.away - s.home);
+  // Default: kick
+  let goForTwo = false;
 
-  // Default: kick. Only go for 2 when it clearly changes the possession math late.
-  if (isQ4 && tLeft <= 360){ // last 6:00
-    // Classic chart points when trailing
-    if (margin === -8) return true;  // to get within 6
-    if (margin === -5) return true;  // to get within a FG
-    if (margin === -2) return true;  // to tie
-  }
+  // Strong go-for-2 spots from charts
+  if (leadAfter === -2) goForTwo = true;                 // tie game
+  else if (leadAfter === -1) goForTwo = (tLeft <= 600);  // to take lead late
+  else if (leadAfter ===  1) goForTwo = (tLeft <= 120);  // go up 3 very late
+  else if (leadAfter ===  2) goForTwo = (tLeft <= 300);  // go up 4 late
 
-  // Super rare “coach’s gut” earlier in game if trailing (≈1.5%)
-  if (!isQ4 && margin < 0 && Math.random() < 0.015) return true;
+  // One-score scramble in final 2:30 → lean 2
+  if (!goForTwo && tLeft <= 150 && Math.abs(leadAfter) === 1) goForTwo = true;
 
-  return false;
+  // Rare early-game aggressiveness if trailing (coach vibe)
+  if (!goForTwo && tLeft > 600 && leadAfter < 0 && Math.random() < 0.015) goForTwo = true;
+
+  return goForTwo ? 'two' : 'xp';
 }
 
-function decidePAT(opts={}){
-  if (opts.forceXP) return 'xp';
-  if (opts.force2)  return 'two';
-  return shouldGoForTwo(sim.hud.poss) ? 'two' : 'xp';
-}
 
 
 /* ===== Penalties ===== */
@@ -2015,19 +2029,21 @@ function loop(ms){
         }
 
       const atk=(h.poss==='Home'?HOME:AWAY), def=(h.poss==='Home'?AWAY:HOME);
-      const offAdv=atk.offense-def.defense, varK=(+feelVariance.value)/100;
-      const passPref=(h.qtr<=2?+passEarly.value:+passLate.value)/100;
-      const thirdLong=(h.down===3 && h.dist>=7);
+      // ---- Situational pass/run blend (offense-aware, symmetric) ----
+      const offenseIsHome   = (h.poss === 'Home');
+      const scoreDiff       = s.home - s.away; // + means Home leads
+      const offenseTrailing = offenseIsHome ? (scoreDiff < 0) : (scoreDiff > 0);
+      const offenseLeading  = offenseIsHome ? (scoreDiff > 0) : (scoreDiff < 0);
 
-      // new: anchor near NFL rates, then tweak by situation
-      let passRate = 0.52 + (passPref - 0.55)*0.55;          // coach bias but bounded
-      if (h.down>=3) passRate += 0.12;
-      if (h.dist>=7) passRate += 0.06;
-      if (s.home < s.away) passRate += 0.05;                 // trailing → pass a bit more
-      if (s.home > s.away && h.qtr>=4) passRate -= 0.08;     // protect lead late
-      passRate = clamp(passRate, 0.38, 0.64);
+      let passRate = 0.54 + (passPref - 0.55) * 0.50;  // anchor near NFL avg, respect slider
+      if (h.down >= 3) passRate += 0.10;
+      if (h.dist >= 7) passRate += 0.06;
+      if (offenseTrailing) passRate += 0.05;           // trailing offense throws more
+      if (!offenseTrailing && offenseLeading && h.qtr >= 4) passRate -= 0.08; // protect lead late
+      passRate = clamp(passRate, 0.40, 0.65);
 
       const runRate = 1 - passRate;
+
 
       let deltaY=0, kind='', scored=false, playText='';
       const playTime = calcPlayTime(scored);
@@ -2073,7 +2089,7 @@ function loop(ms){
           logPlay('PLAY', `${headerFrom(snap)} — ${playText}`, snap.poss, true, tdEPA, wpdTD, 0);
 
           const twoP = clamp(0.48 + (atk.offense - def.defense)/220, 0.35, 0.63);
-          const patType = decidePAT({});
+          const patType = decidePAT({ team: h.poss });
           pendingPAT = { team: h.poss, type: patType, exp: (patType==='xp' ? xpP : 2*twoP) };
           pendingScoreIdx = scoring.push({ text: `${h.poss} TD run`, score: `${s.home}-${s.away}` }) - 1;
           closeDrive('TD', 100);
@@ -2147,7 +2163,7 @@ function loop(ms){
             logPlay('PLAY', `${headerFrom(snap)} — ${playText}`, snap.poss, true, tdEPA, wpdTD, 0);
 
             const twoP = clamp(0.48 + (atk.offense - def.defense)/220, 0.35, 0.63);
-            const patType = decidePAT({});
+            const patType = decidePAT({ team: h.poss });
             pendingPAT = { team: h.poss, type: patType, exp: (patType==='xp' ? xpP : 2*twoP) };
             pendingScoreIdx = scoring.push({ text: `${h.poss} TD run (QB scramble)`, score: `${s.home}-${s.away}` }) - 1;
             closeDrive('TD', 100);
@@ -2213,7 +2229,7 @@ function loop(ms){
                 logPlay('PLAY', `${headerFrom(snap)} — ${playText}`, snap.poss, true, tdEPA, wpdTD, 0);
 
                 const twoP = clamp(0.48 + (atk.offense - def.defense)/220, 0.35, 0.63);
-                const patType = decidePAT({});
+                const patType = decidePAT({ team: h.poss });
                 pendingPAT = { team: h.poss, type: patType, exp: (patType==='xp' ? xpP : 2*twoP) };
                 pendingScoreIdx = scoring.push({ text: `${h.poss} TD pass`, score: `${s.home}-${s.away}` }) - 1;
                 closeDrive('TD', 100);
