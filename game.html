@@ -1060,7 +1060,7 @@ function populateTeamsFromCsv(){
 /** Map a CSV row → simulator rating object */
 function mapPlayersCsvRowToSim(r){
   const posRaw = String(r['Position']||'').toUpperCase().trim();
-  const posMap = {HB:'RB', FB:'RB', RE:'DE', LE:'DE', SS:'S', FS:'S', LOLB:'OLB', ROLB:'OLB'};
+  const posMap = { HB:'RB', FB:'FB', RE:'DE', LE:'DE', SS:'S', FS:'S', LOLB:'OLB', ROLB:'OLB' };
   const pos = posMap[posRaw] || posRaw;
 
   const N = (x,d=70)=>Number.isFinite(+x)?+x:d;
@@ -1476,6 +1476,45 @@ resetBtn.addEventListener('click',hardReset);
 document.addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault();pauseToggle();}});
 
 /* ===== Helpers ===== */
+// === Clock helpers ===
+function clockDrainFor(outcome, pace){
+  // outcome: 'run' | 'comp' | 'incomp' | 'sack' | 'st'
+  const p = clamp((pace-0.5), -0.5, 0.5); // -0.5..0.5
+  switch(outcome){
+    case 'run':    return clamp(Math.round(32 - 6*p), 24, 40);
+    case 'comp':   return clamp(Math.round(27 - 5*p), 20, 35);
+    case 'incomp': return clamp(Math.round(7  - 4*p),  4, 12);
+    case 'sack':   return clamp(Math.round(18 - 3*p), 12, 25);
+    case 'st':     return clamp(Math.round(18 - 2*p), 12, 24); // special teams
+    default:       return 24;
+  }
+}
+
+// Decide if the last play kept the clock running and what kind of runoff to use
+function classifyClockContext(playText, kind, scored){
+  // scored → stoppage
+  if (scored) return { inBounds:false, outcome:'st' };
+
+  const txt = String(playText || '').toLowerCase();
+
+  if (kind === 'pass'){
+    if (txt.includes('sacked'))  return { inBounds:true,  outcome:'sack' };
+    if (txt.includes('incomplete')) return { inBounds:false, outcome:'incomp' };
+    // NOTE: if you ever add explicit "out of bounds" text, set inBounds=false there.
+    return { inBounds:true, outcome:'comp' };
+  }
+
+  if (kind === 'rush'){
+    // If you ever tag OOB rushes in playText, switch inBounds to false.
+    return { inBounds:true, outcome:'run' };
+  }
+
+  // Fallback
+  return { inBounds:true, outcome:'run' };
+}
+
+
+
 function setFirstDownOrAdvance(yds){const h=sim.hud;if(yds>=0)h.dist-=yds;else h.dist+=(-yds);if(h.dist<=0){h.down=1;h.dist=Math.min(10,100-h.yard);}else{h.down++;}}
 function kickerLeg(pow){return 45+0.7*(pow-70);}
 function fgMakeProb(dist, pow, acc){
@@ -1630,7 +1669,6 @@ function calcPlayTime(isScored){
   const h = sim.hud;
   const s = sim.score;
   const tf = clamp(1 - ((5 - h.qtr)*900 + h.secs)/3600, 0, 1);
-  const pace = (+feelPace.value)/100;                 // your slider
 
   // baseline
   let t = clamp(Math.round(randNorm(sim.rng, 26 + (precip.value!=='None'?2:0) - 4*(pace-0.5), 4)), 18, 35);
@@ -1736,7 +1774,6 @@ function loop(ms){
         }
 
       /* >>> Early 4th-down decision: if not going for it, do FG/Punt here and stop <<< */
-        let handledFourth = false;
         if (h.down === 4) {
         const distGL = 100 - h.yard;
         const FGdist = Math.round(distGL + 17);
@@ -1827,7 +1864,6 @@ function loop(ms){
 
             // consume a bit of clock for special teams, render, and skip normal play
             applyClock(18, { inBounds:true, offense: snap.poss });
-            handledFourth = true;
 
             updateHUD(); updateScore(); Field.render({ hud:h });
             const t = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
@@ -1848,11 +1884,19 @@ function loop(ms){
       const offAdv=atk.offense-def.defense, varK=(+feelVariance.value)/100;
       const passPref=(h.qtr<=2?+passEarly.value:+passLate.value)/100;
       const thirdLong=(h.down===3 && h.dist>=7);
-      const baseRun=0.56 - passPref*0.65 + (thirdLong?-0.28:0) + (h.down===4?-0.65:0);
-      const runRate=clamp(baseRun + (-offAdv/260),0.25,0.75);
+
+      // new: anchor near NFL rates, then tweak by situation
+      let passRate = 0.52 + (passPref - 0.55)*0.55;          // coach bias but bounded
+      if (h.down>=3) passRate += 0.12;
+      if (h.dist>=7) passRate += 0.06;
+      if (s.home < s.away) passRate += 0.05;                 // trailing → pass a bit more
+      if (s.home > s.away && h.qtr>=4) passRate -= 0.08;     // protect lead late
+      passRate = clamp(passRate, 0.38, 0.64);
+
+      const runRate = 1 - passRate;
 
       let deltaY=0, kind='', scored=false, playText='';
-      const pace=(+feelPace.value)/100; const playTime = calcPlayTime(scored);
+      const playTime = calcPlayTime(scored);
 
       if(r()<runRate && atk.rb.length){
         const rb=atk.rb[0]; 
@@ -1904,7 +1948,7 @@ function loop(ms){
         if(!qb.adv) qb.adv={};
         qb.adv.dropbacks=(qb.adv.dropbacks||0)+1;
 
-        const air=clamp(Math.round(randNorm(r,8+offAdv*0.01,6*(1+0.6*varK))),-1,30);
+        const air = clamp(Math.round(randNorm(r, 6 + offAdv*0.008, 5*(1+0.5*varK))), -1, 26);
         const pen = chancePenalty({ down: h.down, isPass: true, airDepth: air });
         if (pen) {
         if (pen.preSnap) {
@@ -1924,9 +1968,9 @@ function loop(ms){
         if(pressured) qb.adv.pressures=(qb.adv.pressures||0)+1;
 
         const sackP=pressured?0.18:0.06;
-        const expComp=clamp(
-          0.60+(qb.PASS_ACC-70)/220-(def.defense-70)/340-(air>12?0.06:0)-(pressured?0.07:0),
-          0.40,0.74
+        const expComp = clamp(
+          0.58 + (qb.PASS_ACC-80)/220 - (def.defense-70)/300 - (air>12?0.09:0) - (pressured?0.08:0),
+          0.42, 0.72
         );
 
         qb.adv.expSum=(qb.adv.expSum||0)+expComp;
@@ -1948,7 +1992,8 @@ function loop(ms){
         } else {
           if(r()<expComp){
             const wr=chooseReceiver(atk);
-            const yac=Math.max(0,Math.round(randNorm(r,4.0+(atk.offense-def.defense)/100,3*(1+0.6*varK))));
+            const yac = Math.max(0, Math.round(randNorm(r, 3.0 + (atk.offense-def.defense)/140, 2.2*(1+0.5*varK))));
+
             // cap total gain by yards-to-goal so a 20-yd TD from Opp 6 can't occur
             const gain=Math.min(Math.max(0,air)+yac, 100-h.yard);
 
@@ -2047,21 +2092,31 @@ function loop(ms){
 
       applyClock(scored ? 22 : (stopsClock ? 0 : playTime), { inBounds: !stopsClock, offense: startPoss });
 
+      // 4th down decisions (go-for-it resolution only; FG/punts handled earlier)
+      if (!scored && h.down === 5) {
+        const distGL  = 100 - h.yard;
+        const FGdist  = Math.round(distGL + 17); // kept for potential future use
+        const aggr    = (+aggr4th.value);
+        const goThresh = (h.yard >= 50 ? 4.0 : 2.0) - (aggr - 50)/25 - (h.qtr === 4 ? 0.6 : 0);
 
-      // 4th down decisions
-      if(!scored && h.down===5 && !handledFourth){
-        const distGL=100-h.yard, FGdist=Math.round(distGL+17);
-        const aggr=(+aggr4th.value);
-        const goThresh=(h.yard>=50?4.0:2.0) - (aggr-50)/25 - (h.qtr===4?0.6:0);
-
-        if(h.dist<=goThresh){
+        // Only handle true "go for it" situations here.
+        if (h.dist <= goThresh) {
           teamObj.fourth.a++;
           const wpBefore = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
-          const success = Math.random() < clamp(0.48+((h.poss==='Home'?HOME.offense:AWAY.offense)-(h.poss==='Home'?AWAY.defense:HOME.defense))/220,0.30,0.70);
 
-          if(success){
+          const atkTeam  = (h.poss === 'Home' ? HOME : AWAY);
+          const defTeam  = (h.poss === 'Home' ? AWAY : HOME);
+          const success  = Math.random() < clamp(
+            0.48 + (atkTeam.offense - defTeam.defense)/220,
+            0.30,
+            0.70
+          );
+
+          if (success) {
             teamObj.fourth.c++;
-            h.down=1; h.dist=Math.min(10,100-h.yard);
+            h.down = 1;
+            h.dist = Math.min(10, 100 - h.yard);
+
             const wpAfter = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
             const wpdGo   = clamp(wpAfter - wpBefore, -wpCap(h.qtr, h.secs), wpCap(h.qtr, h.secs));
             logPlay('PLAY','4th-down conversion — chains move', h.poss, false, 0, wpdGo);
@@ -2069,88 +2124,23 @@ function loop(ms){
             teamObj.downs++;
             closeDrive('Downs', h.yard);
 
-            // flip on downs at spot
-            const newForDef=clamp(100-h.yard,1,99);
-            h.poss=(h.poss==='Home'?'Away':'Home'); h.down=1; h.dist=10; h.yard=newForDef;
-            pushDriveStart(h.poss,h.yard);
+            // Flip on downs at spot
+            const newForDef = clamp(100 - h.yard, 1, 99);
+            const prevPoss  = h.poss;
+
+            h.poss = (h.poss === 'Home' ? 'Away' : 'Home');
+            h.down = 1;
+            h.dist = 10;
+            h.yard = newForDef;
+            pushDriveStart(h.poss, h.yard);
 
             const wpAfter = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
             const wpdFail = clamp(wpAfter - wpBefore, -wpCap(h.qtr, h.secs), wpCap(h.qtr, h.secs));
-            logPlay('PLAY','4th-down failed — turnover on downs', snap.poss, false, -ep0, 0);
+            logPlay('PLAY','4th-down failed — turnover on downs', prevPoss, false, -ep0, wpdFail);
           }
-        }
-         else {
-          const k=(h.poss==='Home'?HOME:AWAY).k;
-          let attempted=false;
-          if(k && FGdist<=68 && h.dist>1){
-            attempted=true;
-            teamObj.fga++;
-
-            const wpBefore = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
-            const make = Math.random() < fgMakeProb(FGdist, k.KICK_POW, k.KICK_ACC);
-            const epaFG = 3 - ep0;
-
-            if(make){
-              teamObj.fgm++;
-              if(h.poss==='Home') s.home+=3; else s.away+=3;
-              scoring.push({text:`${h.poss} FG (${FGdist})`,score:`${s.home}-${s.away}`});
-
-              const wpAfter = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
-              const wpdFG   = clamp(wpAfter - wpBefore, -wpCap(h.qtr, h.secs), wpCap(h.qtr, h.secs));
-
-              logPlay('PLAY',`FG — ${k.first} ${k.last} GOOD from ${FGdist}`, h.poss, true, epaFG, wpdFG);
-              closeDrive('FG', h.yard);
-              beginKickoff(h.poss, { onside: shouldOnsideNow(h.poss) });;
-            } else {
-              // miss → flip at spot (100 - yard)
-              const newForDef=clamp(100-h.yard,1,99);
-              closeDrive('Missed FG', h.yard);
-
-              h.poss=(h.poss==='Home'?'Away':'Home'); h.down=1; h.dist=10; h.yard=newForDef;
-              pushDriveStart(h.poss,h.yard);
-
-              const epAfterMissForUs = -EP(1, 10, newForDef);
-              const wpAfter = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
-              const wpdFG   = clamp(wpAfter - wpBefore, -wpCap(h.qtr, h.secs), wpCap(h.qtr, h.secs));
-
-              logPlay('PLAY',`FG — ${k.first} ${k.last} NO GOOD from ${FGdist}`, snap.poss, false, epAfterMissForUs - ep0, wpdFG);
-            }
-          }
-
-          if(!attempted){
-            const wpBefore = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
-
-            const punter=(h.poss==='Home'?HOME:AWAY).p||{first:'P',last:'',KICK_POW:70};
-            const gross=clamp(Math.round(46+(punter.KICK_POW-70)/2+randNorm(sim.rng,0,7)),35,70);
-            const land=h.yard+gross;
-
-            let text='';
-            if(land>=100){
-              text=`Punt ${gross} by ${punter.first} ${punter.last} — touchback`;
-              teamObj.punts++; closeDrive('Punt (TB)', h.yard);
-
-              h.poss=(h.poss==='Home'?'Away':'Home'); h.down=1; h.dist=10; h.yard=20;
-              pushDriveStart(h.poss,h.yard);
-            } else {
-              const retMan=((h.poss==='Home'?AWAY:HOME).wr[0]||(h.poss==='Home'?AWAY:HOME).rb[0]||(h.poss==='Home'?AWAY:HOME).players[0]);
-              const recvAt=100-land;
-              const ret=clamp(Math.round(randNorm(sim.rng,10,8)),0,40);
-              const end=clamp(recvAt+ret,1,99);
-              text=`Punt ${gross} by ${punter.first} ${punter.last}, ${retMan.first} ${retMan.last} returns ${ret} to ${yardText(end)}`;
-
-              teamObj.punts++; closeDrive('Punt', h.yard);
-              h.poss=(h.poss==='Home'?'Away':'Home'); h.down=1; h.dist=10; h.yard=end;
-              pushDriveStart(h.poss,h.yard);
-            }
-
-            const wpAfter = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
-            const wpdPunt = clamp(wpAfter - wpBefore, -wpCap(h.qtr, h.secs), wpCap(h.qtr, h.secs));
-
-            logPlay('PLAY', text, snap.poss, false, -ep0, wpdPunt, 0);
-          }
-
         }
       }
+
 
       // EPA/WP annotate and log with the PRE-PLAY header (drive-EP consistent)
       const wp1 = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
