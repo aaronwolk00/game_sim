@@ -247,6 +247,17 @@ const {
   'feelPace','precip','wind','temp','passEarly','passLate','aggr4th','twoPct'
 );
 
+// URL params (required by the CSV loader and team preselect)
+const PARAMS = new URLSearchParams(location.search);
+
+// Normalize the GitHub raw URL if someone passed refs/heads
+const RAW_PLAYERS  = PARAMS.get('players') || '';
+const URL_PLAYERS  = RAW_PLAYERS.replace('/refs/heads/', '/'); // turns .../refs/heads/main/... → .../main/...
+
+const URL_HOME     = (PARAMS.get('home')  || '').trim();
+const URL_AWAY     = (PARAMS.get('away')  || '').trim();
+const FALLBACK_PLAYERS =
+  'https://raw.githubusercontent.com/aaronwolk00/game_sim/main/players.csv';
 
 
 function logPlay(tag,line,off,scoring=false,epa=null,wpd=null){
@@ -463,8 +474,7 @@ const CSV_CANDIDATES = ['players.csv','Players.csv'];
 
 async function tryLoadPlayersCsv(){
   const tryUrls = [];
-  // IMPORTANT: use the correct GitHub raw URL (no "refs/heads")
-  if (URL_PLAYERS) tryUrls.push(URL_PLAYERS);
+  tryUrls.push(URL_PLAYERS || FALLBACK_PLAYERS);
   CSV_CANDIDATES.forEach(n => tryUrls.push(new URL(n, location.href).href));
 
   for (const url of tryUrls){
