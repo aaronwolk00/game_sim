@@ -227,22 +227,26 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 /* ===== Utilities ===== */
-const crowdPct = document.getElementById('crowdPct');
-const crowdBar = document.getElementById('crowdBar');
-const startBtn  = document.getElementById('startBtn');
-const pauseBtn  = document.getElementById('pauseBtn');
-const resetBtn  = document.getElementById('resetBtn');
-const exportCsv = document.getElementById('exportCsv');
-const topEpa = document.getElementById('topEpa');
-const topEpaList = document.getElementById('topEpaList');
-const rosterStatus = document.getElementById('rosterStatus');
-const toggleAdv = document.getElementById('toggleAdv');
-const field = document.getElementById('field');
-const wpChart = document.getElementById('wpChart');
-const PARAMS = new URLSearchParams(location.search);
-const URL_HOME  = PARAMS.get('home');
-const URL_AWAY  = PARAMS.get('away');
-const URL_PLAYERS = PARAMS.get('players'); // raw CSV URL from index.html
+// Small helpers
+const $id  = (id) => document.getElementById(id);
+const bind = (...ids) =>
+  ids.reduce((acc, id) => (acc[id] = $id(id), acc), {});
+
+// One compact grab that preserves your variable names
+const {
+  crowdPct, crowdBar, startBtn, pauseBtn, resetBtn, exportCsv, topEpa, rosterStatus, toggleAdv,
+  field, wpChart, homeName, awayName, homeScore, awayScore, poss, qtr, clock, toHome, toAway,
+  wpVal, feed, lastPlay, boxWrap, leaders, tabPlays, tabScoring, tabDrives, tabAdvanced, fansPill,
+  hud, homeTeamSel, awayTeamSel, homeLabel, awayLabel, seed, speed, feelVariance, feelRefs, feelCrowd,
+  feelPace, precip, wind, temp, passEarly, passLate, aggr4th, twoPct
+} = bind(
+  'crowdPct','crowdBar','startBtn','pauseBtn','resetBtn','exportCsv','topEpa','rosterStatus','toggleAdv',
+  'field','wpChart','homeName','awayName','homeScore','awayScore','poss','qtr','clock','toHome','toAway',
+  'wpVal','feed','lastPlay','boxWrap','leaders','tabPlays','tabScoring','tabDrives','tabAdvanced','fansPill',
+  'hud','homeTeamSel','awayTeamSel','homeLabel','awayLabel','seed','speed','feelVariance','feelRefs','feelCrowd',
+  'feelPace','precip','wind','temp','passEarly','passLate','aggr4th','twoPct'
+);
+
 
 
 function logPlay(tag,line,off,scoring=false,epa=null,wpd=null){
@@ -297,6 +301,37 @@ function parseCSV(text){
       header.forEach((h, i) => obj[h] = r[i] === undefined ? '' : r[i]);
       return obj;
     });
+}
+
+function parseCSVSmart(text){
+  const lines = text.split(/\r?\n/);
+
+  // Find a header candidate within the first 5 non-empty lines
+  let headerIdx = 0;
+  for (let i = 0; i < Math.min(5, lines.length); i++){
+    const li = lines[i].toLowerCase();
+    if (!li.trim()) continue;
+    // Look for telltale columns likely to exist in your sheet
+    if (
+      (li.includes('team') || li.includes('teams')) &&
+      (li.includes('position') || li.includes('first') || li.includes('last'))
+    ){
+      headerIdx = i;
+      break;
+    }
+  }
+
+  // Re-run your existing CSV parser starting at detected header line
+  const sliced = lines.slice(headerIdx).join('\n');
+  const rows = parseCSV(sliced);
+
+  // Normalize common header quirks (alias "Teams" → "Team")
+  return rows.map(r => {
+    if (r.Team === undefined && r.Teams !== undefined) r.Team = r.Teams;
+    // Optional: trim all string fields
+    for (const k in r) if (typeof r[k] === 'string') r[k] = r[k].trim();
+    return r;
+  });
 }
 
 function num(x,d=70){const v=Number(x);return Number.isFinite(v)?v:d;}
@@ -424,35 +459,42 @@ tabAdvanced.onclick=()=>{activeTab='advanced';tabAdvanced.classList.add('active'
 
 
 
-/* === CSV roster loader (players.csv) === */
-
 const CSV_CANDIDATES = ['players.csv','Players.csv'];
 
-/** Try to load players CSV: prefer ?players= raw URL, else local file names. */
 async function tryLoadPlayersCsv(){
   const tryUrls = [];
+  // IMPORTANT: use the correct GitHub raw URL (no "refs/heads")
   if (URL_PLAYERS) tryUrls.push(URL_PLAYERS);
-  CSV_CANDIDATES.forEach(n => tryUrls.push(n));
+  CSV_CANDIDATES.forEach(n => tryUrls.push(new URL(n, location.href).href));
 
   for (const url of tryUrls){
     try{
-      const res = await fetch(url, { cache:'no-store' });
-      if (!res.ok) continue;
-      const text = await res.text();
-      const rows = parseCSV(text);
-      if (!rows.length) continue;
+      console.log('[CSV] trying', url);
+      const res = await fetch(url, { cache:'no-store', mode:'cors' });
+      if (!res.ok){ console.warn('[CSV] HTTP', res.status, url); continue; }
 
-      // store rows + unique teams
+      const text = await res.text();
+      const rows = parseCSVSmart(text);
+      if (!rows.length){ console.warn('[CSV] empty after parse', url); continue; }
+      if (!('Team' in rows[0])){ console.warn('[CSV] no Team/Teams column', url); continue; }
+
       PLAYERS_CSV_ROWS = rows;
+
+      // Build unique team list from the normalized "Team" key
       const set = new Set();
       rows.forEach(r => { const t = String(r.Team||'').trim(); if (t) set.add(t); });
       TEAM_SHEETS = Array.from(set).sort();
 
       populateTeamsFromCsv();
-      rosterStatus.textContent = `Loaded ${TEAM_SHEETS.length} teams from CSV`;
+      rosterStatus.textContent = `Loaded ${TEAM_SHEETS.length} teams from CSV (${url})`;
+      console.log('[CSV] loaded', TEAM_SHEETS.length, 'teams from', url);
       return true;
-    }catch(e){}
+    }catch(e){
+      console.error('[CSV] fetch failed', url, e);
+    }
   }
+
+  rosterStatus.textContent = 'No players.csv found — using generated players.';
   return false;
 }
 
@@ -684,8 +726,8 @@ function hardReset(){
   }
 
   renderBox();
-  renderLeaders(); // Now this will correctly show empty/zeroed stats
-  renderTopEpa(); // Now this will correctly be empty
+  renderLeaders();
+  renderTopEpa();
   Field.render({hud:sim.hud});
 }
 startBtn.addEventListener('click',()=>{if(running)return;homeName.textContent=homeLabel.value||'Home';awayName.textContent=awayLabel.value||'Away';startGame();});
@@ -875,7 +917,7 @@ function loop(ms){
           applyPenalty(pre);
           updateHUD(); Field.render({ hud:h });
           if (ms > 0) await new Promise(rs => setTimeout(rs, ms));
-          continue; // ← NO normal play logged on this snap
+          continue; 
         }
 
       /* >>> Early 4th-down decision: if not going for it, do FG/Punt here and stop <<< */
