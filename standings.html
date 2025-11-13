@@ -47,6 +47,8 @@ hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
       <h1>League Standings</h1>
       <div class="row">
         <a id="backLink" class="btn ghost" href="index.html">← Weekly Games</a>
+        <a id="toSchedule" class="btn">Schedule</a>
+        <a id="toSimSeason" class="btn">▶ Sim Season</a>
         <span id="sourceHint" class="small"></span>
       </div>
     </div>
@@ -68,13 +70,25 @@ hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
       <div id="standings"></div>
     </div>
 
-    <div class="small">Notes: These standings are **rating-based** (derived from rosters in <code>players.csv</code>) since there’s no season store yet. Draft order = reverse of league ranking.</div>
+    <div class="small">Notes: These standings are rating-based (derived from rosters in <code>players.csv</code>). Draft order = reverse of league ranking.</div>
   </main>
 
 <script>
-/* ========= CSV loading (param or local/fallback) ========= */
+/* ========= Params ========= */
 const PARAMS = new URLSearchParams(location.search);
 const RAW_PLAYERS_PARAM = (PARAMS.get('players') || '').replace('/refs/heads/', '/');
+const RAW_SCHEDULE_PARAM = (PARAMS.get('schedule') || '').replace('/refs/heads/', '/');
+
+// Forward params
+const playersParamStr = RAW_PLAYERS_PARAM ? `players=${encodeURIComponent(RAW_PLAYERS_PARAM)}` : '';
+const schedParamStr   = RAW_SCHEDULE_PARAM ? `schedule=${encodeURIComponent(RAW_SCHEDULE_PARAM)}` : '';
+const join = (...parts)=> parts.filter(Boolean).join('&');
+const both = join(playersParamStr, schedParamStr);
+const qs = both ? `?${both}` : (playersParamStr ? `?${playersParamStr}` : '');
+
+document.getElementById('toSchedule').href = `schedule.html${qs}`;
+document.getElementById('toSimSeason').href = `sim_season.html${qs}`;
+
 const CSV_URLS = RAW_PLAYERS_PARAM
   ? [RAW_PLAYERS_PARAM, new URL('players.csv', location.href).href, 'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/players.csv']
   : [new URL('players.csv', location.href).href, 'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/players.csv'];
@@ -96,7 +110,7 @@ async function fetchCsvText(){
   throw lastErr || new Error('CSV not reachable');
 }
 
-/* ========= CSV parsing helpers (same feel as index.html) ========= */
+/* ========= CSV helpers ========= */
 function parseCsvToRows(text){
   text = String(text || '').replace(/^\uFEFF/, '');
   const rows=[]; let row=[], field='', inQ=false;
@@ -113,7 +127,6 @@ function parseCsvToRows(text){
     }
   }
   row.push(field); rows.push(row);
-  // drop trailing empties
   while(rows.length && rows[rows.length-1].every(x => String(x||'').trim()==='')) rows.pop();
   return rows.filter(r=>r.length && r.some(x=>x!==''));;
 }
@@ -132,7 +145,6 @@ function rowsToObjects(rows, headerIdx){
 }
 
 /* ========= Rating & classification ========= */
-// Simple player OVR fallback if not provided
 function toNum(x, d=70){ const v=Number(x); return Number.isFinite(v) ? v : d; }
 function playerOVR(p){
   if (p.OVR !== undefined && p.OVR !== '') return toNum(p.OVR, 70);
@@ -142,13 +154,11 @@ function playerOVR(p){
   return n? (sum/n) : 70;
 }
 function rateTeam(rows){
-  // Average OVR across players (good enough for standings/power)
   if (!rows.length) return 70;
   const vals = rows.map(playerOVR);
   return Math.round(vals.reduce((a,b)=>a+b,0)/vals.length);
 }
 
-// Division mapping (substring match; add common nicknames)
 const DIVISIONS = {
   "AFC East":      ['bills','dolphins','patriots','jets'],
   "AFC North":     ['ravens','bengals','browns','steelers'],
@@ -180,7 +190,7 @@ tabs.forEach(btn => btn.addEventListener('click', () => {
   render(mode = btn.dataset.mode);
 }));
 
-let TEAMS = []; // [{team, rating, conf, div}]
+let TEAMS = [];
 let mode = 'league';
 
 function tableHTML(rows){
@@ -249,7 +259,6 @@ function render(m){
     csvPill.textContent = `CSV: ${url.includes('githubusercontent')?'remote':'local'}`;
     sourceHint.textContent = url;
 
-    // Link back to index with same players param
     const back = document.getElementById('backLink');
     const playersParam = encodeURIComponent(url);
     back.href = `index.html?players=${playersParam}`;
@@ -258,13 +267,11 @@ function render(m){
     const headerIdx = findHeaderIndex(rows);
     const objs = rowsToObjects(rows, headerIdx);
 
-    // group by team
     const byTeam = new Map();
     objs.forEach(r => {
       const team = String(r.Team||'').trim();
       if (!team) return;
       if (!byTeam.has(team)) byTeam.set(team, []);
-      // normalize numeric-ish fields
       const norm = {...r};
       ['OVR','SPD','STR','AGI','INT','TEC','HANDS','TACK','BLOCK','COVER','PASS_ACC','PASS_PWR'].forEach(k=>{
         if (norm[k] !== undefined) norm[k] = String(norm[k]).trim();
@@ -279,7 +286,6 @@ function render(m){
     });
 
     teamCount.textContent = `${TEAMS.length} teams`;
-
     render(mode);
   }catch(e){
     console.error(e);

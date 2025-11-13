@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>NFL Sim — Sim Season (Headless)</title>
+<style>
+:root{
+  --bg:#0b1220; --panel:#121a2a; --card:#0e1630; --text:#eef2ff; --muted:#93a0b1;
+  --accent:#5eead4; --home:#4ade80; --away:#60a5fa;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;background:var(--bg);color:var(--text);
+  font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  display:grid;place-items:center
+}
+main{width:min(1000px,95vw);display:grid;gap:16px}
+h1{margin:0 0 6px;font-size:22px;letter-spacing:.2px}
+.panel{background:var(--panel);border-radius:14px;padding:12px;border:1px solid #1c2440;box-shadow:0 6px 24px rgba(0,0,0,.25)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+.btn{display:inline-flex;align-items:center;justify-content:center;padding:10px 12px;border-radius:10px;background:var(--accent);color:#0a0f17;font-weight:700;font-size:14px;border:none;box-shadow:0 2px 0 rgba(0,0,0,.25);text-decoration:none;cursor:pointer}
+.btn.ghost{background:var(--card);color:#dbe3ef;border:1px solid #2a355a;box-shadow:none;text-decoration:none}
+.small{font-size:12px;color:var(--muted)}
+hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
+.table{width:100%;border-collapse:collapse;font-size:13px}
+.table th,.table td{border-bottom:1px solid #1f2740;padding:8px 8px;text-align:left}
+.table th{font-weight:700;color:#dbe3ef}
+.right{text-align:right}
+.grid{display:grid;grid-template-columns:1.3fr .7fr;gap:12px}
+.section{background:rgba(255,255,255,.02);border:1px solid #1c2440;border-radius:12px;padding:8px}
+.section h3{margin:0 0 6px;font-size:14px}
+.pill{display:inline-block;padding:4px 8px;border-radius:999px;background:var(--card);border:1px solid #233055;font-size:12px;color:var(--muted)}
+code{background:#0e1630;padding:2px 6px;border-radius:8px;border:1px solid #2a355a}
+</style>
+</head>
+<body>
+  <main>
+    <div class="row">
+      <h1>Sim Season (Headless)</h1>
+      <div class="row" style="gap:8px">
+        <a id="toIndex" class="btn ghost">Weekly Games</a>
+        <a id="toStandings" class="btn ghost">Standings</a>
+        <a id="toSchedule" class="btn">Schedule</a>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="row">
+        <div class="row" style="gap:8px">
+          <button class="btn" id="runBtn">▶ Run Season</button>
+          <button class="btn ghost" id="dlResultsBtn" disabled>Download Results CSV</button>
+          <button class="btn ghost" id="dlStandBtn" disabled>Download Standings CSV</button>
+        </div>
+        <div class="row" style="gap:8px">
+          <span class="pill" id="schedPill">Schedule: loading…</span>
+          <span class="pill" id="teamsPill">Teams: —</span>
+          <span class="pill" id="progressPill">Progress: —</span>
+        </div>
+      </div>
+      <hr>
+      <div class="grid">
+        <div class="section">
+          <h3>Results (by Week)</h3>
+          <div id="results"></div>
+        </div>
+        <div class="section">
+          <h3>Standings</h3>
+          <div id="standings"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="small">
+      Uses roster ratings from <code>players.csv</code> and games from <code>schedule.csv</code>.
+      If you later expose <code>window.runGameHeadless(home, away, playersUrl)</code> from your engine,
+      this page will automatically use it instead of the built-in quick sim.
+    </div>
+  </main>
+
+<script>
+/* ===== Params & nav ===== */
+const PARAMS = new URLSearchParams(location.search);
+const RAW_PLAYERS_PARAM  = (PARAMS.get('players')  || '').replace('/refs/heads/', '/');
+const RAW_SCHEDULE_PARAM = (PARAMS.get('schedule') || '').replace('/refs/heads/', '/');
+
+const playersParamStr = RAW_PLAYERS_PARAM ? `players=${encodeURIComponent(RAW_PLAYERS_PARAM)}` : '';
+const schedParamStr   = RAW_SCHEDULE_PARAM ? `schedule=${encodeURIComponent(RAW_SCHEDULE_PARAM)}` : '';
+const join = (...parts)=> parts.filter(Boolean).join('&');
+const both = join(playersParamStr, schedParamStr);
+const qs = both ? `?${both}` : (playersParamStr ? `?${playersParamStr}` : '');
+
+document.getElementById('toIndex').href = `index.html${playersParamStr ? `?${playersParamStr}` : ''}`;
+document.getElementById('toStandings').href = `standings.html${playersParamStr ? `?${playersParamStr}` : ''}`;
+document.getElementById('toSchedule').href = `schedule.html${qs}`;
+
+/* ===== Data sources ===== */
+const PLAYERS_URLS = RAW_PLAYERS_PARAM
+  ? [RAW_PLAYERS_PARAM, new URL('players.csv', location.href).href]
+  : [new URL('players.csv', location.href).href,
+     'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/players.csv'];
+
+const SCHEDULE_URLS = RAW_SCHEDULE_PARAM
+  ? [RAW_SCHEDULE_PARAM, new URL('schedule.csv', location.href).href]
+  : [new URL('schedule.csv', location.href).href];
+
+const schedPill = document.getElementById('schedPill');
+const teamsPill = document.getElementById('teamsPill');
+const progressPill = document.getElementById('progressPill');
+const resultsEl = document.getElementById('results');
+const standingsEl = document.getElementById('standings');
+const runBtn = document.getElementById('runBtn');
+const dlResultsBtn = document.getElementById('dlResultsBtn');
+const dlStandBtn = document.getElementById('dlStandBtn');
+
+/* ===== Helpers: CSV ===== */
+async function fetchCsvFrom(urls){
+  let lastErr=null;
+  for(const url of urls){
+    try{
+      const res = await fetch(url, { cache:'no-store', mode:'cors' });
+      if(!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      return { text: await res.text(), url };
+    }catch(e){ lastErr=e; }
+  }
+  throw lastErr || new Error('CSV not reachable');
+}
+function parseCsvToRows(text){
+  text = String(text||'').replace(/^\uFEFF/,'');
+  const rows=[]; let row=[], field='', q=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(q){
+      if(c==='"'){ if(text[i+1]==='"'){ field+='"'; i++; } else q=false; }
+      else field+=c;
+    }else{
+      if(c==='"') q=true;
+      else if(c===','){ row.push(field); field=''; }
+      else if(c==='\n'){ row.push(field); rows.push(row); row=[]; field=''; }
+      else if(c!=='\r'){ field+=c; }
+    }
+  }
+  row.push(field); rows.push(row);
+  while(rows.length && rows[rows.length-1].every(x => String(x||'').trim()==='')) rows.pop();
+  return rows.filter(r=>r.length && r.some(x=>String(x||'').trim()!==''));
+}
+function findHeaderIndex(rows, wantCols){
+  const norm=s=>String(s||'').trim().toLowerCase();
+  for(let i=0;i<Math.min(rows.length,8);i++){
+    const set=new Set(rows[i].map(norm));
+    let ok=true;
+    for(const c of wantCols){ if(!set.has(c)){ ok=false; break; } }
+    if(ok) return i;
+  }
+  return 0;
+}
+function rowsToObjects(rows, headerIdx){
+  const header = rows[headerIdx].map(h => String(h||'').trim());
+  return rows.slice(headerIdx+1).map(r => {
+    const o={}; header.forEach((h,j)=> o[h]= r[j]===undefined ? '' : r[j]); return o;
+  });
+}
+
+/* ===== Roster rating ===== */
+function toNum(x, d=70){ const v=Number(x); return Number.isFinite(v) ? v : d; }
+function playerOVR(p){
+  if (p.OVR !== undefined && p.OVR !== '') return toNum(p.OVR, 70);
+  const keys = ['SPD','STR','AGI','INT','TEC','HANDS','TACK','BLOCK','COVER','PASS_ACC','PASS_PWR'];
+  let sum=0, n=0;
+  keys.forEach(k => { const v = toNum(p[k], NaN); if (Number.isFinite(v)){ sum+=v; n++; } });
+  return n? (sum/n) : 70;
+}
+function buildRatings(players){
+  const byTeam = new Map();
+  players.forEach(p=>{
+    const team = String(p.Team||'').trim();
+    if(!team) return;
+    if(!byTeam.has(team)) byTeam.set(team, []);
+    byTeam.get(team).push(p);
+  });
+  const ratings = {};
+  Array.from(byTeam.entries()).forEach(([team, list])=>{
+    const vals = list.map(playerOVR);
+    ratings[team] = Math.round(vals.reduce((a,b)=>a+b,0)/vals.length);
+  });
+  return ratings;
+}
+
+/* ===== Schedule shape ===== */
+function normTeam(x){ return String(x||'').trim(); }
+function toWeek(x){ const n = parseInt(String(x||'').replace(/[^\d]/g,''),10); return Number.isFinite(n) ? n : 1; }
+function mapScheduleRow(r){
+  const home = r.Home || r.HOME || r['Home Team'] || r['HomeTeam'] || r['home'] || '';
+  const away = r.Away || r.AWAY || r['Away Team'] || r['AwayTeam'] || r['Visitor'] || r['visitor'] || '';
+  const wk   = r.Week || r.WEEK || r.week || r['Wk'] || r['WK'] || '';
+  const date = r.Date || r.DATE || r.date || '';
+  const time = r.Time || r.TIME || r.time || '';
+  const venue= r.Venue || r.Stadium || r.Location || '';
+  return { week: toWeek(wk), home: normTeam(home), away: normTeam(away), date:String(date||''), time:String(time||''), venue:String(venue||'') };
+}
+
+/* ===== QuickSim engine (replace with your headless engine when available) ===== */
+async function quickSimGame(home, away, ratings){
+  // NFL-ish per-drive rates; adjust by rating diff (delta in ~[-30,+30])
+  const rh = ratings[home] ?? 70, ra = ratings[away] ?? 70;
+  const delta = (rh - ra) / 30; // ~[-1,+1] scaled advantage
+
+  const drivesPerTeam = 12 + Math.round((Math.random()-0.5)*2); // 11-13
+  const cfg = (adv)=>({
+    pTD: 0.23 + 0.09*adv,
+    pFG: 0.17 + 0.04*adv,
+    xp : 0.94
+  });
+
+  const H=cfg(+delta), A=cfg(-delta);
+
+  function simSide(cfg){
+    let pts=0;
+    for(let i=0;i<drivesPerTeam;i++){
+      const r=Math.random();
+      if(r < cfg.pTD){ pts += 6; if(Math.random() < cfg.xp) pts += 1; }
+      else if(r < cfg.pTD + cfg.pFG){ pts += 3; }
+      // else: empty drive
+    }
+    return pts;
+  }
+
+  let homePts = simSide(H);
+  let awayPts = simSide(A);
+
+  // Close games get late FG attempts → tiny nudge toward 3-pt margins
+  if(Math.abs(homePts-awayPts)<=2){
+    if(Math.random()<0.35){ if(homePts<=awayPts) homePts+=3; else awayPts+=3; }
+  }
+
+  // Simple OT: one extra possession each; then sudden points
+  if(homePts===awayPts){
+    homePts += Math.random()<H.pTD? 7 : (Math.random()<H.pFG?3:0);
+    awayPts += Math.random()<A.pTD? 7 : (Math.random()<A.pFG?3:0);
+    if(homePts===awayPts){
+      if(Math.random()<0.5) homePts+=3; else awayPts+=3;
+    }
+  }
+
+  return { homePts, awayPts };
+}
+
+/* If user provides true headless engine on window.runGameHeadless, use it */
+async function simulateGame(home, away, playersUrl, ratings){
+  if (typeof window.runGameHeadless === 'function') {
+    // Expected to return {homePts, awayPts}
+    return await window.runGameHeadless(home, away, playersUrl);
+  }
+  return await quickSimGame(home, away, ratings);
+}
+
+/* ===== Render helpers ===== */
+function resultsHTML(byWeek){
+  const weeks = Array.from(byWeek.keys()).sort((a,b)=>a-b);
+  return weeks.map(w=>{
+    const list = byWeek.get(w);
+    return `
+      <div class="section" style="margin-bottom:8px">
+        <h3>Week ${w}</h3>
+        <table class="table">
+          <thead><tr><th>Matchup</th><th class="right">Score</th></tr></thead>
+          <tbody>
+            ${list.map(g=>`
+              <tr>
+                <td>${g.away} @ ${g.home}</td>
+                <td class="right">${g.awayPts}-${g.homePts} (${g.winner})</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  }).join('');
+}
+
+function standingsHTML(stand){
+  const rows = Object.values(stand).sort((a,b)=> (b.wins-a.wins) || ((b.pf-b.pa)-(a.pf-a.pa)) || a.team.localeCompare(b.team));
+  return `
+    <table class="table">
+      <thead><tr><th>#</th><th>Team</th><th class="right">W</th><th class="right">L</th><th class="right">PF</th><th class="right">PA</th><th class="right">Diff</th></tr></thead>
+      <tbody>
+        ${rows.map((r,i)=>`
+          <tr>
+            <td class="right">${i+1}</td><td>${r.team}</td>
+            <td class="right">${r.wins}</td><td class="right">${r.losses}</td>
+            <td class="right">${r.pf}</td><td class="right">${r.pa}</td>
+            <td class="right">${r.pf - r.pa}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+/* ===== CSV download ===== */
+function downloadCsv(filename, rows){
+  const header = Object.keys(rows[0]||{}).join(',');
+  const lines = rows.map(r => Object.values(r).map(v=>{
+    const s=String(v??'');
+    return (/[",\n]/.test(s)) ? `"${s.replace(/"/g,'""')}"` : s;
+  }).join(','));
+  const csv = [header, ...lines].join('\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+}
+
+/* ===== Boot & Run ===== */
+let RATINGS = {};
+let SCHEDULE = [];
+let PLAYERS_URL_USED = '';
+
+(async function init(){
+  try{
+    const { text: playersText, url: playersUrlUsed } = await fetchCsvFrom(PLAYERS_URLS);
+    PLAYERS_URL_USED = playersUrlUsed;
+
+    const prow = parseCsvToRows(playersText);
+    const phi  = findHeaderIndex(prow, ['team']);
+    const pobjs= rowsToObjects(prow, phi);
+    RATINGS = buildRatings(pobjs);
+    const teams = Object.keys(RATINGS).length;
+    teamsPill.textContent = `Teams: ${teams}`;
+
+    const { text: schedText, url: schedUrlUsed } = await fetchCsvFrom(SCHEDULE_URLS);
+    const srow = parseCsvToRows(schedText);
+    const shi  = findHeaderIndex(srow, ['week','home','away']);
+    const sobjs= rowsToObjects(srow, shi);
+    SCHEDULE = sobjs.map(mapScheduleRow).filter(g => g.home && g.away);
+    schedPill.textContent = `Schedule: ${SCHEDULE.length} games`;
+  }catch(e){
+    console.error(e);
+    schedPill.textContent = 'Schedule: error';
+    resultsEl.innerHTML = `<div class="small" style="color:#fca5a5">Could not load <code>players.csv</code> and/or <code>schedule.csv</code>.</div>`;
+  }
+})();
+
+runBtn.addEventListener('click', async ()=>{
+  runBtn.disabled = true;
+  resultsEl.innerHTML = '';
+  standingsEl.innerHTML = '';
+
+  const standings = {};
+  function ensureTeam(t){ if(!standings[t]) standings[t] = { team:t, wins:0, losses:0, pf:0, pa:0 }; }
+
+  const byWeek = new Map();
+  const resultsRows = [];
+
+  let done = 0, total = SCHEDULE.length;
+  for(const g of SCHEDULE){
+    ensureTeam(g.home); ensureTeam(g.away);
+
+    const { homePts, awayPts } = await simulateGame(g.home, g.away, PLAYERS_URL_USED, RATINGS);
+    const winner = homePts>awayPts ? g.home : g.away;
+
+    standings[g.home].pf += homePts; standings[g.home].pa += awayPts;
+    standings[g.away].pf += awayPts; standings[g.away].pa += homePts;
+    if(winner===g.home){ standings[g.home].wins++; standings[g.away].losses++; }
+    else { standings[g.away].wins++; standings[g.home].losses++; }
+
+    const rec = { Week:g.week, Away:g.away, Home:g.home, AwayScore:awayPts, HomeScore:homePts, Winner:winner };
+    resultsRows.push(rec);
+
+    if(!byWeek.has(g.week)) byWeek.set(g.week, []);
+    byWeek.get(g.week).push({ ...g, homePts, awayPts, winner });
+
+    done++; progressPill.textContent = `Progress: ${done}/${total}`;
+    // Let UI breathe
+    await new Promise(r=>setTimeout(r, 0));
+  }
+
+  // Render
+  resultsEl.innerHTML = resultsHTML(byWeek);
+  standingsEl.innerHTML = standingsHTML(standings);
+
+  // Enable downloads
+  dlResultsBtn.disabled = false;
+  dlStandBtn.disabled = false;
+
+  dlResultsBtn.onclick = ()=> downloadCsv('season_results.csv', resultsRows);
+  dlStandBtn.onclick = ()=> downloadCsv('season_standings.csv',
+    Object.values(standings).sort((a,b)=> (b.wins-a.wins)||((b.pf-b.pa)-(a.pf-a.pa))||a.team.localeCompare(b.team))
+  );
+});
+</script>
+</body>
+</html>

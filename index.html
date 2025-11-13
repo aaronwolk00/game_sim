@@ -18,6 +18,8 @@ body{
 }
 main{width:min(920px,92vw);display:grid;gap:16px}
 h1{margin:0 0 6px;font-size:22px;letter-spacing:.2px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+.nav{display:flex;gap:8px;flex-wrap:wrap}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
 .card{
   display:block;background:var(--panel);border-radius:14px;padding:14px;text-decoration:none;color:inherit;
@@ -32,24 +34,48 @@ h1{margin:0 0 6px;font-size:22px;letter-spacing:.2px}
 .pill{display:inline-block;padding:4px 8px;border-radius:999px;background:var(--card);border:1px solid #233055;font-size:12px;color:var(--muted)}
 .pill.home{color:var(--home)} .pill.away{color:var(--away)}
 hr{height:1px;background:#1c2440;border:0;margin:10px 0;border-radius:2px}
-.btn{display:inline-flex;align-items:center;justify-content:center;padding:10px 12px;border-radius:10px;background:var(--accent);color:#0a0f17;font-weight:700;font-size:14px;border:none;box-shadow:0 2px 0 rgba(0,0,0,.25)}
+.btn{display:inline-flex;align-items:center;justify-content:center;padding:10px 12px;border-radius:10px;background:var(--accent);color:#0a0f17;font-weight:700;font-size:14px;border:none;box-shadow:0 2px 0 rgba(0,0,0,.25);text-decoration:none}
 .card:hover .btn{box-shadow:0 3px 0 rgba(0,0,0,.28)}
 .small{font-size:12px;color:var(--muted)}
 </style>
 </head>
 <body>
   <main>
-    <h1 id="page-title">Loading Week 1 Games...</h1>
+    <div class="row">
+      <h1 id="page-title">Loading Week 1 Games...</h1>
+      <div class="nav">
+        <a id="toSchedule" class="btn">Schedule</a>
+        <a id="toStandings" class="btn ghost" style="text-decoration:none;background:#0e1630;color:#dbe3ef;border:1px solid #2a355a">Standings</a>
+        <a id="toSimSeason" class="btn">▶ Sim Season</a>
+      </div>
+    </div>
     <div class="grid" id="game-grid"></div>
     <div class="small">Tip: Click any card to open the simulator with these teams preloaded.</div>
   </main>
 
 <script>
-// Try same-origin first (works on GitHub Pages), then fall back to raw GH
-const CSV_URLS = [
-  new URL('players.csv', location.href).href,
-  'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/players.csv'
-];
+// Params (so we can preserve players/schedule across pages)
+const PARAMS = new URLSearchParams(location.search);
+const RAW_PLAYERS_PARAM = (PARAMS.get('players') || '').replace('/refs/heads/', '/');
+const RAW_SCHEDULE_PARAM = (PARAMS.get('schedule') || '').replace('/refs/heads/', '/');
+
+// Build param string to forward
+const playersParamStr = RAW_PLAYERS_PARAM ? `players=${encodeURIComponent(RAW_PLAYERS_PARAM)}` : '';
+const schedParamStr   = RAW_SCHEDULE_PARAM ? `schedule=${encodeURIComponent(RAW_SCHEDULE_PARAM)}` : '';
+const join = (...parts)=> parts.filter(Boolean).join('&');
+const forwardQS = join(playersParamStr, schedParamStr);
+const qs = forwardQS ? `?${forwardQS}` : '';
+
+// Wire nav
+document.getElementById('toSchedule').href = `schedule.html${qs}`;
+document.getElementById('toStandings').href = `standings.html${playersParamStr ? `?${playersParamStr}`:''}`;
+document.getElementById('toSimSeason').href = `sim_season.html${qs}`;
+
+// Players CSV resolution (same-origin first, then raw GH, unless ?players= provided)
+const CSV_URLS = RAW_PLAYERS_PARAM
+  ? [RAW_PLAYERS_PARAM, new URL('players.csv', location.href).href]
+  : [new URL('players.csv', location.href).href,
+     'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/players.csv'];
 
 async function fetchCsvText(){
   let lastErr = null;
@@ -64,19 +90,16 @@ async function fetchCsvText(){
   throw lastErr || new Error('CSV not reachable');
 }
 
-
-/** Robust CSV parser (quotes/commas/newlines) → array of rows (arrays) */
 function parseCsvToRows(text){
-  const rows=[]; let row=[], field='', inQ=false;
+  text = String(text||'').replace(/^\uFEFF/,'');
+  const rows=[]; let row=[], field='', q=false;
   for(let i=0;i<text.length;i++){
     const c=text[i];
-    if(inQ){
-      if(c==='"'){
-        if(text[i+1]==='"'){ field+='"'; i++; }
-        else inQ=false;
-      }else field+=c;
+    if(q){
+      if(c==='"'){ if(text[i+1]==='"'){ field+='"'; i++; } else q=false; }
+      else field+=c;
     }else{
-      if(c==='"') inQ=true;
+      if(c==='"') q=true;
       else if(c===','){ row.push(field); field=''; }
       else if(c==='\n'){ row.push(field); rows.push(row); row=[]; field=''; }
       else if(c!=='\r'){ field+=c; }
@@ -85,29 +108,20 @@ function parseCsvToRows(text){
   row.push(field); rows.push(row);
   return rows.filter(r=>r.length && r.some(x=>x!==''));
 }
-
-/** Find the header row that actually contains "Team" */
 function findHeaderIndex(rows){
-  const norm = s => String(s||'').trim().toLowerCase();
+  const norm=s=>String(s||'').trim().toLowerCase();
   for(let i=0;i<Math.min(rows.length,8);i++){
-    if(rows[i].some(c => norm(c)==='team')) return i;
+    if(rows[i].some(c=>norm(c)==='team')) return i;
   }
   return -1;
 }
-
-/** Convert rows + headerIndex → array of objects */
 function rowsToObjects(rows, headerIdx){
   const header = rows[headerIdx].map(h => String(h||'').trim());
   return rows.slice(headerIdx+1).map(r=>{
     const o={}; header.forEach((h,j)=> o[h]= r[j]===undefined ? '' : r[j]); return o;
   });
 }
-
-/** Fisher-Yates shuffle */
-function shuffle(a){
-  for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; }
-  return a;
-}
+function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
 
 async function loadGames(){
   const grid = document.getElementById('game-grid');
@@ -121,19 +135,12 @@ async function loadGames(){
     if (headerIdx < 0) throw new Error('No "Team" header row found');
 
     const objs = rowsToObjects(rows, headerIdx);
-
-    // Collect unique team names from "Team" column
     const teams = Array.from(new Set(
       objs.map(r => String(r.Team||'').trim()).filter(Boolean)
     ));
 
-    if (teams.length < 32){
-      console.warn('Found teams:', teams);
-    }
-
     shuffle(teams);
 
-    // Build 16 cards; pass ?players= so game.html can load this same CSV
     const playersParam = encodeURIComponent(csvUrlUsed);
     let html = '';
     for (let i=0; i+1<teams.length; i+=2){
@@ -155,13 +162,6 @@ async function loadGames(){
 
     grid.innerHTML = html || '<div class="small" style="color:#fca5a5">No pairable teams found.</div>';
     title.textContent = 'Week 1 Games';
-    const standingsUrl = `standings.html?players=${playersParam}`;
-    const link = document.createElement('a');
-    link.className = 'btn';
-    link.style.margin = '4px 0 0 0';
-    link.href = standingsUrl;
-    link.textContent = 'League Standings';
-    title.insertAdjacentElement('afterend', link);
 
   }catch(err){
     console.error(err);
