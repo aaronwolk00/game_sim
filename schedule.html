@@ -26,12 +26,14 @@ hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
 .right{text-align:right}
 .section{background:rgba(255,255,255,.02);border:1px solid #1c2440;border-radius:12px;padding:8px;margin-top:8px}
 .section h3{margin:0 0 6px;font-size:14px}
-.pill{display:inline-block;padding:4px 8px;border-radius:999px;background:var(--card);border:1px solid #233055;font-size:12px;color:#muted}
+.pill{display:inline-block;padding:4px 8px;border-radius:999px;background:var(--card);border:1px solid #233055;font-size:12px;color:var(--muted)}
 .team{font-weight:700}
 .away{color:var(--away)}
 .home{color:var(--home)}
 .nowrap{white-space:nowrap}
 .stickyhead{position:sticky;top:0;background:linear-gradient(var(--panel),var(--panel));z-index:2;border-bottom:1px solid #1f2740}
+.warn{color:#fca5a5}
+kbd{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;background:#0e1630;border:1px solid #2a355a;border-radius:6px;padding:1px 5px;font-size:12px}
 </style>
 </head>
 <body>
@@ -52,8 +54,8 @@ hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
           <button class="viewtab" data-mode="team">By Team</button>
         </div>
         <div class="row">
-          <span class="pill" id="gamesPill">— games</span>
-          <span class="pill" id="teamsPill">— teams</span>
+          <span class="pill" id="gamesPill">0 games</span>
+          <span class="pill" id="teamsPill">0 teams</span>
           <span class="pill" id="csvPill">CSV: loading…</span>
         </div>
       </div>
@@ -61,27 +63,17 @@ hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
       <div id="scheduleRoot"></div>
     </div>
 
-    <div class="small">Pass <code>?players=</code> and/or <code>?schedule=</code> to override sources. Uses nflfastR-style headers too.</div>
+    <div class="small">
+      Pass <code>?players=</code> and/or <code>?schedule=</code> to override sources. nflfastR columns supported:
+      <kbd>season</kbd>, <kbd>season_type</kbd>, <kbd>week</kbd>, <kbd>date</kbd>, <kbd>home_team</kbd>, <kbd>away_team</kbd>, <kbd>game_time_eastern</kbd>.
+    </div>
   </main>
 
 <script>
-/* ====== Params & sources ====== */
+/* ===== Params & link forwarding ===== */
 const PARAMS = new URLSearchParams(location.search);
 const RAW_PLAYERS_PARAM = (PARAMS.get('players') || '').replace('/refs/heads/','/');
 const RAW_SCHEDULE_PARAM= (PARAMS.get('schedule')||'').replace('/refs/heads/','/');
-
-const PLAYERS_URLS = RAW_PLAYERS_PARAM
-  ? [RAW_PLAYERS_PARAM, new URL('players.csv', location.href).href, 'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/players.csv']
-  : [new URL('players.csv', location.href).href, 'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/players.csv'];
-
-const SCHEDULE_URLS = RAW_SCHEDULE_PARAM
-  ? [RAW_SCHEDULE_PARAM, new URL('schedule.csv', location.href).href]
-  : [new URL('schedule.csv', location.href).href];
-
-const csvPill   = document.getElementById('csvPill');
-const gamesPill = document.getElementById('gamesPill');
-const teamsPill = document.getElementById('teamsPill');
-const root      = document.getElementById('scheduleRoot');
 
 (function wireLinks(){
   const playersParam = RAW_PLAYERS_PARAM ? `?players=${encodeURIComponent(RAW_PLAYERS_PARAM)}` : '';
@@ -92,7 +84,22 @@ const root      = document.getElementById('scheduleRoot');
   document.getElementById('simSeasonBtn').addEventListener('click', ()=> location.href=`sim_season.html${both}`);
 })();
 
-/* ====== CSV helpers ====== */
+/* ===== Sources ===== */
+const PLAYERS_URLS = RAW_PLAYERS_PARAM
+  ? [RAW_PLAYERS_PARAM, new URL('players.csv', location.href).href, 'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/players.csv']
+  : [new URL('players.csv', location.href).href, 'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/players.csv'];
+
+const SCHEDULE_URLS = RAW_SCHEDULE_PARAM
+  ? [RAW_SCHEDULE_PARAM, new URL('schedule.csv', location.href).href]
+  : [new URL('schedule.csv', location.href).href];
+
+/* ===== DOM ===== */
+const csvPill   = document.getElementById('csvPill');
+const gamesPill = document.getElementById('gamesPill');
+const teamsPill = document.getElementById('teamsPill');
+const root      = document.getElementById('scheduleRoot');
+
+/* ===== Fetch ===== */
 async function fetchCsvFrom(urls){
   let lastErr=null;
   for(const url of urls){
@@ -104,52 +111,83 @@ async function fetchCsvFrom(urls){
   }
   throw lastErr || new Error('CSV not reachable');
 }
-function parseCsvToRows(text){
-  text = String(text||'').replace(/^\uFEFF/,'');
-  const rows=[]; let row=[], field='', q=false;
-  for(let i=0;i<text.length;i++){
-    const c=text[i];
+
+/* ===== CSV parsing (smart delimiter + header hunt) ===== */
+function splitLines(t){ return String(t||'').replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n'); }
+function sniffDelimiter(line){
+  const cands=[',','\t',';','|'];
+  let best=',', bestCount=0;
+  for(const d of cands){
+    const cnt = line.split(d).length;
+    if(cnt>bestCount){ best=d; bestCount=cnt; }
+  }
+  return best;
+}
+// naive (fast) split honoring simple quotes
+function splitRow(row, d){
+  const out=[]; let f='', q=false;
+  for(let i=0;i<row.length;i++){
+    const c=row[i];
     if(q){
-      if(c==='"'){ if(text[i+1]==='"'){ field+='"'; i++; } else q=false; }
-      else field+=c;
+      if(c==='"'){ if(row[i+1]==='"'){ f+='"'; i++; } else q=false; }
+      else f+=c;
     }else{
-      if(c==='"') q=true;
-      else if(c===','){ row.push(field); field=''; }
-      else if(c==='\n'){ row.push(field); rows.push(row); row=[]; field=''; }
-      else if(c!=='\r'){ field+=c; }
+      if(c==='"'){ q=true; }
+      else if(c===d){ out.push(f); f=''; }
+      else f+=c;
     }
   }
-  row.push(field); rows.push(row);
-  while(rows.length && rows[rows.length-1].every(x => String(x||'').trim()==='')) rows.pop();
-  return rows.filter(r=>r.length && r.some(x=>String(x||'').trim()!==''));;
+  out.push(f);
+  return out;
 }
+function parseSmart(text){
+  const lines = splitLines(text).filter(l=>l.trim()!=='');
+  if(!lines.length) return [];
+  const delim = sniffDelimiter(lines[0]);
+  return lines.map(line => splitRow(line, delim));
+}
+function norm(s){ return String(s||'').trim().toLowerCase(); }
 function findHeaderIndex(rows){
-  const norm=s=>String(s||'').trim().toLowerCase();
-  for(let i=0;i<Math.min(rows.length,8);i++){
-    const r=rows[i].map(norm);
-    if(r.includes('week') && (r.includes('home') || r.includes('home_team'))) return i;
+  // hunt first 20 lines for any recognizable pair of home/away columns
+  const candidates = [
+    ['home_team','away_team'],
+    ['home','away'],
+    ['home team','away team'],
+    ['team_home','team_away'],
+    ['home_team_abbr','away_team_abbr'],
+  ];
+  for(let i=0;i<Math.min(rows.length,20);i++){
+    const r = rows[i].map(norm);
+    for(const [h,a] of candidates){
+      if(r.includes(h) && r.includes(a)) return i;
+    }
   }
+  // fallback to first line
   return 0;
 }
 function rowsToObjects(rows, headerIdx){
-  const header = rows[headerIdx].map(h => String(h||'').trim());
-  return rows.slice(headerIdx+1).map(r => { const o={}; header.forEach((h,j)=> o[h]= r[j]===undefined ? '' : r[j]); return o; });
+  const header = rows[headerIdx].map(h=>String(h||'').trim());
+  return rows.slice(headerIdx+1).map(r=>{
+    const o={};
+    header.forEach((h,j)=> o[h] = (r[j]===undefined ? '' : r[j]));
+    return o;
+  });
 }
 
-/* ====== Mapper (nflfastR tolerant) ====== */
+/* ===== Mapping (very tolerant) ===== */
 function pick(obj, keys){ for(const k of keys){ if(obj[k]!==undefined && String(obj[k]).trim()!=='') return obj[k]; } return ''; }
 function toWeek(x){ const n = parseInt(String(x||'').replace(/[^\d]/g,''),10); return Number.isFinite(n) ? n : 1; }
 function mapScheduleRow(r){
   const week = toWeek(pick(r,['week','Week','Wk']));
-  const home = String(pick(r,['home_team','Home','home','Home Team','HomeTeam','team_home','team_home_name'])).trim();
-  const away = String(pick(r,['away_team','Away','away','Away Team','AwayTeam','team_away','team_away_name'])).trim();
+  const home = String(pick(r,['home_team','Home','home','Home Team','HomeTeam','team_home','team_home_name','home_team_abbr'])).trim();
+  const away = String(pick(r,['away_team','Away','away','Away Team','AwayTeam','team_away','team_away_name','away_team_abbr'])).trim();
   const date = pick(r,['date','gameday','game_date','Date']);
-  const time = pick(r,['time','game_time_eastern','kickoff','Time']);
+  const time = pick(r,['game_time_eastern','time','kickoff','Time']);
   const venue= pick(r,['venue','site','stadium','Stadium','Site']);
   return { week, home, away, date:String(date||'').trim(), time:String(time||'').trim(), venue:String(venue||'').trim() };
 }
 
-/* ====== Render ====== */
+/* ===== Render helpers ===== */
 function gameRowHTML(g){
   const meta = [g.date, g.time, g.venue].filter(Boolean).join(' • ');
   return `<tr>
@@ -190,6 +228,7 @@ function teamTable(team, list){
     </div>`;
 }
 
+/* ===== State & View ===== */
 let SCHEDULE = [];
 let VIEW = 'week';
 const tabs = Array.from(document.querySelectorAll('.viewtab'));
@@ -203,11 +242,20 @@ tabs.forEach(b=>{
 });
 
 function render(){
-  if(!SCHEDULE.length){ root.innerHTML = '<div class="small">No games found.</div>'; return; }
+  if(!SCHEDULE.length){
+    root.innerHTML = '<div class="small">No games found.</div>';
+    gamesPill.textContent = '0 games';
+    teamsPill.textContent = '0 teams';
+    return;
+  }
   if (VIEW==='team'){
     const byTeam = new Map();
-    SCHEDULE.forEach(g=>{ (byTeam.get(g.home)||byTeam.set(g.home,[]).get(g.home)).push(g);
-                          (byTeam.get(g.away)||byTeam.set(g.away,[]).get(g.away)).push(g); });
+    SCHEDULE.forEach(g=>{
+      if(!byTeam.has(g.home)) byTeam.set(g.home, []);
+      if(!byTeam.has(g.away)) byTeam.set(g.away, []);
+      byTeam.get(g.home).push(g);
+      byTeam.get(g.away).push(g);
+    });
     const teams = Array.from(byTeam.keys()).sort((a,b)=>a.localeCompare(b));
     root.innerHTML = teams.map(t=>{
       const list = byTeam.get(t).slice().sort((a,b)=> a.week-b.week || (a.home+a.away).localeCompare(b.home+b.away));
@@ -215,7 +263,7 @@ function render(){
     }).join('');
   } else {
     const byWeek = new Map();
-    SCHEDULE.forEach(g=>{ (byWeek.get(g.week)||byWeek.set(g.week,[]).get(g.week)).push(g); });
+    SCHEDULE.forEach(g=>{ if(!byWeek.has(g.week)) byWeek.set(g.week, []); byWeek.get(g.week).push(g); });
     const weeks = Array.from(byWeek.keys()).sort((a,b)=>a-b);
     root.innerHTML = weeks.map(w=>{
       const games = byWeek.get(w).slice().sort((a,b)=> (a.away+a.home).localeCompare(b.away+b.home));
@@ -224,19 +272,39 @@ function render(){
   }
 }
 
-/* ====== Boot ====== */
+/* ===== Boot ===== */
 (async function init(){
   try{
     const { text, url } = await fetchCsvFrom(SCHEDULE_URLS);
     csvPill.textContent = `CSV: ${url.includes('githubusercontent')?'remote':'local'}`;
 
-    const rows = parseCsvToRows(text);
+    const rows = parseSmart(text);
+    if(!rows.length){ throw new Error('Empty schedule.csv'); }
+
     const hi = findHeaderIndex(rows);
+    const header = rows[hi].map(h=>String(h||'').trim());
     const objs = rowsToObjects(rows, hi);
 
+    // map + keep only those with both teams
     SCHEDULE = objs.map(mapScheduleRow).filter(g => g.home && g.away);
-    const teams = Array.from(new Set(SCHEDULE.flatMap(g=>[g.home,g.away]))).sort();
 
+    // Diagnostics if nothing parsed
+    if(!SCHEDULE.length){
+      const headerList = header.map(h=>`<li><kbd>${h}</kbd></li>`).join('');
+      root.innerHTML = `
+        <div class="section warn">
+          <h3>Couldn’t find any games</h3>
+          <div>We loaded <kbd>schedule.csv</kbd> but didn’t see recognizable home/away columns.</div>
+          <div style="margin-top:6px">Detected header row:</div>
+          <ul style="columns:3; margin-top:4px">${headerList}</ul>
+          <div class="small">Supported names include <kbd>home_team</kbd>/<kbd>away_team</kbd> (nflfastR), <kbd>Home</kbd>/<kbd>Away</kbd>, <kbd>team_home</kbd>/<kbd>team_away</kbd>, or <kbd>home_team_abbr</kbd>/<kbd>away_team_abbr</kbd>.</div>
+        </div>`;
+      gamesPill.textContent = '0 games';
+      teamsPill.textContent = '0 teams';
+      return;
+    }
+
+    const teams = Array.from(new Set(SCHEDULE.flatMap(g=>[g.home,g.away]))).sort();
     gamesPill.textContent = `${SCHEDULE.length} games`;
     teamsPill.textContent = `${teams.length} teams`;
 
@@ -244,7 +312,7 @@ function render(){
   }catch(e){
     console.error(e);
     csvPill.textContent = 'CSV: error';
-    root.innerHTML = `<div class="small" style="color:#fca5a5">Could not load <code>schedule.csv</code>. Ensure it includes <code>week</code> and <code>home/away</code> columns (or <code>home_team/away_team</code>).</div>`;
+    root.innerHTML = `<div class="small warn">Could not load <code>schedule.csv</code>. Ensure it is next to this file or pass <code>?schedule=&lt;raw csv url&gt;</code>.</div>`;
   }
 })();
 </script>
