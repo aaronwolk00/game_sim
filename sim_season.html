@@ -5,17 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>NFL Sim — Sim Season (Headless)</title>
 <style>
-:root{
-  --bg:#0b1220; --panel:#121a2a; --card:#0e1630; --text:#eef2ff; --muted:#93a0b1;
-  --accent:#5eead4; --home:#4ade80; --away:#60a5fa;
-}
+:root{--bg:#0b1220;--panel:#121a2a;--card:#0e1630;--text:#eef2ff;--muted:#93a0b1;--accent:#5eead4;--home:#4ade80;--away:#60a5fa}
 *{box-sizing:border-box}
 html,body{height:100%}
-body{
-  margin:0;background:var(--bg);color:var(--text);
-  font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  display:grid;place-items:center
-}
+body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;display:grid;place-items:center}
 main{width:min(1000px,95vw);display:grid;gap:16px}
 h1{margin:0 0 6px;font-size:22px;letter-spacing:.2px}
 .panel{background:var(--panel);border-radius:14px;padding:12px;border:1px solid #1c2440;box-shadow:0 6px 24px rgba(0,0,0,.25)}
@@ -75,11 +68,13 @@ code{background:#0e1630;padding:2px 6px;border-radius:8px;border:1px solid #2a35
 
     <div class="small">
       Uses roster ratings from <code>players.csv</code> and games from <code>schedule.csv</code>.
-      If you later expose <code>window.runGameHeadless(home, away, playersUrl)</code> from your engine,
-      this page will automatically use it instead of the built-in quick sim.
+      If your <code>engine.js</code> exposes <code>window.runGameHeadless(home, away, playersUrl)</code>,
+      this page will use it automatically.
     </div>
   </main>
 
+<!-- use your engine when present -->
+<script src="engine.js"></script>
 <script>
 /* ===== Params & nav ===== */
 const PARAMS = new URLSearchParams(location.search);
@@ -98,7 +93,8 @@ document.getElementById('toSchedule').href = `schedule.html${qs}`;
 
 /* ===== Data sources ===== */
 const PLAYERS_URLS = RAW_PLAYERS_PARAM
-  ? [RAW_PLAYERS_PARAM, new URL('players.csv', location.href).href]
+  ? [RAW_PLAYERS_PARAM, new URL('players.csv', location.href).href,
+     'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/players.csv']
   : [new URL('players.csv', location.href).href,
      'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/players.csv'];
 
@@ -115,15 +111,15 @@ const runBtn = document.getElementById('runBtn');
 const dlResultsBtn = document.getElementById('dlResultsBtn');
 const dlStandBtn = document.getElementById('dlStandBtn');
 
-/* ===== Season window (ET) ===== */
-const SEASON_START = new Date('2020-09-01T00:00:00-04:00'); // Sep 1, 2020
-const SEASON_END   = new Date('2021-02-08T00:00:00-05:00'); // day after SB LV
+/* ===== Season window (used if CSV lacks season=2020) ===== */
+const SEASON_START = new Date('2020-09-01T00:00:00-04:00');
+const SEASON_END   = new Date('2021-02-15T00:00:00-05:00');
 
-/* ===== Broadcast channel for live standings ===== */
+/* ===== Live channel ===== */
 const LIVE_KEY_RESULTS   = 'simSeason:2020:results';
 const LIVE_KEY_STANDINGS = 'simSeason:2020:standings';
 const chan = new BroadcastChannel('nfl-sim-2020');
-function broadcast(type, payload){ try{ chan.postMessage({ type, ...payload }); }catch(e){} }
+function broadcast(payload){ try{ chan.postMessage(payload); }catch(e){} }
 
 /* ===== Helpers: CSV ===== */
 async function fetchCsvFrom(urls){
@@ -154,7 +150,7 @@ function parseCsvToRows(text){
   }
   row.push(field); rows.push(row);
   while(rows.length && rows[rows.length-1].every(x => String(x||'').trim()==='')) rows.pop();
-  return rows.filter(r=>r.length && r.some(x=>String(x||'').trim()!==''));
+  return rows.filter(r=>r.length && r.some(x=>String(x||'').trim()!==''));;
 }
 function findHeaderIndex(rows, wantCols){
   const norm=s=>String(s||'').trim().toLowerCase();
@@ -173,7 +169,7 @@ function rowsToObjects(rows, headerIdx){
   });
 }
 
-/* ===== Roster rating ===== */
+/* ===== Players → team ratings ===== */
 function toNum(x, d=70){ const v=Number(x); return Number.isFinite(v) ? v : d; }
 function playerOVR(p){
   if (p.OVR !== undefined && p.OVR !== '') return toNum(p.OVR, 70);
@@ -198,93 +194,104 @@ function buildRatings(players){
   return ratings;
 }
 
-/* ===== Schedule shape & 2020–21 filtering ===== */
-function normTeam(x){ return String(x||'').trim(); }
-function toWeek(x){ const n = parseInt(String(x||'').replace(/[^\d]/g,''),10); return Number.isFinite(n) ? n : 1; }
-function mapScheduleRow(r){
-  const home = r.Home || r.HOME || r['Home Team'] || r['HomeTeam'] || r['home'] || '';
-  const away = r.Away || r.AWAY || r['Away Team'] || r['AwayTeam'] || r['Visitor'] || r['visitor'] || '';
-  const wk   = r.Week || r.WEEK || r.week || r['Wk'] || r['WK'] || '';
-  const date = r.Date || r.DATE || r.date || '';
-  const time = r.Time || r.TIME || r.time || '';
-  const venue= r.Venue || r.Stadium || r.Location || '';
-  return { week: toWeek(wk), home: normTeam(home), away: normTeam(away), date:String(date||''), time:String(time||''), venue:String(venue||'') };
+/* ===== Schedule helpers (nflfastR tolerant) ===== */
+const SEASON_TYPE_ORDER = { PRE:0, REG:1, POST:2, '':1 };
+function pick(obj, keys){
+  for(const k of keys){
+    if (obj[k] !== undefined && String(obj[k]).trim()!=='') return obj[k];
+  }
+  return '';
 }
-function parseGameDate(dateStr, timeStr){
-  const ds = String(dateStr||'').trim();
-  const ts = String(timeStr||'').trim();
-  if(!ds) return null;
-
-  // Try native parser with explicit ET hint when time present
-  let d = ts ? new Date(`${ds} ${ts} ET`) : new Date(ds);
-  if(!d || isNaN(d)){
-    // Try m/d/yyyy
-    const m = ds.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+function toInt(x, d=0){
+  const n = parseInt(String(x||'').replace(/[^\d\-]/g,''), 10);
+  return Number.isFinite(n) ? n : d;
+}
+function parseGameDate(ds, ts){
+  const d = String(ds||'').trim(), t = String(ts||'').trim();
+  if(!d) return null;
+  let out = t ? new Date(`${d} ${t} ET`) : new Date(d);
+  if(!out || isNaN(out)){
+    const m = d.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
     if(m){
       let [_, mm, dd, yy] = m;
-      const month = parseInt(mm,10)-1;
-      const day   = parseInt(dd,10);
-      let year    = parseInt(yy,10); if(year<100) year += 2000;
-      // Default kickoff ~1:00pm ET if time missing/invalid; use local TZ
-      d = new Date(year, month, day, 13, 0, 0);
-    }else{
-      d = null;
-    }
+      let year = +yy; if(year<100) year += 2000;
+      out = new Date(year, +mm-1, +dd, 13, 0, 0);
+    } else out=null;
   }
-  return d;
+  return out;
 }
-function seasonFilter(g){
+function mapScheduleRow(r){
+  const season = toInt(pick(r, ['season','Season']));
+  const season_type = String(pick(r, ['season_type','game_type','SeasonType'])).toUpperCase() || 'REG';
+  const week = toInt(pick(r, ['week','Week','Wk']), 0);
+  const date = pick(r, ['date','gameday','game_date','Date']);
+  const time = pick(r, ['time','game_time_eastern','kickoff','Time']);
+  const venue= pick(r, ['venue','site','stadium','Stadium','Site']);
+  const home = String(pick(r, ['home_team','Home','home','Home Team','HomeTeam','team_home','team_home_name'])).trim();
+  const away = String(pick(r, ['away_team','Away','away','Away Team','AwayTeam','team_away','team_away_name'])).trim();
+  return { season, season_type, week, date, time, venue, home, away };
+}
+function inSeason2020(g){
+  if (Number.isFinite(g.season) && g.season === 2020) {
+    return (g.season_type==='REG' || g.season_type==='POST');
+  }
   const d = parseGameDate(g.date, g.time);
-  if(!d) return false;
-  g._date = d;
-  return (d >= SEASON_START && d < SEASON_END);
+  return !!(d && d >= SEASON_START && d < SEASON_END);
 }
 
-/* ===== QuickSim engine (fallback) ===== */
+/* ===== Team name resolver (map schedule abbreviations to players.csv team names) ===== */
+let TEAM_KEYS = []; // filled from ratings
+const ALIASES = {
+  ARI:'Cardinals', ATL:'Falcons', BAL:'Ravens', BUF:'Bills', CAR:'Panthers', CHI:'Bears', CIN:'Bengals', CLE:'Browns',
+  DAL:'Cowboys', DEN:'Broncos', DET:'Lions', GB:'Packers', HOU:'Texans', IND:'Colts', JAX:'Jaguars', JAC:'Jaguars',
+  KC:'Chiefs', LAC:'Chargers', LAR:'Rams', LV:'Raiders', OAK:'Raiders', STL:'Rams',
+  MIA:'Dolphins', MIN:'Vikings', NE:'Patriots', NO:'Saints', NYG:'Giants', NYJ:'Jets',
+  PHI:'Eagles', PIT:'Steelers', SEA:'Seahawks', SF:'49ers', TB:'Buccaneers', TEN:'Titans', WAS:'Commanders', WFT:'Commanders'
+};
+function norm(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9]/g,''); }
+function resolveTeamName(name){
+  if(!name) return '';
+  // direct
+  if (TEAM_KEYS.includes(name)) return name;
+  const n = norm(name);
+
+  // exact-ish contains
+  for(const k of TEAM_KEYS){ if(norm(k)===n) return k; }
+  for(const k of TEAM_KEYS){ if(norm(k).includes(n) || n.includes(norm(k))) return k; }
+
+  // alias to a keyword then fuzzy contains
+  const alias = ALIASES[name.toUpperCase()];
+  if(alias){
+    const al = norm(alias);
+    for(const k of TEAM_KEYS){ if(norm(k).includes(al) || al.includes(norm(k))) return k; }
+  }
+  // last resort: return original (may still work if players.csv used that exact label)
+  return name;
+}
+
+/* ===== QuickSim fallback ===== */
 async function quickSimGame(home, away, ratings){
   const rh = ratings[home] ?? 70, ra = ratings[away] ?? 70;
   const delta = (rh - ra) / 30;
-
   const drivesPerTeam = 12 + Math.round((Math.random()-0.5)*2);
-  const cfg = (adv)=>({
-    pTD: 0.23 + 0.09*adv,
-    pFG: 0.17 + 0.04*adv,
-    xp : 0.94
-  });
-
+  const cfg = (adv)=>( { pTD: 0.23 + 0.09*adv, pFG: 0.17 + 0.04*adv, xp:0.94 } );
   const H=cfg(+delta), A=cfg(-delta);
-
-  function simSide(cfg){
-    let pts=0;
-    for(let i=0;i<drivesPerTeam;i++){
-      const r=Math.random();
-      if(r < cfg.pTD){ pts += 6; if(Math.random() < cfg.xp) pts += 1; }
-      else if(r < cfg.pTD + cfg.pFG){ pts += 3; }
-    }
-    return pts;
-  }
-
-  let homePts = simSide(H);
-  let awayPts = simSide(A);
-
-  if(Math.abs(homePts-awayPts)<=2){
-    if(Math.random()<0.35){ if(homePts<=awayPts) homePts+=3; else awayPts+=3; }
-  }
+  function simSide(c){ let pts=0; for(let i=0;i<drivesPerTeam;i++){ const r=Math.random();
+    if(r<c.pTD){ pts+=6; if(Math.random()<c.xp) pts+=1; } else if(r<c.pTD+c.pFG){ pts+=3; } } return pts; }
+  let homePts=simSide(H), awayPts=simSide(A);
+  if(Math.abs(homePts-awayPts)<=2){ if(Math.random()<0.35){ (homePts<=awayPts)?(homePts+=3):(awayPts+=3); } }
   if(homePts===awayPts){
-    homePts += Math.random()<H.pTD? 7 : (Math.random()<H.pFG?3:0);
-    awayPts += Math.random()<A.pTD? 7 : (Math.random()<A.pFG?3:0);
-    if(homePts===awayPts){ (Math.random()<0.5)? (homePts+=3):(awayPts+=3); }
+    homePts += Math.random()<H.pTD?7:(Math.random()<H.pFG?3:0);
+    awayPts += Math.random()<A.pTD?7:(Math.random()<A.pFG?3:0);
+    if(homePts===awayPts){ (Math.random()<0.5)?(homePts+=3):(awayPts+=3); }
   }
-
   return { homePts, awayPts };
 }
-
-/* Prefer real headless engine if provided by engine.js */
 async function simulateGame(home, away, playersUrl, ratings){
   if (typeof window.runGameHeadless === 'function') {
-    return await window.runGameHeadless(home, away, playersUrl); // {homePts, awayPts}
+    return await window.runGameHeadless(home, away, playersUrl); // must return {homePts, awayPts}
   }
-  return await quickSimGame(home, away, ratings);
+  return quickSimGame(home, away, ratings);
 }
 
 /* ===== Render helpers ===== */
@@ -308,7 +315,6 @@ function resultsHTML(byWeek){
       </div>`;
   }).join('');
 }
-
 function standingsHTML(stand){
   const rows = Object.values(stand).sort((a,b)=> (b.wins-a.wins) || ((b.pf-b.pa)-(a.pf-a.pa)) || a.team.localeCompare(b.team));
   return `
@@ -331,15 +337,11 @@ function downloadCsv(filename, rows){
   if (!rows.length) return;
   const header = Object.keys(rows[0]).join(',');
   const lines = rows.map(r => Object.values(r).map(v=>{
-    const s=String(v??'');
-    return (/[",\n]/.test(s)) ? `"${s.replace(/"/g,'""')}"` : s;
+    const s=String(v??''); return (/[",\n]/.test(s)) ? `"${s.replace(/"/g,'""')}"` : s;
   }).join(','));
   const csv = [header, ...lines].join('\n');
   const blob = new Blob([csv], {type:'text/csv'});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = filename;
-  a.click();
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename; a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href), 800);
 }
 
@@ -350,6 +352,7 @@ let PLAYERS_URL_USED = '';
 
 (async function init(){
   try{
+    // players (for ratings + engine input)
     const { text: playersText, url: playersUrlUsed } = await fetchCsvFrom(PLAYERS_URLS);
     PLAYERS_URL_USED = playersUrlUsed;
 
@@ -357,19 +360,37 @@ let PLAYERS_URL_USED = '';
     const phi  = findHeaderIndex(prow, ['team']);
     const pobjs= rowsToObjects(prow, phi);
     RATINGS = buildRatings(pobjs);
-    const teams = Object.keys(RATINGS).length;
-    teamsPill.textContent = `Teams: ${teams}`;
+    TEAM_KEYS = Object.keys(RATINGS);
+    teamsPill.textContent = `Teams: ${TEAM_KEYS.length}`;
 
+    // schedule (tolerant mapper)
     const { text: schedText } = await fetchCsvFrom(SCHEDULE_URLS);
     const srow = parseCsvToRows(schedText);
-    const shi  = findHeaderIndex(srow, ['week','home','away']);
+    const shi  = findHeaderIndex(srow, ['week','home','away']); // robust
     const sobjs= rowsToObjects(srow, shi);
-    SCHEDULE = sobjs.map(mapScheduleRow)
-      .filter(g => g.home && g.away)
-      .filter(seasonFilter)
-      .sort((a,b)=> (a._date - b._date) || (a.week - b.week));
 
-    schedPill.textContent = `Schedule: ${SCHEDULE.length} games (2020–21)`;
+    let mapped = sobjs.map(mapScheduleRow).filter(g => g.home && g.away);
+    let filtered = mapped.filter(inSeason2020);
+    if (filtered.length === 0){ filtered = mapped; schedPill.textContent = `Schedule: ${filtered.length} games (all rows)`; }
+    else { schedPill.textContent = `Schedule: ${filtered.length} games (2020 REG/POST)`; }
+
+    // resolve team labels to match players.csv
+    SCHEDULE = filtered.map(g=>{
+      const home = resolveTeamName(g.home);
+      const away = resolveTeamName(g.away);
+      return { ...g, home, away };
+    }).sort((a,b)=>{
+      const aST = SEASON_TYPE_ORDER[a.season_type] ?? 1;
+      const bST = SEASON_TYPE_ORDER[b.season_type] ?? 1;
+      const ad  = parseGameDate(a.date, a.time)?.getTime() || 0;
+      const bd  = parseGameDate(b.date, b.time)?.getTime() || 0;
+      return (a.season - b.season) || (aST - bST) || (a.week - b.week) || (ad - bd) || (a.away+a.home).localeCompare(b.away+b.home);
+    });
+
+    if (!SCHEDULE.length){
+      resultsEl.innerHTML = `<div class="small" style="color:#fca5a5">No valid games found. Check your <code>schedule.csv</code> headers.</div>`;
+      runBtn.disabled = true;
+    }
   }catch(e){
     console.error(e);
     schedPill.textContent = 'Schedule: error';
@@ -382,25 +403,25 @@ runBtn.addEventListener('click', async ()=>{
   resultsEl.innerHTML = '';
   standingsEl.innerHTML = '';
 
-  // Clear last run
+  // reset live state
   localStorage.removeItem(LIVE_KEY_RESULTS);
   localStorage.removeItem(LIVE_KEY_STANDINGS);
-  broadcast('reset', {});
+  broadcast({ type:'reset' });
 
   const standings = {};
   function ensureTeam(t){ if(!standings[t]) standings[t] = { team:t, wins:0, losses:0, pf:0, pa:0 }; }
 
+  // pre-seed all teams (handles bye weeks)
+  const uniqTeams = new Set();
+  SCHEDULE.forEach(g => { uniqTeams.add(g.home); uniqTeams.add(g.away); });
+  Array.from(uniqTeams).forEach(ensureTeam);
+
   const byWeek = new Map();
   const resultsRows = [];
 
-  let done = 0, total = SCHEDULE.length;
+  let done=0, total=SCHEDULE.length;
   progressPill.textContent = `Progress: 0/${total}`;
-
-  // Pre-seed all teams from schedule (handles bye weeks)
-  const uniqTeams = new Set();
-  SCHEDULE.forEach(g => { uniqTeams.add(g.home); uniqTeams.add(g.away); });
-  Array.from(uniqTeams).forEach(t => ensureTeam(t));
-  broadcast('standings', { standings, progress:{done, total} });
+  broadcast({ type:'standings', standings, progress:{done,total} });
 
   for(const g of SCHEDULE){
     ensureTeam(g.home); ensureTeam(g.away);
@@ -413,34 +434,27 @@ runBtn.addEventListener('click', async ()=>{
     if(winner===g.home){ standings[g.home].wins++; standings[g.away].losses++; }
     else { standings[g.away].wins++; standings[g.home].losses++; }
 
-    const rec = {
-      Week:g.week, Date:g.date, Time:g.time, Venue:g.venue,
-      Away:g.away, Home:g.home, AwayScore:awayPts, HomeScore:homePts, Winner:winner
-    };
+    const rec = { Season:g.season||2020, Type:g.season_type||'REG', Week:g.week, Date:g.date, Time:g.time,
+                  Away:g.away, Home:g.home, AwayScore:awayPts, HomeScore:homePts, Winner:winner };
     resultsRows.push(rec);
 
     if(!byWeek.has(g.week)) byWeek.set(g.week, []);
     byWeek.get(g.week).push({ ...g, homePts, awayPts, winner });
 
-    done++;
-    progressPill.textContent = `Progress: ${done}/${total}`;
+    done++; progressPill.textContent = `Progress: ${done}/${total}`;
 
-    // Persist & broadcast live update
     try{
       localStorage.setItem(LIVE_KEY_RESULTS, JSON.stringify(resultsRows));
       localStorage.setItem(LIVE_KEY_STANDINGS, JSON.stringify(standings));
     }catch(e){}
-    broadcast('standings', { standings, progress:{done, total}, lastGame:rec });
+    broadcast({ type:'standings', standings, progress:{done,total}, lastGame:rec });
 
-    // Let UI breathe
-    await new Promise(r=>setTimeout(r, 0));
+    await new Promise(r=>setTimeout(r, 0)); // yield
   }
 
-  // Render
   resultsEl.innerHTML = resultsHTML(byWeek);
   standingsEl.innerHTML = standingsHTML(standings);
 
-  // Enable downloads
   dlResultsBtn.disabled = false;
   dlStandBtn.disabled = false;
 
@@ -449,7 +463,7 @@ runBtn.addEventListener('click', async ()=>{
     Object.values(standings).sort((a,b)=> (b.wins-a.wins)||((b.pf-b.pa)-(a.pf-a.pa))||a.team.localeCompare(b.team))
   );
 
-  broadcast('complete', { standings });
+  broadcast({ type:'complete', standings });
 });
 </script>
 </body>
