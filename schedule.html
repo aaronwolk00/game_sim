@@ -64,8 +64,9 @@ kbd{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mo
     </div>
 
     <div class="small">
-      Pass <code>?players=</code> and/or <code>?schedule=</code> to override sources. nflfastR columns supported:
-      <kbd>season</kbd>, <kbd>season_type</kbd>, <kbd>week</kbd>, <kbd>date</kbd>, <kbd>home_team</kbd>, <kbd>away_team</kbd>, <kbd>game_time_eastern</kbd>.
+      Works with either classic <kbd>Home</kbd>/<kbd>Away</kbd> columns or
+      team-centric nflfastR output (<kbd>team</kbd>, <kbd>opp</kbd>, <kbd>home_away</kbd>, <kbd>game_id</kbd>).
+      Use <code>?players=</code> and/or <code>?schedule=</code> to override files.
     </div>
   </main>
 
@@ -76,19 +77,15 @@ const RAW_PLAYERS_PARAM = (PARAMS.get('players') || '').replace('/refs/heads/','
 const RAW_SCHEDULE_PARAM= (PARAMS.get('schedule')||'').replace('/refs/heads/','/');
 
 (function wireLinks(){
-  const playersParam = RAW_PLAYERS_PARAM ? `?players=${encodeURIComponent(RAW_PLAYERS_PARAM)}` : '';
-  const schedParam   = RAW_SCHEDULE_PARAM ? (playersParam?`&schedule=${encodeURIComponent(RAW_SCHEDULE_PARAM)}`:`?schedule=${encodeURIComponent(RAW_SCHEDULE_PARAM)}`) : '';
-  const both = playersParam + schedParam;
-  document.getElementById('toStandings').href = `standings.html${playersParam}`;
-  document.getElementById('toGames').href     = `index.html${playersParam}`;
+  const p = RAW_PLAYERS_PARAM ? `?players=${encodeURIComponent(RAW_PLAYERS_PARAM)}` : '';
+  const s = RAW_SCHEDULE_PARAM ? (p?`&schedule=${encodeURIComponent(RAW_SCHEDULE_PARAM)}`:`?schedule=${encodeURIComponent(RAW_SCHEDULE_PARAM)}`) : '';
+  const both = p + s;
+  document.getElementById('toStandings').href = `standings.html${p}`;
+  document.getElementById('toGames').href     = `index.html${p}`;
   document.getElementById('simSeasonBtn').addEventListener('click', ()=> location.href=`sim_season.html${both}`);
 })();
 
 /* ===== Sources ===== */
-const PLAYERS_URLS = RAW_PLAYERS_PARAM
-  ? [RAW_PLAYERS_PARAM, new URL('players.csv', location.href).href, 'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/players.csv']
-  : [new URL('players.csv', location.href).href, 'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/players.csv'];
-
 const SCHEDULE_URLS = RAW_SCHEDULE_PARAM
   ? [RAW_SCHEDULE_PARAM, new URL('schedule.csv', location.href).href]
   : [new URL('schedule.csv', location.href).href];
@@ -99,7 +96,7 @@ const gamesPill = document.getElementById('gamesPill');
 const teamsPill = document.getElementById('teamsPill');
 const root      = document.getElementById('scheduleRoot');
 
-/* ===== Fetch ===== */
+/* ===== Helpers: fetch + CSV ===== */
 async function fetchCsvFrom(urls){
   let lastErr=null;
   for(const url of urls){
@@ -111,80 +108,124 @@ async function fetchCsvFrom(urls){
   }
   throw lastErr || new Error('CSV not reachable');
 }
-
-/* ===== CSV parsing (smart delimiter + header hunt) ===== */
 function splitLines(t){ return String(t||'').replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n'); }
 function sniffDelimiter(line){
-  const cands=[',','\t',';','|'];
-  let best=',', bestCount=0;
-  for(const d of cands){
-    const cnt = line.split(d).length;
-    if(cnt>bestCount){ best=d; bestCount=cnt; }
-  }
+  const cands=[',','\t',';','|']; let best=',', n=0;
+  for(const d of cands){ const k=line.split(d).length; if(k>n){best=d;n=k;} }
   return best;
 }
-// naive (fast) split honoring simple quotes
 function splitRow(row, d){
   const out=[]; let f='', q=false;
   for(let i=0;i<row.length;i++){
     const c=row[i];
-    if(q){
-      if(c==='"'){ if(row[i+1]==='"'){ f+='"'; i++; } else q=false; }
-      else f+=c;
-    }else{
-      if(c==='"'){ q=true; }
-      else if(c===d){ out.push(f); f=''; }
-      else f+=c;
-    }
+    if(q){ if(c==='"'){ if(row[i+1]==='"'){ f+='"'; i++; } else q=false; } else f+=c; }
+    else { if(c==='"') q=true; else if(c===d){ out.push(f); f=''; } else f+=c; }
   }
-  out.push(f);
-  return out;
+  out.push(f); return out;
 }
 function parseSmart(text){
   const lines = splitLines(text).filter(l=>l.trim()!=='');
   if(!lines.length) return [];
-  const delim = sniffDelimiter(lines[0]);
-  return lines.map(line => splitRow(line, delim));
+  const d = sniffDelimiter(lines[0]);
+  return lines.map(line => splitRow(line, d));
 }
-function norm(s){ return String(s||'').trim().toLowerCase(); }
+const norm = s => String(s||'').trim().toLowerCase();
 function findHeaderIndex(rows){
-  // hunt first 20 lines for any recognizable pair of home/away columns
-  const candidates = [
-    ['home_team','away_team'],
-    ['home','away'],
-    ['home team','away team'],
-    ['team_home','team_away'],
-    ['home_team_abbr','away_team_abbr'],
+  const wants = [
+    // classic
+    ['home','away'], ['home team','away team'], ['home_team','away_team'],
+    ['team_home','team_away'], ['home_team_abbr','away_team_abbr'],
+    // team-centric
+    ['team','opp']
   ];
-  for(let i=0;i<Math.min(rows.length,20);i++){
+  for(let i=0;i<Math.min(20, rows.length);i++){
     const r = rows[i].map(norm);
-    for(const [h,a] of candidates){
-      if(r.includes(h) && r.includes(a)) return i;
-    }
+    for(const w of wants){ if(w.every(x => r.includes(x))) return i; }
   }
-  // fallback to first line
   return 0;
 }
 function rowsToObjects(rows, headerIdx){
   const header = rows[headerIdx].map(h=>String(h||'').trim());
   return rows.slice(headerIdx+1).map(r=>{
-    const o={};
-    header.forEach((h,j)=> o[h] = (r[j]===undefined ? '' : r[j]));
-    return o;
+    const o={}; header.forEach((h,j)=> o[h] = (r[j]===undefined ? '' : r[j])); return o;
   });
 }
+function toWeek(x){ const n = parseInt(String(x||'').replace(/[^\d]/g,''),10); return Number.isFinite(n)?n:1; }
 
-/* ===== Mapping (very tolerant) ===== */
-function pick(obj, keys){ for(const k of keys){ if(obj[k]!==undefined && String(obj[k]).trim()!=='') return obj[k]; } return ''; }
-function toWeek(x){ const n = parseInt(String(x||'').replace(/[^\d]/g,''),10); return Number.isFinite(n) ? n : 1; }
-function mapScheduleRow(r){
-  const week = toWeek(pick(r,['week','Week','Wk']));
-  const home = String(pick(r,['home_team','Home','home','Home Team','HomeTeam','team_home','team_home_name','home_team_abbr'])).trim();
-  const away = String(pick(r,['away_team','Away','away','Away Team','AwayTeam','team_away','team_away_name','away_team_abbr'])).trim();
-  const date = pick(r,['date','gameday','game_date','Date']);
-  const time = pick(r,['game_time_eastern','time','kickoff','Time']);
-  const venue= pick(r,['venue','site','stadium','Stadium','Site']);
-  return { week, home, away, date:String(date||'').trim(), time:String(time||'').trim(), venue:String(venue||'').trim() };
+/* ===== Schedule builders ===== */
+// 1) Direct home/away rows
+function mapDirectRow(r){
+  const home = r.Home || r.home || r['Home Team'] || r['home_team'] || r['team_home'] || r['home_team_abbr'] || '';
+  const away = r.Away || r.away || r['Away Team'] || r['away_team'] || r['team_away'] || r['away_team_abbr'] || '';
+  const wk   = r.Week || r.week || r.Wk || '';
+  const date = r.Date || r.date || r.gameday || r.game_date || '';
+  const time = r.Time || r.time || r.game_time_eastern || '';
+  const venue= r.Venue || r.venue || r.Stadium || r.site || '';
+  return { week: toWeek(wk), home: String(home).trim(), away: String(away).trim(), date:String(date).trim(), time:String(time).trim(), venue:String(venue).trim() };
+}
+// 2) Team/opp rows -> pair by game_id
+function buildFromTeamOpp(objs){
+  const getHA = r => {
+    const s = String(r.home_away || r.homeaway || r.ha || r.site || '').trim().toUpperCase();
+    if(s==='H' || s==='HOME' || s==='1' || s==='TRUE') return 'H';
+    if(s==='A' || s==='AWAY' || s==='@' || s==='0' || s==='FALSE') return 'A';
+    return '';
+  };
+  const keyFor = r => {
+    const rid = String(r.row_id || r.rowid || '').trim();
+    const gid = String(r.game_id || r.gameid || r.GAME_ID || '').trim() || (rid.includes(':') ? rid.split(':')[0] : '');
+    if(gid) return gid;
+    // fallback key if game_id missing
+    const season = r.season || r.Season || '';
+    const wk = r.week || r.Week || '';
+    const date = r.date || r.Date || '';
+    const t = (r.team || r.Team || '').trim();
+    const o = (r.opp  || r.Opp  || '').trim();
+    return `${season}|${wk}|${date}|${[t,o].sort().join('@')}`;
+  };
+
+  const byKey = new Map();
+  for(const r of objs){
+    const team = String(r.team || r.Team || '').trim();
+    const opp  = String(r.opp  || r.Opp  || '').trim();
+    if(!team || !opp) continue;
+    const k = keyFor(r);
+    if(!byKey.has(k)) byKey.set(k, []);
+    byKey.get(k).push(r);
+  }
+
+  const out = [];
+  for(const rows of byKey.values()){
+    const r0 = rows[0];
+    const week = toWeek(r0.week || r0.Week);
+    const date = String(r0.date || r0.Date || '').trim();
+    const time = String(r0.game_time_eastern || r0.time || '').trim();
+    const venue= String(r0.venue || r0.site || r0.Stadium || '').trim();
+
+    let home='', away='';
+    const homeRow = rows.find(rr => getHA(rr)==='H');
+    const awayRow = rows.find(rr => getHA(rr)==='A');
+
+    if(homeRow){ home = String(homeRow.team).trim(); away = String(homeRow.opp).trim(); }
+    else if(rows.length===1){
+      const rr = r0; const ha = getHA(rr);
+      if(ha==='H'){ home=String(rr.team).trim(); away=String(rr.opp).trim(); }
+      else { home=String(rr.opp).trim(); away=String(rr.team).trim(); }
+    }else{
+      // No explicit HA flags; infer from symmetry
+      const a = rows[0], b = rows[1];
+      if(String(a.team).trim() === String(b.opp).trim() && String(b.team).trim() === String(a.opp).trim()){
+        // arbitrary but stable
+        home = String(a.team).trim(); away = String(a.opp).trim();
+      }else{
+        home = String(a.team).trim(); away = String(a.opp || b.team).trim();
+      }
+    }
+    if(home && away){
+      out.push({ week, home, away, date, time, venue });
+    }
+  }
+  return out;
 }
 
 /* ===== Render helpers ===== */
@@ -279,30 +320,46 @@ function render(){
     csvPill.textContent = `CSV: ${url.includes('githubusercontent')?'remote':'local'}`;
 
     const rows = parseSmart(text);
-    if(!rows.length){ throw new Error('Empty schedule.csv'); }
-
+    if(!rows.length) throw new Error('Empty schedule.csv');
     const hi = findHeaderIndex(rows);
-    const header = rows[hi].map(h=>String(h||'').trim());
+    const header = rows[hi].map(h=>String(h||'').trim().toLowerCase());
     const objs = rowsToObjects(rows, hi);
 
-    // map + keep only those with both teams
-    SCHEDULE = objs.map(mapScheduleRow).filter(g => g.home && g.away);
+    // Decide mapping path
+    const hasTeamOpp = header.includes('team') && header.includes('opp');
+    const hasHomeAwayCols = (header.includes('home') && header.includes('away')) ||
+                            (header.includes('home_team') && header.includes('away_team')) ||
+                            (header.includes('team_home') && header.includes('team_away')) ||
+                            (header.includes('home_team_abbr') && header.includes('away_team_abbr'));
 
-    // Diagnostics if nothing parsed
+    if(hasTeamOpp){
+      SCHEDULE = buildFromTeamOpp(objs);
+    }else if(hasHomeAwayCols){
+      SCHEDULE = objs.map(mapDirectRow).filter(g => g.home && g.away);
+    }else{
+      SCHEDULE = []; // triggers diagnostics below
+    }
+
     if(!SCHEDULE.length){
-      const headerList = header.map(h=>`<li><kbd>${h}</kbd></li>`).join('');
+      const hdrHtml = rows[hi].map(h=>`<li><kbd>${h}</kbd></li>`).join('');
       root.innerHTML = `
         <div class="section warn">
-          <h3>Couldn’t find any games</h3>
-          <div>We loaded <kbd>schedule.csv</kbd> but didn’t see recognizable home/away columns.</div>
-          <div style="margin-top:6px">Detected header row:</div>
-          <ul style="columns:3; margin-top:4px">${headerList}</ul>
-          <div class="small">Supported names include <kbd>home_team</kbd>/<kbd>away_team</kbd> (nflfastR), <kbd>Home</kbd>/<kbd>Away</kbd>, <kbd>team_home</kbd>/<kbd>team_away</kbd>, or <kbd>home_team_abbr</kbd>/<kbd>away_team_abbr</kbd>.</div>
+          <h3>Couldn’t build games from schedule.csv</h3>
+          <div>Detected header:</div>
+          <ul style="columns:3; margin:6px 0">${hdrHtml}</ul>
+          <div class="small">Expected either <kbd>Home</kbd>/<kbd>Away</kbd> or <kbd>team</kbd>/<kbd>opp</kbd> (+ <kbd>home_away</kbd> or <kbd>game_id</kbd>).</div>
         </div>`;
-      gamesPill.textContent = '0 games';
-      teamsPill.textContent = '0 teams';
+      gamesPill.textContent = '0 games'; teamsPill.textContent = '0 teams';
       return;
     }
+
+    // Deduplicate just in case, then sort
+    const keySet = new Set(); const unique=[];
+    for(const g of SCHEDULE){
+      const k = `${g.week}|${g.home}|${g.away}|${g.date}`;
+      if(!keySet.has(k)){ keySet.add(k); unique.push(g); }
+    }
+    SCHEDULE = unique;
 
     const teams = Array.from(new Set(SCHEDULE.flatMap(g=>[g.home,g.away]))).sort();
     gamesPill.textContent = `${SCHEDULE.length} games`;
@@ -312,7 +369,7 @@ function render(){
   }catch(e){
     console.error(e);
     csvPill.textContent = 'CSV: error';
-    root.innerHTML = `<div class="small warn">Could not load <code>schedule.csv</code>. Ensure it is next to this file or pass <code>?schedule=&lt;raw csv url&gt;</code>.</div>`;
+    root.innerHTML = `<div class="small warn">Could not load <code>schedule.csv</code>. Place it next to this file or pass <code>?schedule=&lt;raw csv url&gt;</code>.</div>`;
   }
 })();
 </script>
