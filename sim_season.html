@@ -50,7 +50,7 @@ code{background:#0e1630;padding:2px 6px;border-radius:8px;border:1px solid #2a35
           <span class="pill" id="schedPill">Schedule: loading…</span>
           <span class="pill" id="teamsPill">Teams: —</span>
           <span class="pill" id="progressPill">Progress: —</span>
-          <span class="pill" id="seasonPill">Season: 2020–21</span>
+          <span class="pill" id="seasonPill">Season: —</span>
         </div>
       </div>
       <hr>
@@ -73,23 +73,28 @@ code{background:#0e1630;padding:2px 6px;border-radius:8px;border:1px solid #2a35
     </div>
   </main>
 
-<!-- use your engine when present -->
+<!-- prefer your real engine when available -->
 <script src="engine.js"></script>
 <script>
 /* ===== Params & nav ===== */
 const PARAMS = new URLSearchParams(location.search);
 const RAW_PLAYERS_PARAM  = (PARAMS.get('players')  || '').replace('/refs/heads/', '/');
 const RAW_SCHEDULE_PARAM = (PARAMS.get('schedule') || '').replace('/refs/heads/', '/');
+const SELECTED_SEASON    = +(PARAMS.get('season') || 2020) || 2020;
 
-const playersParamStr = RAW_PLAYERS_PARAM ? `players=${encodeURIComponent(RAW_PLAYERS_PARAM)}` : '';
-const schedParamStr   = RAW_SCHEDULE_PARAM ? `schedule=${encodeURIComponent(RAW_SCHEDULE_PARAM)}` : '';
-const join = (...parts)=> parts.filter(Boolean).join('&');
-const both = join(playersParamStr, schedParamStr);
-const qs = both ? `?${both}` : (playersParamStr ? `?${playersParamStr}` : '');
+function y2(y){ return String((y+1)%100).padStart(2,'0'); }
+function buildQS(season){
+  const p = RAW_PLAYERS_PARAM ? `players=${encodeURIComponent(RAW_PLAYERS_PARAM)}` : '';
+  const s = RAW_SCHEDULE_PARAM? `schedule=${encodeURIComponent(RAW_SCHEDULE_PARAM)}`: '';
+  const y = season ? `season=${season}` : '';
+  const parts = [p,s,y].filter(Boolean);
+  return parts.length?`?${parts.join('&')}`:'';
+}
 
-document.getElementById('toIndex').href = `index.html${playersParamStr ? `?${playersParamStr}` : ''}`;
-document.getElementById('toStandings').href = `standings.html${qs}`;
-document.getElementById('toSchedule').href = `schedule.html${qs}`;
+document.getElementById('toIndex').href     = `index.html${buildQS(SELECTED_SEASON)}`;
+document.getElementById('toStandings').href = `standings.html${buildQS(SELECTED_SEASON)}`;
+document.getElementById('toSchedule').href  = `schedule.html${buildQS(SELECTED_SEASON)}`;
+document.getElementById('seasonPill').textContent = `Season: ${SELECTED_SEASON}–${y2(SELECTED_SEASON)}`;
 
 /* ===== Data sources ===== */
 const PLAYERS_URLS = RAW_PLAYERS_PARAM
@@ -111,17 +116,17 @@ const runBtn = document.getElementById('runBtn');
 const dlResultsBtn = document.getElementById('dlResultsBtn');
 const dlStandBtn = document.getElementById('dlStandBtn');
 
-/* ===== Season window (used if CSV lacks season=2020) ===== */
-const SEASON_START = new Date('2020-09-01T00:00:00-04:00');
-const SEASON_END   = new Date('2021-02-15T00:00:00-05:00');
+/* ===== Season window (dynamic from selected season) ===== */
+const SEASON_START = new Date(`${SELECTED_SEASON}-09-01T00:00:00-04:00`);
+const SEASON_END   = new Date(`${SELECTED_SEASON+1}-02-15T00:00:00-05:00`);
 
-/* ===== Live channel ===== */
-const LIVE_KEY_RESULTS   = 'simSeason:2020:results';
-const LIVE_KEY_STANDINGS = 'simSeason:2020:standings';
-const chan = new BroadcastChannel('nfl-sim-2020');
+/* ===== Live channel (per-season) ===== */
+const LIVE_KEY_RESULTS   = `simSeason:${SELECTED_SEASON}:results`;
+const LIVE_KEY_STANDINGS = `simSeason:${SELECTED_SEASON}:standings`;
+const chan = new BroadcastChannel(`nfl-sim-${SELECTED_SEASON}`);
 function broadcast(payload){ try{ chan.postMessage(payload); }catch(e){} }
 
-/* ===== Helpers: CSV ===== */
+/* ===== CSV helpers ===== */
 async function fetchCsvFrom(urls){
   let lastErr=null;
   for(const url of urls){
@@ -152,13 +157,12 @@ function parseCsvToRows(text){
   while(rows.length && rows[rows.length-1].every(x => String(x||'').trim()==='')) rows.pop();
   return rows.filter(r=>r.length && r.some(x=>String(x||'').trim()!==''));;
 }
-function findHeaderIndex(rows, wantCols){
+function detectHeaderIndex(rows){
+  const wantSets=[['week','home','away'],['week','team','opp']];
   const norm=s=>String(s||'').trim().toLowerCase();
-  for(let i=0;i<Math.min(rows.length,8);i++){
+  for(let i=0;i<Math.min(rows.length,12);i++){
     const set=new Set(rows[i].map(norm));
-    let ok=true;
-    for(const c of wantCols){ if(!set.has(c)){ ok=false; break; } }
-    if(ok) return i;
+    for(const wants of wantSets){ if(wants.every(w=>set.has(w))) return i; }
   }
   return 0;
 }
@@ -194,18 +198,14 @@ function buildRatings(players){
   return ratings;
 }
 
-/* ===== Schedule helpers (nflfastR tolerant) ===== */
+/* ===== Schedule mapping (handles both styles) ===== */
 const SEASON_TYPE_ORDER = { PRE:0, REG:1, POST:2, '':1 };
+const norm = s => String(s||'').trim();
 function pick(obj, keys){
-  for(const k of keys){
-    if (obj[k] !== undefined && String(obj[k]).trim()!=='') return obj[k];
-  }
+  for(const k of keys){ if (obj[k] !== undefined && String(obj[k]).trim()!=='') return obj[k]; }
   return '';
 }
-function toInt(x, d=0){
-  const n = parseInt(String(x||'').replace(/[^\d\-]/g,''), 10);
-  return Number.isFinite(n) ? n : d;
-}
+function toInt(x, d=0){ const n = parseInt(String(x||'').replace(/[^\d\-]/g,''), 10); return Number.isFinite(n) ? n : d; }
 function parseGameDate(ds, ts){
   const d = String(ds||'').trim(), t = String(ts||'').trim();
   if(!d) return null;
@@ -213,63 +213,97 @@ function parseGameDate(ds, ts){
   if(!out || isNaN(out)){
     const m = d.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
     if(m){
-      let [_, mm, dd, yy] = m;
-      let year = +yy; if(year<100) year += 2000;
+      let [_, mm, dd, yy] = m; let year = +yy; if(year<100) year += 2000;
       out = new Date(year, +mm-1, +dd, 13, 0, 0);
     } else out=null;
   }
   return out;
 }
-function mapScheduleRow(r){
+function mapDirectRow(r){
   const season = toInt(pick(r, ['season','Season']));
   const season_type = String(pick(r, ['season_type','game_type','SeasonType'])).toUpperCase() || 'REG';
   const week = toInt(pick(r, ['week','Week','Wk']), 0);
   const date = pick(r, ['date','gameday','game_date','Date']);
   const time = pick(r, ['time','game_time_eastern','kickoff','Time']);
   const venue= pick(r, ['venue','site','stadium','Stadium','Site']);
-  const home = String(pick(r, ['home_team','Home','home','Home Team','HomeTeam','team_home','team_home_name'])).trim();
-  const away = String(pick(r, ['away_team','Away','away','Away Team','AwayTeam','team_away','team_away_name'])).trim();
+  const home = norm(pick(r, ['home_team','Home','home','Home Team','HomeTeam','team_home','team_home_name']));
+  const away = norm(pick(r, ['away_team','Away','away','Away Team','AwayTeam','team_away','team_away_name']));
   return { season, season_type, week, date, time, venue, home, away };
 }
-function inSeason2020(g){
-  if (Number.isFinite(g.season) && g.season === 2020) {
-    return (g.season_type==='REG' || g.season_type==='POST');
+/* Build home/away games from team/opp/home_away rows */
+function buildFromTeamOpp(objs){
+  const getHA=r=>{const s=String(r.home_away||r.homeaway||r.ha||'').trim().toUpperCase();
+    if(['H','HOME','1','TRUE'].includes(s)) return 'H';
+    if(['A','AWAY','@','0','FALSE'].includes(s)) return 'A';
+    return '';};
+  const keyFor=r=>{
+    const rid=String(r.row_id||'').trim();
+    const gid=String(r.game_id||'').trim()||(rid.includes(':')?rid.split(':')[0]:'');
+    if(gid) return gid;
+    const season=r.season||''; const wk=r.week||''; const date=r.date||'';
+    const t=(r.team||'').trim(); const o=(r.opp||'').trim();
+    return `${season}|${wk}|${date}|${[t,o].sort().join('@')}`;
+  };
+  const byKey=new Map();
+  for(const r of objs){
+    const team=String(r.team||'').trim(), opp=String(r.opp||'').trim();
+    if(!team||!opp) continue; const k=keyFor(r);
+    if(!byKey.has(k)) byKey.set(k,[]); byKey.get(k).push(r);
+  }
+  const out=[];
+  for(const rows of byKey.values()){
+    const r0=rows[0];
+    const week=toInt(r0.week||r0.Week,0);
+    const date=String(r0.date||r0.Date||'').trim();
+    const time=String(r0.game_time_eastern||r0.time||'').trim();
+    const venue=String(r0.venue||r0.site||r0.Stadium||'').trim();
+    const season=toInt(r0.season||r0.Season,0) || (String(date).slice(0,4)|0);
+    const season_type=String(r0.season_type||r0.Season_Type||'').toUpperCase()||'REG';
+
+    let home='',away='';
+    const h=rows.find(rr=>getHA(rr)==='H'); const a=rows.find(rr=>getHA(rr)==='A');
+    if(h){ home=String(h.team).trim(); away=String(h.opp).trim(); }
+    else if(rows.length===1){ const rr=r0; const ha=getHA(rr); if(ha==='H'){home=String(rr.team).trim(); away=String(rr.opp).trim();} else {home=String(rr.opp).trim(); away=String(rr.team).trim();}}
+    else { const A=rows[0],B=rows[1]; home=String(A.team).trim(); away=String(A.opp||B.team).trim(); }
+
+    if(home&&away) out.push({season, season_type, week, home, away, date, time, venue});
+  }
+  return out;
+}
+function inSelectedSeason(g){
+  if (Number.isFinite(g.season)) {
+    return (g.season === SELECTED_SEASON) && (g.season_type==='REG' || g.season_type==='POST');
   }
   const d = parseGameDate(g.date, g.time);
   return !!(d && d >= SEASON_START && d < SEASON_END);
 }
 
-/* ===== Team name resolver (map schedule abbreviations to players.csv team names) ===== */
+/* ===== Team name resolver (schedule → players.csv labels) ===== */
 let TEAM_KEYS = []; // filled from ratings
 const ALIASES = {
   ARI:'Cardinals', ATL:'Falcons', BAL:'Ravens', BUF:'Bills', CAR:'Panthers', CHI:'Bears', CIN:'Bengals', CLE:'Browns',
   DAL:'Cowboys', DEN:'Broncos', DET:'Lions', GB:'Packers', HOU:'Texans', IND:'Colts', JAX:'Jaguars', JAC:'Jaguars',
   KC:'Chiefs', LAC:'Chargers', LAR:'Rams', LV:'Raiders', OAK:'Raiders', STL:'Rams',
   MIA:'Dolphins', MIN:'Vikings', NE:'Patriots', NO:'Saints', NYG:'Giants', NYJ:'Jets',
-  PHI:'Eagles', PIT:'Steelers', SEA:'Seahawks', SF:'49ers', TB:'Buccaneers', TEN:'Titans', WAS:'Commanders', WFT:'Commanders'
+  PHI:'Eagles', PIT:'Steelers', SEA:'Seahawks', SF:'49ers', TB:'Buccaneers', TEN:'Titans',
+  WAS:'Commanders', WFT:'Commanders', REDSKINS:'Commanders', 'WASHINGTON FOOTBALL TEAM':'Commanders'
 };
-function norm(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9]/g,''); }
+function sNorm(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9]/g,''); }
 function resolveTeamName(name){
   if(!name) return '';
-  // direct
   if (TEAM_KEYS.includes(name)) return name;
-  const n = norm(name);
-
-  // exact-ish contains
-  for(const k of TEAM_KEYS){ if(norm(k)===n) return k; }
-  for(const k of TEAM_KEYS){ if(norm(k).includes(n) || n.includes(norm(k))) return k; }
-
-  // alias to a keyword then fuzzy contains
+  const n = sNorm(name);
+  for(const k of TEAM_KEYS){ if(sNorm(k)===n) return k; }
+  for(const k of TEAM_KEYS){ if(sNorm(k).includes(n) || n.includes(sNorm(k))) return k; }
   const alias = ALIASES[name.toUpperCase()];
   if(alias){
-    const al = norm(alias);
-    for(const k of TEAM_KEYS){ if(norm(k).includes(al) || al.includes(norm(k))) return k; }
+    const al = sNorm(alias);
+    for(const k of TEAM_KEYS){ if(sNorm(k).includes(al) || al.includes(sNorm(k))) return k; }
   }
-  // last resort: return original (may still work if players.csv used that exact label)
   return name;
 }
 
-/* ===== QuickSim fallback ===== */
+/* ===== QuickSim fallback (used if engine doesn't provide runGameHeadless) ===== */
 async function quickSimGame(home, away, ratings){
   const rh = ratings[home] ?? 70, ra = ratings[away] ?? 70;
   const delta = (rh - ra) / 30;
@@ -352,43 +386,55 @@ let PLAYERS_URL_USED = '';
 
 (async function init(){
   try{
-    // players (for ratings + engine input)
+    // players → ratings
     const { text: playersText, url: playersUrlUsed } = await fetchCsvFrom(PLAYERS_URLS);
     PLAYERS_URL_USED = playersUrlUsed;
 
     const prow = parseCsvToRows(playersText);
-    const phi  = findHeaderIndex(prow, ['team']);
+    const phi  = 0; // player CSV always has headers in row 0
     const pobjs= rowsToObjects(prow, phi);
     RATINGS = buildRatings(pobjs);
     TEAM_KEYS = Object.keys(RATINGS);
     teamsPill.textContent = `Teams: ${TEAM_KEYS.length}`;
 
-    // schedule (tolerant mapper)
+    // schedule
     const { text: schedText } = await fetchCsvFrom(SCHEDULE_URLS);
     const srow = parseCsvToRows(schedText);
-    const shi  = findHeaderIndex(srow, ['week','home','away']); // robust
+    const shi  = detectHeaderIndex(srow);
     const sobjs= rowsToObjects(srow, shi);
 
-    let mapped = sobjs.map(mapScheduleRow).filter(g => g.home && g.away);
-    let filtered = mapped.filter(inSeason2020);
-    if (filtered.length === 0){ filtered = mapped; schedPill.textContent = `Schedule: ${filtered.length} games (all rows)`; }
-    else { schedPill.textContent = `Schedule: ${filtered.length} games (2020 REG/POST)`; }
+    // choose mapper by headers
+    const headers = srow[shi].map(h=>String(h||'').trim().toLowerCase());
+    const mapped = (headers.includes('team') && headers.includes('opp'))
+      ? buildFromTeamOpp(sobjs)
+      : sobjs.map(mapDirectRow).filter(g => g.home && g.away);
 
-    // resolve team labels to match players.csv
-    SCHEDULE = filtered.map(g=>{
+    // season filter + normalize team names
+    let filtered = mapped.filter(inSelectedSeason).map(g=>{
       const home = resolveTeamName(g.home);
       const away = resolveTeamName(g.away);
       return { ...g, home, away };
-    }).sort((a,b)=>{
+    });
+
+    // if nothing matched the season tag, fall back to all rows but still resolve teams
+    if (filtered.length === 0){
+      filtered = mapped.map(g=>({ ...g, home:resolveTeamName(g.home), away:resolveTeamName(g.away) }));
+      schedPill.textContent = `Schedule: ${filtered.length} games (unfiltered)`;
+    } else {
+      schedPill.textContent = `Schedule: ${filtered.length} games (${SELECTED_SEASON} REG/POST)`;
+    }
+
+    // sort
+    SCHEDULE = filtered.sort((a,b)=>{
       const aST = SEASON_TYPE_ORDER[a.season_type] ?? 1;
       const bST = SEASON_TYPE_ORDER[b.season_type] ?? 1;
       const ad  = parseGameDate(a.date, a.time)?.getTime() || 0;
       const bd  = parseGameDate(b.date, b.time)?.getTime() || 0;
-      return (a.season - b.season) || (aST - bST) || (a.week - b.week) || (ad - bd) || (a.away+a.home).localeCompare(b.away+b.home);
+      return (aST - bST) || (a.week - b.week) || (ad - bd) || (a.away+a.home).localeCompare(b.away+b.home);
     });
 
     if (!SCHEDULE.length){
-      resultsEl.innerHTML = `<div class="small" style="color:#fca5a5">No valid games found. Check your <code>schedule.csv</code> headers.</div>`;
+      resultsEl.innerHTML = `<div class="small" style="color:#fca5a5">No valid games found for season ${SELECTED_SEASON}. Check <code>schedule.csv</code> headers.</div>`;
       runBtn.disabled = true;
     }
   }catch(e){
@@ -434,7 +480,7 @@ runBtn.addEventListener('click', async ()=>{
     if(winner===g.home){ standings[g.home].wins++; standings[g.away].losses++; }
     else { standings[g.away].wins++; standings[g.home].losses++; }
 
-    const rec = { Season:g.season||2020, Type:g.season_type||'REG', Week:g.week, Date:g.date, Time:g.time,
+    const rec = { Season:SELECTED_SEASON, Type:g.season_type||'REG', Week:g.week, Date:g.date, Time:g.time,
                   Away:g.away, Home:g.home, AwayScore:awayPts, HomeScore:homePts, Winner:winner };
     resultsRows.push(rec);
 
@@ -458,8 +504,9 @@ runBtn.addEventListener('click', async ()=>{
   dlResultsBtn.disabled = false;
   dlStandBtn.disabled = false;
 
-  dlResultsBtn.onclick = ()=> downloadCsv('season_results_2020-21.csv', resultsRows);
-  dlStandBtn.onclick   = ()=> downloadCsv('season_standings_2020-21.csv',
+  const fileTag = `${SELECTED_SEASON}-${y2(SELECTED_SEASON)}`;
+  dlResultsBtn.onclick = ()=> downloadCsv(`season_results_${fileTag}.csv`, resultsRows);
+  dlStandBtn.onclick   = ()=> downloadCsv(`season_standings_${fileTag}.csv`,
     Object.values(standings).sort((a,b)=> (b.wins-a.wins)||((b.pf-b.pa)-(a.pf-a.pa))||a.team.localeCompare(b.team))
   );
 
