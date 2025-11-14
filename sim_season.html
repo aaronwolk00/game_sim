@@ -57,6 +57,7 @@ code{background:#0e1630;padding:2px 6px;border-radius:8px;border:1px solid #2a35
           <span class="pill" id="schedPill">Schedule: loading…</span>
           <span class="pill" id="teamsPill">Teams: —</span>
           <span class="pill" id="progressPill">Progress: —</span>
+          <span class="pill" id="seasonPill">Season: 2020–21</span>
         </div>
       </div>
       <hr>
@@ -92,7 +93,7 @@ const both = join(playersParamStr, schedParamStr);
 const qs = both ? `?${both}` : (playersParamStr ? `?${playersParamStr}` : '');
 
 document.getElementById('toIndex').href = `index.html${playersParamStr ? `?${playersParamStr}` : ''}`;
-document.getElementById('toStandings').href = `standings.html${playersParamStr ? `?${playersParamStr}` : ''}`;
+document.getElementById('toStandings').href = `standings.html${qs}`;
 document.getElementById('toSchedule').href = `schedule.html${qs}`;
 
 /* ===== Data sources ===== */
@@ -113,6 +114,16 @@ const standingsEl = document.getElementById('standings');
 const runBtn = document.getElementById('runBtn');
 const dlResultsBtn = document.getElementById('dlResultsBtn');
 const dlStandBtn = document.getElementById('dlStandBtn');
+
+/* ===== Season window (ET) ===== */
+const SEASON_START = new Date('2020-09-01T00:00:00-04:00'); // Sep 1, 2020
+const SEASON_END   = new Date('2021-02-08T00:00:00-05:00'); // day after SB LV
+
+/* ===== Broadcast channel for live standings ===== */
+const LIVE_KEY_RESULTS   = 'simSeason:2020:results';
+const LIVE_KEY_STANDINGS = 'simSeason:2020:standings';
+const chan = new BroadcastChannel('nfl-sim-2020');
+function broadcast(type, payload){ try{ chan.postMessage({ type, ...payload }); }catch(e){} }
 
 /* ===== Helpers: CSV ===== */
 async function fetchCsvFrom(urls){
@@ -187,7 +198,7 @@ function buildRatings(players){
   return ratings;
 }
 
-/* ===== Schedule shape ===== */
+/* ===== Schedule shape & 2020–21 filtering ===== */
 function normTeam(x){ return String(x||'').trim(); }
 function toWeek(x){ const n = parseInt(String(x||'').replace(/[^\d]/g,''),10); return Number.isFinite(n) ? n : 1; }
 function mapScheduleRow(r){
@@ -199,14 +210,42 @@ function mapScheduleRow(r){
   const venue= r.Venue || r.Stadium || r.Location || '';
   return { week: toWeek(wk), home: normTeam(home), away: normTeam(away), date:String(date||''), time:String(time||''), venue:String(venue||'') };
 }
+function parseGameDate(dateStr, timeStr){
+  const ds = String(dateStr||'').trim();
+  const ts = String(timeStr||'').trim();
+  if(!ds) return null;
 
-/* ===== QuickSim engine (replace with your headless engine when available) ===== */
+  // Try native parser with explicit ET hint when time present
+  let d = ts ? new Date(`${ds} ${ts} ET`) : new Date(ds);
+  if(!d || isNaN(d)){
+    // Try m/d/yyyy
+    const m = ds.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+    if(m){
+      let [_, mm, dd, yy] = m;
+      const month = parseInt(mm,10)-1;
+      const day   = parseInt(dd,10);
+      let year    = parseInt(yy,10); if(year<100) year += 2000;
+      // Default kickoff ~1:00pm ET if time missing/invalid; use local TZ
+      d = new Date(year, month, day, 13, 0, 0);
+    }else{
+      d = null;
+    }
+  }
+  return d;
+}
+function seasonFilter(g){
+  const d = parseGameDate(g.date, g.time);
+  if(!d) return false;
+  g._date = d;
+  return (d >= SEASON_START && d < SEASON_END);
+}
+
+/* ===== QuickSim engine (fallback) ===== */
 async function quickSimGame(home, away, ratings){
-  // NFL-ish per-drive rates; adjust by rating diff (delta in ~[-30,+30])
   const rh = ratings[home] ?? 70, ra = ratings[away] ?? 70;
-  const delta = (rh - ra) / 30; // ~[-1,+1] scaled advantage
+  const delta = (rh - ra) / 30;
 
-  const drivesPerTeam = 12 + Math.round((Math.random()-0.5)*2); // 11-13
+  const drivesPerTeam = 12 + Math.round((Math.random()-0.5)*2);
   const cfg = (adv)=>({
     pTD: 0.23 + 0.09*adv,
     pFG: 0.17 + 0.04*adv,
@@ -221,7 +260,6 @@ async function quickSimGame(home, away, ratings){
       const r=Math.random();
       if(r < cfg.pTD){ pts += 6; if(Math.random() < cfg.xp) pts += 1; }
       else if(r < cfg.pTD + cfg.pFG){ pts += 3; }
-      // else: empty drive
     }
     return pts;
   }
@@ -229,28 +267,22 @@ async function quickSimGame(home, away, ratings){
   let homePts = simSide(H);
   let awayPts = simSide(A);
 
-  // Close games get late FG attempts → tiny nudge toward 3-pt margins
   if(Math.abs(homePts-awayPts)<=2){
     if(Math.random()<0.35){ if(homePts<=awayPts) homePts+=3; else awayPts+=3; }
   }
-
-  // Simple OT: one extra possession each; then sudden points
   if(homePts===awayPts){
     homePts += Math.random()<H.pTD? 7 : (Math.random()<H.pFG?3:0);
     awayPts += Math.random()<A.pTD? 7 : (Math.random()<A.pFG?3:0);
-    if(homePts===awayPts){
-      if(Math.random()<0.5) homePts+=3; else awayPts+=3;
-    }
+    if(homePts===awayPts){ (Math.random()<0.5)? (homePts+=3):(awayPts+=3); }
   }
 
   return { homePts, awayPts };
 }
 
-/* If user provides true headless engine on window.runGameHeadless, use it */
+/* Prefer real headless engine if provided by engine.js */
 async function simulateGame(home, away, playersUrl, ratings){
   if (typeof window.runGameHeadless === 'function') {
-    // Expected to return {homePts, awayPts}
-    return await window.runGameHeadless(home, away, playersUrl);
+    return await window.runGameHeadless(home, away, playersUrl); // {homePts, awayPts}
   }
   return await quickSimGame(home, away, ratings);
 }
@@ -296,7 +328,8 @@ function standingsHTML(stand){
 
 /* ===== CSV download ===== */
 function downloadCsv(filename, rows){
-  const header = Object.keys(rows[0]||{}).join(',');
+  if (!rows.length) return;
+  const header = Object.keys(rows[0]).join(',');
   const lines = rows.map(r => Object.values(r).map(v=>{
     const s=String(v??'');
     return (/[",\n]/.test(s)) ? `"${s.replace(/"/g,'""')}"` : s;
@@ -307,7 +340,7 @@ function downloadCsv(filename, rows){
   a.href = URL.createObjectURL(blob);
   a.download = filename;
   a.click();
-  setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+  setTimeout(()=>URL.revokeObjectURL(a.href), 800);
 }
 
 /* ===== Boot & Run ===== */
@@ -327,12 +360,16 @@ let PLAYERS_URL_USED = '';
     const teams = Object.keys(RATINGS).length;
     teamsPill.textContent = `Teams: ${teams}`;
 
-    const { text: schedText, url: schedUrlUsed } = await fetchCsvFrom(SCHEDULE_URLS);
+    const { text: schedText } = await fetchCsvFrom(SCHEDULE_URLS);
     const srow = parseCsvToRows(schedText);
     const shi  = findHeaderIndex(srow, ['week','home','away']);
     const sobjs= rowsToObjects(srow, shi);
-    SCHEDULE = sobjs.map(mapScheduleRow).filter(g => g.home && g.away);
-    schedPill.textContent = `Schedule: ${SCHEDULE.length} games`;
+    SCHEDULE = sobjs.map(mapScheduleRow)
+      .filter(g => g.home && g.away)
+      .filter(seasonFilter)
+      .sort((a,b)=> (a._date - b._date) || (a.week - b.week));
+
+    schedPill.textContent = `Schedule: ${SCHEDULE.length} games (2020–21)`;
   }catch(e){
     console.error(e);
     schedPill.textContent = 'Schedule: error';
@@ -345,6 +382,11 @@ runBtn.addEventListener('click', async ()=>{
   resultsEl.innerHTML = '';
   standingsEl.innerHTML = '';
 
+  // Clear last run
+  localStorage.removeItem(LIVE_KEY_RESULTS);
+  localStorage.removeItem(LIVE_KEY_STANDINGS);
+  broadcast('reset', {});
+
   const standings = {};
   function ensureTeam(t){ if(!standings[t]) standings[t] = { team:t, wins:0, losses:0, pf:0, pa:0 }; }
 
@@ -352,6 +394,14 @@ runBtn.addEventListener('click', async ()=>{
   const resultsRows = [];
 
   let done = 0, total = SCHEDULE.length;
+  progressPill.textContent = `Progress: 0/${total}`;
+
+  // Pre-seed all teams from schedule (handles bye weeks)
+  const uniqTeams = new Set();
+  SCHEDULE.forEach(g => { uniqTeams.add(g.home); uniqTeams.add(g.away); });
+  Array.from(uniqTeams).forEach(t => ensureTeam(t));
+  broadcast('standings', { standings, progress:{done, total} });
+
   for(const g of SCHEDULE){
     ensureTeam(g.home); ensureTeam(g.away);
 
@@ -363,13 +413,25 @@ runBtn.addEventListener('click', async ()=>{
     if(winner===g.home){ standings[g.home].wins++; standings[g.away].losses++; }
     else { standings[g.away].wins++; standings[g.home].losses++; }
 
-    const rec = { Week:g.week, Away:g.away, Home:g.home, AwayScore:awayPts, HomeScore:homePts, Winner:winner };
+    const rec = {
+      Week:g.week, Date:g.date, Time:g.time, Venue:g.venue,
+      Away:g.away, Home:g.home, AwayScore:awayPts, HomeScore:homePts, Winner:winner
+    };
     resultsRows.push(rec);
 
     if(!byWeek.has(g.week)) byWeek.set(g.week, []);
     byWeek.get(g.week).push({ ...g, homePts, awayPts, winner });
 
-    done++; progressPill.textContent = `Progress: ${done}/${total}`;
+    done++;
+    progressPill.textContent = `Progress: ${done}/${total}`;
+
+    // Persist & broadcast live update
+    try{
+      localStorage.setItem(LIVE_KEY_RESULTS, JSON.stringify(resultsRows));
+      localStorage.setItem(LIVE_KEY_STANDINGS, JSON.stringify(standings));
+    }catch(e){}
+    broadcast('standings', { standings, progress:{done, total}, lastGame:rec });
+
     // Let UI breathe
     await new Promise(r=>setTimeout(r, 0));
   }
@@ -382,10 +444,12 @@ runBtn.addEventListener('click', async ()=>{
   dlResultsBtn.disabled = false;
   dlStandBtn.disabled = false;
 
-  dlResultsBtn.onclick = ()=> downloadCsv('season_results.csv', resultsRows);
-  dlStandBtn.onclick = ()=> downloadCsv('season_standings.csv',
+  dlResultsBtn.onclick = ()=> downloadCsv('season_results_2020-21.csv', resultsRows);
+  dlStandBtn.onclick   = ()=> downloadCsv('season_standings_2020-21.csv',
     Object.values(standings).sort((a,b)=> (b.wins-a.wins)||((b.pf-b.pa)-(a.pf-a.pa))||a.team.localeCompare(b.team))
   );
+
+  broadcast('complete', { standings });
 });
 </script>
 </body>

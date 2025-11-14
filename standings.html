@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>NFL Sim — League Standings</title>
+<title>NFL Sim — League Standings (Live)</title>
 <style>
 :root{
   --bg:#0b1220; --panel:#121a2a; --card:#0e1630; --text:#eef2ff; --muted:#93a0b1;
@@ -49,7 +49,6 @@ hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
         <a id="backLink" class="btn ghost" href="index.html">← Weekly Games</a>
         <a id="toSchedule" class="btn">Schedule</a>
         <a id="toSimSeason" class="btn">▶ Sim Season</a>
-        <span id="sourceHint" class="small"></span>
       </div>
     </div>
 
@@ -61,16 +60,17 @@ hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
           <button class="tab" data-mode="division">Division</button>
           <button class="tab" data-mode="draft">Draft Order</button>
         </div>
-        <div class="row">
+        <div class="row" style="gap:8px">
           <span class="pill" id="teamCount">— teams</span>
-          <span class="pill" id="csvPill">CSV: loading…</span>
+          <span class="pill" id="livePill">Live: disconnected</span>
+          <span class="pill" id="progressPill">Progress: —</span>
         </div>
       </div>
       <hr>
       <div id="standings"></div>
     </div>
 
-    <div class="small">Notes: These standings are rating-based (derived from rosters in <code>players.csv</code>). Draft order = reverse of league ranking.</div>
+    <div class="small">These standings reflect simulated results. Open <code>Sim Season</code> in another tab to watch them update live (or refresh to load the most recent completed run).</div>
   </main>
 
 <script>
@@ -89,76 +89,16 @@ const qs = both ? `?${both}` : (playersParamStr ? `?${playersParamStr}` : '');
 document.getElementById('toSchedule').href = `schedule.html${qs}`;
 document.getElementById('toSimSeason').href = `sim_season.html${qs}`;
 
-const CSV_URLS = RAW_PLAYERS_PARAM
-  ? [RAW_PLAYERS_PARAM, new URL('players.csv', location.href).href, 'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/players.csv']
-  : [new URL('players.csv', location.href).href, 'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/players.csv'];
+// Back link respects players param if present
+const back = document.getElementById('backLink');
+if (RAW_PLAYERS_PARAM) back.href = `index.html?players=${encodeURIComponent(RAW_PLAYERS_PARAM)}`;
 
-const csvPill = document.getElementById('csvPill');
-const sourceHint = document.getElementById('sourceHint');
-const teamCount = document.getElementById('teamCount');
+const elStandings   = document.getElementById('standings');
+const teamCountPill = document.getElementById('teamCount');
+const livePill      = document.getElementById('livePill');
+const progressPill  = document.getElementById('progressPill');
 
-async function fetchCsvText(){
-  let lastErr = null;
-  for (const url of CSV_URLS){
-    try{
-      const res = await fetch(url, { cache: 'no-store', mode: 'cors' });
-      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-      const txt = await res.text();
-      return { txt, url };
-    }catch(e){ lastErr = e; }
-  }
-  throw lastErr || new Error('CSV not reachable');
-}
-
-/* ========= CSV helpers ========= */
-function parseCsvToRows(text){
-  text = String(text || '').replace(/^\uFEFF/, '');
-  const rows=[]; let row=[], field='', inQ=false;
-  for(let i=0;i<text.length;i++){
-    const c=text[i];
-    if(inQ){
-      if(c==='"'){ if(text[i+1]==='"'){ field+='"'; i++; } else inQ=false; }
-      else field+=c;
-    }else{
-      if(c==='"') inQ=true;
-      else if(c===','){ row.push(field); field=''; }
-      else if(c==='\n'){ row.push(field); rows.push(row); row=[]; field=''; }
-      else if(c!=='\r'){ field+=c; }
-    }
-  }
-  row.push(field); rows.push(row);
-  while(rows.length && rows[rows.length-1].every(x => String(x||'').trim()==='')) rows.pop();
-  return rows.filter(r=>r.length && r.some(x=>x!==''));;
-}
-function findHeaderIndex(rows){
-  const norm = s => String(s||'').trim().toLowerCase();
-  for(let i=0;i<Math.min(rows.length,8);i++){
-    if(rows[i].some(c => norm(c)==='team')) return i;
-  }
-  return 0;
-}
-function rowsToObjects(rows, headerIdx){
-  const header = rows[headerIdx].map(h => String(h||'').trim());
-  return rows.slice(headerIdx+1).map(r => {
-    const o={}; header.forEach((h,j)=> o[h]= r[j]===undefined ? '' : r[j]); return o;
-  });
-}
-
-/* ========= Rating & classification ========= */
-function toNum(x, d=70){ const v=Number(x); return Number.isFinite(v) ? v : d; }
-function playerOVR(p){
-  if (p.OVR !== undefined && p.OVR !== '') return toNum(p.OVR, 70);
-  const keys = ['SPD','STR','AGI','INT','TEC','HANDS','TACK','BLOCK','COVER','PASS_ACC','PASS_PWR'];
-  let sum=0, n=0;
-  keys.forEach(k => { const v = toNum(p[k], NaN); if (Number.isFinite(v)){ sum+=v; n++; } });
-  return n? (sum/n) : 70;
-}
-function rateTeam(rows){
-  if (!rows.length) return 70;
-  const vals = rows.map(playerOVR);
-  return Math.round(vals.reduce((a,b)=>a+b,0)/vals.length);
-}
-
+/* ========= Classification helpers ========= */
 const DIVISIONS = {
   "AFC East":      ['bills','dolphins','patriots','jets'],
   "AFC North":     ['ravens','bengals','browns','steelers'],
@@ -181,22 +121,42 @@ function classifyTeam(teamName){
   return { conf:'—', div:'—' };
 }
 
-/* ========= Renderers ========= */
-const elStandings = document.getElementById('standings');
+/* ========= Rendering ========= */
 const tabs = Array.from(document.querySelectorAll('.tab'));
+let mode = 'league';
 tabs.forEach(btn => btn.addEventListener('click', () => {
   tabs.forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
   render(mode = btn.dataset.mode);
 }));
 
-let TEAMS = [];
-let mode = 'league';
+let LIVE_STANDINGS = {}; // { team: {team,wins,losses,pf,pa} }
+let ENRICHED = [];       // merged with conf/div
+
+function enrich(){
+  ENRICHED = Object.values(LIVE_STANDINGS).map(r=>{
+    const { conf, div } = classifyTeam(r.team);
+    return { ...r, conf, div };
+  });
+  teamCountPill.textContent = `${ENRICHED.length} teams`;
+}
+
+function fmtPct(w,l){
+  const g = w + l;
+  if (!g) return '—';
+  return (w/g).toFixed(3).slice(1); // .700 style
+}
 
 function tableHTML(rows){
   return `
     <table class="table">
-      <thead><tr><th class="right">RK</th><th>Team</th><th>Conf</th><th>Division</th><th class="right">Rating</th></tr></thead>
+      <thead>
+        <tr>
+          <th class="right">RK</th><th>Team</th><th>Conf</th><th>Division</th>
+          <th class="right">W</th><th class="right">L</th><th class="right">PCT</th>
+          <th class="right">PF</th><th class="right">PA</th><th class="right">Diff</th>
+        </tr>
+      </thead>
       <tbody>
       ${rows.map((t,i)=>`
         <tr>
@@ -204,7 +164,12 @@ function tableHTML(rows){
           <td>${t.team}</td>
           <td>${t.conf}</td>
           <td>${t.div}</td>
-          <td class="right">${t.rating}</td>
+          <td class="right">${t.wins}</td>
+          <td class="right">${t.losses}</td>
+          <td class="right">${fmtPct(t.wins,t.losses)}</td>
+          <td class="right">${t.pf}</td>
+          <td class="right">${t.pa}</td>
+          <td class="right">${t.pf - t.pa}</td>
         </tr>`).join('')}
       </tbody>
     </table>`;
@@ -215,18 +180,24 @@ function section(title, inner){
 }
 
 function renderLeague(){
-  const rows = TEAMS.slice().sort((a,b)=> b.rating - a.rating || a.team.localeCompare(b.team));
+  const rows = ENRICHED.slice().sort((a,b)=>
+    (b.wins-a.wins) || ((b.pf-b.pa)-(a.pf-a.pa)) || (b.pf-a.pf) || a.team.localeCompare(b.team)
+  );
   elStandings.innerHTML = tableHTML(rows);
 }
 function renderDraft(){
-  const rows = TEAMS.slice().sort((a,b)=> a.rating - b.rating || a.team.localeCompare(b.team));
+  const rows = ENRICHED.slice().sort((a,b)=>
+    (a.wins-b.wins) || ((a.pf-a.pa)-(b.pf-b.pa)) || (a.pf-b.pf) || a.team.localeCompare(b.team)
+  );
   elStandings.innerHTML = tableHTML(rows);
 }
 function renderConference(){
   const groups = { 'AFC':[], 'NFC':[], '—':[] };
-  TEAMS.forEach(t => (groups[t.conf] || groups['—']).push(t));
+  ENRICHED.forEach(t => (groups[t.conf] || groups['—']).push(t));
   const html = ['AFC','NFC','—'].map(c=>{
-    const rows = groups[c].slice().sort((a,b)=> b.rating - a.rating || a.team.localeCompare(b.team));
+    const rows = groups[c].slice().sort((a,b)=>
+      (b.wins-a.wins) || ((b.pf-b.pa)-(a.pf-a.pa)) || a.team.localeCompare(b.team)
+    );
     if (!rows.length) return '';
     return section(`${c} Conference`, tableHTML(rows));
   }).join('');
@@ -235,9 +206,11 @@ function renderConference(){
 function renderDivision(){
   const order = ["AFC East","AFC North","AFC South","AFC West","NFC East","NFC North","NFC South","NFC West","—"];
   const groups = {}; order.forEach(k=>groups[k]=[]);
-  TEAMS.forEach(t => (groups[t.div] || groups['—']).push(t));
+  ENRICHED.forEach(t => (groups[t.div] || groups['—']).push(t));
   const html = order.map(d=>{
-    const rows = groups[d].slice().sort((a,b)=> b.rating - a.rating || a.team.localeCompare(b.team));
+    const rows = groups[d].slice().sort((a,b)=>
+      (b.wins-a.wins) || ((b.pf-b.pa)-(a.pf-a.pa)) || a.team.localeCompare(b.team)
+    );
     if (!rows.length) return '';
     return section(d, tableHTML(rows));
   }).join('');
@@ -245,6 +218,10 @@ function renderDivision(){
 }
 
 function render(m){
+  if (!ENRICHED.length){
+    elStandings.innerHTML = '<div class="small">Waiting for results… Open <b>Sim Season</b> and click <b>Run Season</b>.</div>';
+    return;
+  }
   if (m === 'league') return renderLeague();
   if (m === 'draft') return renderDraft();
   if (m === 'conference') return renderConference();
@@ -252,47 +229,69 @@ function render(m){
   renderLeague();
 }
 
-/* ========= Boot ========= */
-(async function init(){
-  try{
-    const { txt, url } = await fetchCsvText();
-    csvPill.textContent = `CSV: ${url.includes('githubusercontent')?'remote':'local'}`;
-    sourceHint.textContent = url;
+/* ========= Live updates (BroadcastChannel + localStorage fallback) ========= */
+const LIVE_KEY_RESULTS   = 'simSeason:2020:results';
+const LIVE_KEY_STANDINGS = 'simSeason:2020:standings';
+const chan = new BroadcastChannel('nfl-sim-2020');
 
-    const back = document.getElementById('backLink');
-    const playersParam = encodeURIComponent(url);
-    back.href = `index.html?players=${playersParam}`;
+let liveConnected = false;
+function setLive(state){
+  liveConnected = state;
+  livePill.textContent = `Live: ${state ? 'connected' : 'disconnected'}`;
+}
 
-    const rows = parseCsvToRows(txt);
-    const headerIdx = findHeaderIndex(rows);
-    const objs = rowsToObjects(rows, headerIdx);
-
-    const byTeam = new Map();
-    objs.forEach(r => {
-      const team = String(r.Team||'').trim();
-      if (!team) return;
-      if (!byTeam.has(team)) byTeam.set(team, []);
-      const norm = {...r};
-      ['OVR','SPD','STR','AGI','INT','TEC','HANDS','TACK','BLOCK','COVER','PASS_ACC','PASS_PWR'].forEach(k=>{
-        if (norm[k] !== undefined) norm[k] = String(norm[k]).trim();
-      });
-      byTeam.get(team).push(norm);
-    });
-
-    TEAMS = Array.from(byTeam.entries()).map(([team, rows])=>{
-      const rating = rateTeam(rows);
-      const { conf, div } = classifyTeam(team);
-      return { team, rating, conf, div };
-    });
-
-    teamCount.textContent = `${TEAMS.length} teams`;
+chan.onmessage = (ev)=>{
+  const msg = ev.data || {};
+  if (msg.type === 'reset'){
+    setLive(true);
+    LIVE_STANDINGS = {};
+    ENRICHED = [];
     render(mode);
-  }catch(e){
-    console.error(e);
-    elStandings.innerHTML = `<div class="small" style="color:#fca5a5">Could not load <code>players.csv</code>. Make sure your file is accessible (raw link) and includes a <code>Team</code> column.</div>`;
-    csvPill.textContent = 'CSV: error';
+    progressPill.textContent = 'Progress: 0/—';
+    return;
   }
-})();
+  if (msg.type === 'standings'){
+    setLive(true);
+    if (msg.standings) LIVE_STANDINGS = msg.standings;
+    enrich();
+    render(mode);
+    if (msg.progress){
+      const {done=0,total='—'} = msg.progress;
+      progressPill.textContent = `Progress: ${done}/${total}`;
+    }
+    return;
+  }
+  if (msg.type === 'complete'){
+    setLive(true);
+    if (msg.standings) LIVE_STANDINGS = msg.standings;
+    enrich();
+    render(mode);
+    return;
+  }
+};
+
+// If no live messages arrive quickly, try to load the last completed run
+setTimeout(()=>{
+  if (!liveConnected){
+    try{
+      const saved = localStorage.getItem(LIVE_KEY_STANDINGS);
+      if (saved){
+        LIVE_STANDINGS = JSON.parse(saved);
+        enrich();
+        render(mode);
+        setLive(false);
+        progressPill.textContent = 'Progress: (loaded last run)';
+      }else{
+        setLive(false);
+      }
+    }catch(e){
+      setLive(false);
+    }
+  }
+}, 500);
+
+/* ========= Boot ========= */
+render(mode);
 </script>
 </body>
 </html>
