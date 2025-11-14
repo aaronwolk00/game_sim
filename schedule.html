@@ -44,6 +44,13 @@ hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
 .home{color:var(--home)}
 .nowrap{white-space:nowrap}
 .stickyhead{position:sticky;top:0;background:linear-gradient(var(--panel),var(--panel));z-index:2;border-bottom:1px solid #1f2740}
+
+/* uploader */
+.uploader{display:none;gap:8px;align-items:center}
+.uploader.show{display:flex}
+input[type=file]{display:none}
+.labelfile{padding:8px 10px;border-radius:10px;background:var(--card);border:1px solid #2a355a;cursor:pointer}
+.hint{color:#9fb1c9}
 </style>
 </head>
 <body>
@@ -63,7 +70,7 @@ hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
           <button class="viewtab active" data-mode="week">By Week</button>
           <button class="viewtab" data-mode="team">By Team</button>
         </div>
-        <div class="row">
+        <div class="row" style="gap:8px">
           <span class="pill" id="gamesPill">— games</span>
           <span class="pill" id="teamsPill">— teams</span>
           <span class="pill" id="csvPill">CSV: loading…</span>
@@ -71,10 +78,17 @@ hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
       </div>
       <hr>
       <div id="scheduleRoot"></div>
+
+      <!-- Local CSV fallback -->
+      <div id="uploader" class="uploader" style="margin-top:8px">
+        <label for="filepick" class="labelfile">Load schedule.csv…</label>
+        <input id="filepick" type="file" accept=".csv,text/csv" />
+        <span class="hint small">If your browser blocks <code>schedule.csv</code>, load it here.</span>
+      </div>
     </div>
 
     <div class="small">
-      Notes: provide a <code>schedule.csv</code> with columns like
+      Provide a <code>schedule.csv</code> with columns like
       <code>Week, Away, Home</code> (optional: <code>Date, Time, Venue</code>).
       You can also pass a raw URL via <code>?schedule=&lt;raw csv url&gt;</code>.
       The Sim Season button forwards both <code>?players=</code> and <code>?schedule=</code> to <code>sim_season.html</code>.
@@ -101,6 +115,8 @@ const csvPill = document.getElementById('csvPill');
 const gamesPill = document.getElementById('gamesPill');
 const teamsPill = document.getElementById('teamsPill');
 const scheduleRoot = document.getElementById('scheduleRoot');
+const uploader = document.getElementById('uploader');
+const filepick = document.getElementById('filepick');
 
 const simBtn = document.getElementById('simSeasonBtn');
 const toStandings = document.getElementById('toStandings');
@@ -132,9 +148,13 @@ async function fetchCsvFrom(urls){
   throw lastErr || new Error('CSV not reachable');
 }
 
-/* ====== CSV parsing (same style as standings) ====== */
+/* ====== CSV parsing (robust) ====== */
 function parseCsvToRows(text){
-  text = String(text||'').replace(/^\uFEFF/,'');
+  text = String(text||'').replace(/^\uFEFF/, '');
+  // If it looks like TSV, convert to CSV first (simple, non-quoted TSV support)
+  if (!/","/.test(text) && /\t/.test(text) && !/,/.test(text.split('\n',1)[0])) {
+    text = text.replace(/\t/g, ',');
+  }
   const rows=[]; let row=[], field='', q=false;
   for(let i=0;i<text.length;i++){
     const c=text[i];
@@ -153,11 +173,19 @@ function parseCsvToRows(text){
   return rows.filter(r=>r.length && r.some(x=>String(x||'').trim()!==''));
 }
 function findHeaderIndex(rows){
+  // Choose the first row that contains any Home + Away synonym
   const norm=s=>String(s||'').trim().toLowerCase();
-  for(let i=0;i<Math.min(rows.length,8);i++){
-    const r=rows[i].map(norm);
-    if(r.includes('week') || (r.includes('home') && r.includes('away'))) return i;
+  const has = (arr, keys)=> keys.every(k => arr.includes(k));
+  const HOME_KEYS = ['home','home team','hometeam'];
+  const AWAY_KEYS = ['away','away team','awayteam','visitor','visiting team','vistm'];
+  for(let i=0;i<Math.min(rows.length,12);i++){
+    const r = rows[i].map(norm);
+    const hasHome = HOME_KEYS.some(k=>r.includes(k));
+    const hasAway = AWAY_KEYS.some(k=>r.includes(k));
+    if (hasHome && hasAway) return i;
+    if (r.includes('week') && (hasHome || hasAway)) return i;
   }
+  // fallback: if first row has any text, assume header
   return 0;
 }
 function rowsToObjects(rows, headerIdx){
@@ -170,34 +198,43 @@ function rowsToObjects(rows, headerIdx){
 /* ====== Normalize schedule rows ====== */
 function normTeam(x){ return String(x||'').trim(); }
 function toWeek(x){
+  // supports "Week 1", "Wk 3", "17", "WC", "DIV", "CONF", "SB" → non-numeric becomes 0
   const n = parseInt(String(x||'').replace(/[^\d]/g,''),10);
-  return Number.isFinite(n) ? n : 1;
+  return Number.isFinite(n) ? n : 0;
 }
 function mapScheduleRow(r){
-  // Accept many headers: Away/Away Team/Visitor, Home/Home Team
-  const home = r.Home || r.HOME || r['Home Team'] || r['HomeTeam'] || r['home'] || '';
-  const away = r.Away || r.AWAY || r['Away Team'] || r['AwayTeam'] || r['Visitor'] || r['visitor'] || '';
-  const wk   = r.Week || r.WEEK || r.week || r['Wk'] || r['WK'] || '';
-  const date = r.Date || r.DATE || r.date || '';
+  // Header synonyms (case-insensitive matched above)
+  const home = r.Home || r.HOME || r['Home Team'] || r['HomeTeam'] || r['home'] || r['HOME TEAM'] || r['H'] || '';
+  const away = r.Away || r.AWAY || r['Away Team'] || r['AwayTeam'] || r['Visitor'] || r['visitor'] || r['VISITOR'] || r['A'] || '';
+  const wk   = r.Week || r.WEEK || r.week || r['Wk'] || r['WK'] || r['Round'] || r['ROUND'] || '';
+  const date = r.Date || r.DATE || r.date || r['Game Date'] || '';
   const time = r.Time || r.TIME || r.time || '';
-  const venue= r.Venue || r.Stadium || r.Location || '';
+  const venue= r.Venue || r.Stadium || r.Location || r['Site'] || '';
+
+  const homeT = normTeam(home);
+  const awayT = normTeam(away);
+
   return {
     week: toWeek(wk),
-    home: normTeam(home),
-    away: normTeam(away),
+    home: homeT,
+    away: awayT,
     date: String(date||'').trim(),
     time: String(time||'').trim(),
     venue: String(venue||'').trim(),
+    _rawWeek: wk
   };
 }
 
 /* ====== Render helpers ====== */
+function metaLine(g){
+  const bits = [g.date, g.time, g.venue].filter(Boolean);
+  return bits.length ? bits.join(' \u2022 ') : '';
+}
 function gameRowHTML(g){
-  const meta = [g.date, g.time, g.venue].filter(Boolean).join(' • ');
   return `<tr>
-    <td class="right nowrap">W${g.week}</td>
+    <td class="right nowrap">${g.week?('W'+g.week):(g._rawWeek||'')}</td>
     <td><span class="team away">${g.away}</span> @ <span class="team home">${g.home}</span></td>
-    <td class="small">${meta}</td>
+    <td class="small">${metaLine(g)}</td>
   </tr>`;
 }
 function weekTable(weekNum, games){
@@ -220,11 +257,10 @@ function teamTable(team, list){
           ${list.map(g=>{
             const isHome = g.home===team;
             const opp = isHome ? g.away : g.home;
-            const meta = [g.date, g.time, g.venue].filter(Boolean).join(' • ');
             return `<tr>
-              <td class="right nowrap">W${g.week}</td>
+              <td class="right nowrap">${g.week?('W'+g.week):(g._rawWeek||'')}</td>
               <td>${isHome ? 'vs' : '@'} <span class="team ${isHome?'home':'away'}">${opp}</span></td>
-              <td class="small">${meta}</td>
+              <td class="small">${metaLine(g)}</td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -247,7 +283,10 @@ viewTabs.forEach(b=>{
 });
 
 function render(){
-  if(!SCHEDULE.length){ scheduleRoot.innerHTML = '<div class="small">No games found.</div>'; return; }
+  if(!SCHEDULE.length){
+    scheduleRoot.innerHTML = '<div class="small">No games found (check headers: <b>Home</b> & <b>Away</b> or <b>Visitor</b>).</div>';
+    return;
+  }
 
   if (VIEW==='team'){
     const byTeam = new Map();
@@ -259,20 +298,28 @@ function render(){
     });
     const teams = Array.from(byTeam.keys()).sort((a,b)=>a.localeCompare(b));
     const html  = teams.map(t=>{
-      const list = byTeam.get(t).slice().sort((a,b)=>a.week-b.week || (a.home+a.away).localeCompare(b.home+b.away));
+      const list = byTeam.get(t).slice().sort((a,b)=> (a.week-b.week) || (a.home+a.away).localeCompare(b.home+b.away));
       return teamTable(t, list);
     }).join('');
     scheduleRoot.innerHTML = html;
   } else {
     const byWeek = new Map();
     SCHEDULE.forEach(g=>{
-      if(!byWeek.has(g.week)) byWeek.set(g.week, []);
-      byWeek.get(g.week).push(g);
+      const key = g.week || 0; // non-numeric weeks (playoffs) bucket to 0
+      if(!byWeek.has(key)) byWeek.set(key, []);
+      byWeek.get(key).push(g);
     });
     const weeks = Array.from(byWeek.keys()).sort((a,b)=>a-b);
     const html  = weeks.map(w=>{
       const games = byWeek.get(w).slice().sort((a,b)=> (a.away+a.home).localeCompare(b.away+b.home));
-      return weekTable(w, games);
+      return w===0
+        ? `<div class="section"><h3>Other Rounds</h3>
+             <table class="table">
+              <thead class="stickyhead"><tr><th class="right">Round</th><th>Matchup</th><th>Details</th></tr></thead>
+              <tbody>${games.map(gameRowHTML).join('')}</tbody>
+             </table>
+           </div>`
+        : weekTable(w, games);
     }).join('');
     scheduleRoot.innerHTML = html;
   }
@@ -285,12 +332,27 @@ function render(){
     csvPill.textContent = `CSV: ${url.includes('githubusercontent')?'remote':'local'}`;
 
     const rows = parseCsvToRows(text);
+    if (!rows.length) throw new Error('Empty CSV');
+
     const hi = findHeaderIndex(rows);
+    const headerRow = rows[hi].map(s=>String(s||'').trim());
+    console.debug('Detected header row:', headerRow);
+
     const objs = rowsToObjects(rows, hi);
+    const mapped = objs.map(mapScheduleRow).filter(g => g.home && g.away);
 
-    SCHEDULE = objs.map(mapScheduleRow).filter(g => g.home && g.away);
+    if (!mapped.length){
+      throw new Error('No valid rows after mapping (check column names).');
+    }
+
+    // Clean and sort
+    SCHEDULE = mapped.map(g=>({
+      ...g,
+      home: g.home.trim(),
+      away: g.away.trim()
+    })).sort((a,b)=> (a.week-b.week) || (a.date||'').localeCompare(b.date||'') || (a.away+a.home).localeCompare(b.away+b.home));
+
     const teams = Array.from(new Set(SCHEDULE.flatMap(g=>[g.home,g.away]))).sort();
-
     gamesPill.textContent = `${SCHEDULE.length} games`;
     teamsPill.textContent = `${teams.length} teams`;
 
@@ -298,9 +360,41 @@ function render(){
   }catch(e){
     console.error(e);
     csvPill.textContent = 'CSV: error';
-    scheduleRoot.innerHTML = `<div class="small" style="color:#fca5a5">Could not load <code>schedule.csv</code>. Make sure it exists (or pass <code>?schedule=</code>) and includes <code>Home</code> and <code>Away</code> columns.</div>`;
+    scheduleRoot.innerHTML = `<div class="small" style="color:#fca5a5">
+      Could not load <code>schedule.csv</code> (blocked or missing).
+      You can <b>load it manually</b> below.</div>`;
+    uploader.classList.add('show');
   }
 })();
+
+/* ====== Local file fallback ====== */
+filepick.addEventListener('change', async (ev)=>{
+  const f = ev.target.files && ev.target.files[0];
+  if (!f) return;
+  const text = await f.text();
+  try{
+    const rows = parseCsvToRows(text);
+    const hi = findHeaderIndex(rows);
+    const objs = rowsToObjects(rows, hi);
+    const mapped = objs.map(mapScheduleRow).filter(g => g.home && g.away);
+    if (!mapped.length) throw new Error('No valid rows after mapping.');
+
+    SCHEDULE = mapped.map(g=>({
+      ...g,
+      home: g.home.trim(),
+      away: g.away.trim()
+    })).sort((a,b)=> (a.week-b.week) || (a.date||'').localeCompare(b.date||'') || (a.away+a.home).localeCompare(b.away+b.home));
+
+    const teams = Array.from(new Set(SCHEDULE.flatMap(g=>[g.home,g.away]))).sort();
+    gamesPill.textContent = `${SCHEDULE.length} games`;
+    teamsPill.textContent = `${teams.length} teams`;
+    csvPill.textContent = 'CSV: loaded (file)';
+    render();
+  }catch(err){
+    console.error(err);
+    scheduleRoot.innerHTML = `<div class="small" style="color:#fca5a5">Could not parse that CSV. Make sure it has <b>Home</b> and <b>Away</b> (or <b>Visitor</b>) columns.</div>`;
+  }
+});
 </script>
 </body>
 </html>
