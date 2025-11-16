@@ -8,6 +8,147 @@ const bind = (...ids) =>
 const CSV_DEBUG = true;            // logs fetch attempts + reasons
 const CSV_USE_FALLBACK = true;
 
+// ===== KNN Metrics loader (metrics.csv) =====
+// Loads metrics from ?metrics=<url> or local metrics.csv and exposes window.METRICS.
+// API: await METRICS.ready;  METRICS.estimate({ qtr, game_seconds_remaining, down, ydstogo, yardline_100, score_differential, posteam_is_home })
+
+(function(){
+    const qs = new URLSearchParams(location.search);
+    const param = (qs.get('metrics') || '').replace('/refs/heads/','/');
+    const CANDIDATES = param ? [param] : [new URL('metrics.csv', location.href).href, 'metrics.csv'];
+  
+    function splitLines(t){ return String(t||'').replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n'); }
+    function sniffDelimiter(line){
+      const c=[',','\t',';','|']; let best=',', n=0;
+      for(const d of c){ const k=line.split(d).length; if(k>n){best=d;n=k;} } return best;
+    }
+    function splitRow(row, d){
+      const out=[]; let f='', q=false;
+      for(let i=0;i<row.length;i++){
+        const c=row[i];
+        if(q){ if(c==='"'){ if(row[i+1]==='"'){ f+='"'; i++; } else q=false; } else f+=c; }
+        else { if(c==='"') q=true; else if(c===d){ out.push(f); f=''; } else f+=c; }
+      }
+      out.push(f); return out;
+    }
+    function parseSmart(text){
+      const lines = splitLines(text).filter(l=>l.trim()!==''); if(!lines.length) return {header:[],rows:[]};
+      const d = sniffDelimiter(lines[0]);
+      const rows = lines.map(line => splitRow(line, d));
+      const header = rows[0].map(h=>String(h||'').trim());
+      return { header, rows: rows.slice(1) };
+    }
+    async function fetchFirstOk(urls){
+      for(const url of urls){
+        try{
+          const res = await fetch(url, { cache:'no-store', mode:'cors' });
+          if(!res.ok) continue;
+          return await res.text();
+        }catch(_){}
+      }
+      throw new Error('metrics.csv not reachable');
+    }
+    const clamp = (x,a,b)=> Math.max(a, Math.min(b, x));
+    const num = v => {
+      if (v===undefined || v===null || v==='') return NaN;
+      const x = Number(String(v).trim());
+      return Number.isFinite(x) ? x : NaN;
+    };
+  
+    class MetricsKNN {
+      constructor(k=200){ this.k=k; this.ready=this._init(); }
+      async _init(){
+        const text = await fetchFirstOk(CANDIDATES);
+        const { header, rows } = parseSmart(text);
+  
+        const idx = name => header.findIndex(h => h.toLowerCase()===name.toLowerCase());
+        const c = {
+          qtr: idx('qtr'), down: idx('down'), ytg: idx('ydstogo'), yl: idx('yardline_100'),
+          gsr: idx('game_seconds_remaining'), diff: idx('score_differential'), hof: idx('posteam_is_home'),
+          wp: idx('wp_hat'), ep: idx('ep_hat'), epa: idx('epa_hat'),
+          td: idx('td_prob_hat'), fg: idx('fg_prob_hat'), saf: idx('safety_prob_hat'), nos: idx('no_score_prob_hat')
+        };
+        const reqIn  = [c.qtr,c.down,c.ytg,c.yl,c.gsr,c.diff,c.hof];
+        const reqOut = [c.wp,c.ep,c.epa,c.td,c.fg,c.saf,c.nos];
+        if (reqIn.some(i=>i<0) || reqOut.some(i=>i<0)) throw new Error('metrics.csv missing required columns');
+  
+        const feats=[]; const outs=[];
+        for(const r of rows){
+          const q=num(r[c.qtr]), d=num(r[c.down]), ytg=num(r[c.ytg]), yl=num(r[c.yl]),
+                g=num(r[c.gsr]), df=num(r[c.diff]), hf=num(r[c.hof]),
+                wp=num(r[c.wp]), ep=num(r[c.ep]), epa=num(r[c.epa]),
+                td=num(r[c.td]), fg=num(r[c.fg]), saf=num(r[c.saf]), nos=num(r[c.nos]);
+          if (![q,d,ytg,yl,g,df,hf].every(Number.isFinite)) continue;
+          if (![wp,ep,epa,td,fg,saf,nos].every(Number.isFinite)) continue;
+          feats.push(q,d,ytg,yl,g,df,hf);
+          outs.push(wp,ep,epa,td,fg,saf,nos);
+        }
+        const N = outs.length/7; if(!N) throw new Error('metrics.csv has no usable rows');
+  
+        this.N=N; this.D=7;
+        this.features = new Float32Array(feats);
+        this.outputs  = new Float32Array(outs);
+  
+        // scale per-dimension via 10–90 pct
+        const scales = new Float64Array(this.D).fill(1);
+        const cols = Array.from({length:this.D}, (_,d)=>[]);
+        for(let i=0;i<N;i++){ for(let d=0;d<this.D;d++){ cols[d].push(this.features[i*this.D+d]); } }
+        const pct=(a,p)=>{ const s=a.slice().sort((x,y)=>x-y), idx=(s.length-1)*p, lo=Math.floor(idx), hi=Math.ceil(idx);
+          return s[lo]*(hi-idx)+s[hi]*(idx-lo);
+        };
+        for(let d=0; d<this.D; d++){
+          const spread = Math.max(1e-6, pct(cols[d],0.90)-pct(cols[d],0.10));
+          scales[d]=spread;
+        }
+        this.scales = new Float32Array(scales);
+      }
+  
+      estimate(state, k=this.k){
+        if(!this.N) throw new Error('metrics not loaded');
+        // build query
+        const q = new Float32Array([
+          Number(state.qtr||1),
+          Number(state.down||1),
+          Number(state.ydstogo||10),
+          Number(state.yardline_100||75),
+          Number(state.game_seconds_remaining||0),
+          Number(state.score_differential||0),
+          Number(state.posteam_is_home||0),
+        ]);
+        for(let d=0; d<this.D; d++) q[d]/=this.scales[d];
+  
+        const K = Math.min(k, this.N);
+        const bestIdx=new Int32Array(K).fill(-1), bestDst=new Float32Array(K).fill(1e30);
+        const f=this.features, D=this.D, s=this.scales;
+        for(let i=0;i<this.N;i++){
+          let off=i*D;
+          const dist = (f[off+0]/s[0]-q[0])**2+(f[off+1]/s[1]-q[1])**2+(f[off+2]/s[2]-q[2])**2+
+                       (f[off+3]/s[3]-q[3])**2+(f[off+4]/s[4]-q[4])**2+(f[off+5]/s[5]-q[5])**2+
+                       (f[off+6]/s[6]-q[6])**2;
+          let j=K-1;
+          if(dist<bestDst[j]){ bestDst[j]=dist; bestIdx[j]=i;
+            while(j>0 && bestDst[j]<bestDst[j-1]){ const td=bestDst[j-1], ti=bestIdx[j-1]; bestDst[j-1]=bestDst[j]; bestIdx[j-1]=bestIdx[j]; bestDst[j]=td; bestIdx[j]=ti; j--; }
+          }
+        }
+        let W=0, wp=0, ep=0, epa=0, td=0, fg=0, saf=0, nos=0;
+        for(let j=0;j<K;j++){
+          const i=bestIdx[j]; if(i<0) break;
+          const w=1/(1e-9+Math.sqrt(bestDst[j]));
+          const o=i*7; wp+=w*this.outputs[o+0]; ep+=w*this.outputs[o+1]; epa+=w*this.outputs[o+2];
+          td+=w*this.outputs[o+3]; fg+=w*this.outputs[o+4]; saf+=w*this.outputs[o+5]; nos+=w*this.outputs[o+6];
+          W+=w;
+        }
+        if(!W) return { wp:0.5, ep:0, epa:0, td_prob:0, fg_prob:0, safety_prob:0, no_score_prob:1 };
+        const norm=(x)=>x/W;
+        let tdP=norm(td), fgP=norm(fg), safP=norm(saf), nosP=norm(nos);
+        const sum=tdP+fgP+safP+nosP; if(sum>1e-6){ tdP/=sum; fgP/=sum; safP/=sum; nosP/=sum; }
+        return { wp:norm(wp), ep:norm(ep), epa:norm(epa), td_prob:tdP, fg_prob:fgP, safety_prob:safP, no_score_prob:nosP };
+      }
+    }
+    window.METRICS = new MetricsKNN(200);
+  })();
+  
+
 /* ===== Stadium data (team_stadiums.csv) ===== */
 
 // Raw rows from team_stadiums.csv
@@ -282,6 +423,36 @@ function clamp(x,a,b){return Math.max(a,Math.min(b,x));}
 function yardText(y){return y>=50?`Opp ${100-y}`:`Own ${y}`;}
 function dnTxt(d){return ['1st','2nd','3rd','4th'][d-1]}
 
+// Map current/snapshot state to METRICS.estimate()
+function metricsForSnap(snap){
+    if (!window.METRICS || !METRICS.estimate) return null;
+    // Prefer explicit values on the snap, fall back to sim.hud when needed
+    const q   = Number(snap.qtr  ?? sim?.hud?.qtr  ?? 1);
+    const sec = Number(snap.secs ?? sim?.hud?.secs ?? 900);
+    const dwn = Number(snap.down ?? sim?.hud?.down ?? 1);
+    const dst = Number(snap.dist ?? sim?.hud?.dist ?? 10);
+    const yl  = Number(snap.yard ?? sim?.hud?.yard ?? 25);
+    const possTeam = String(snap.poss ?? sim?.hud?.poss ?? 'Home');
+    const posteam_is_home = (possTeam === 'Home') ? 1 : 0;
+  
+    const scoreDiff = posteam_is_home
+      ? (sim?.score?.home - sim?.score?.away)
+      : (sim?.score?.away - sim?.score?.home);
+  
+    try{
+      return METRICS.estimate({
+        qtr: q,
+        game_seconds_remaining: Math.max(0, (5 - q) * 900 + sec),
+        down: dwn,
+        ydstogo: dst,
+        yardline_100: yl,
+        score_differential: scoreDiff,
+        posteam_is_home
+      });
+    }catch(_){ return null; }
+  }
+  
+
 /* ===== CSV / roster ===== */
 // Robust CSV parsing with BOM handling and reliable header detection.
 // Assumes the first REAL row is the header; tolerates a few junk/blank lines before it.
@@ -485,6 +656,11 @@ const _fgProb = (dist, pow=70, acc=70) =>
 
 
 function driveEPForState(snap, homeTeam, awayTeam){
+      // If metrics are available, prefer their EP directly (kept non-negative for drive EP)
+  const est0 = metricsForSnap(snap);
+  if (est0 && Number.isFinite(est0.ep)) {
+    return clamp(Math.max(0, est0.ep), 0, 6.95);
+  }
   const { poss, down, dist, yard } = snap;
   const atk = (poss === 'Home') ? homeTeam : awayTeam;
   const def = (poss === 'Home') ? awayTeam  : homeTeam;
@@ -591,6 +767,25 @@ function stateWP(hs, as, q, s, y, p, prior){
   const epNow  = EP(sim.hud.down, sim.hud.dist, y);
   const zEP    = 0.10 * ((p === 'Home') ? epNow : -epNow) / 6;
   let wp = clamp(invlogit(zPrior + zLead + zField + zEP), 0.001, 0.999);
+// Blend in metrics-based WP (posteam WP → convert to Home WP), then continue with endgame logic
+try{
+    const posteam_is_home = (p === 'Home') ? 1 : 0;
+    const scoreDiff = posteam_is_home ? (hs - as) : (as - hs);
+    const est = METRICS?.estimate?.({
+        qtr: q,
+        game_seconds_remaining: s,
+        down: sim?.hud?.down ?? 1,
+        ydstogo: sim?.hud?.dist ?? 10,
+        yardline_100: y,
+        score_differential: scoreDiff,
+        posteam_is_home
+    });
+    if (est && Number.isFinite(est.wp)) {
+        const homeWP_from_metrics = posteam_is_home ? est.wp : (1 - est.wp);
+        wp = clamp(0.70 * homeWP_from_metrics + 0.30 * wp, 0.0001, 0.9999); // 70% metrics / 30% model
+    }
+    }catch(_){}
+
 
   // Possession budget for the TRAILING side (fast end-game pace)
   const timeoutsHome = timeouts.Home || 0;
