@@ -15,8 +15,6 @@ h1{margin:0 0 6px;font-size:22px;letter-spacing:.2px}
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .btn{display:inline-flex;align-items:center;justify-content:center;padding:10px 12px;border-radius:10px;background:var(--accent);color:#0a0f17;font-weight:700;font-size:14px;border:none;box-shadow:0 2px 0 rgba(0,0,0,.25);text-decoration:none;cursor:pointer}
 .btn.ghost{background:var(--card);color:#dbe3ef;border:1px solid #2a355a;box-shadow:none}
-.btn.small{padding:6px 8px;border-radius:8px;font-size:11px}
-.btn:disabled{opacity:.5;cursor:not-allowed}
 .small{font-size:12px;color:var(--muted)}
 hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
 .viewtabs{display:flex;gap:6px}
@@ -27,8 +25,8 @@ hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
 .table th{font-weight:700;color:#dbe3ef}
 .right{text-align:right}
 .section{background:rgba(255,255,255,.02);border:1px solid #1c2440;border-radius:12px;padding:8px;margin-top:8px}
-.section h3{margin:0 0 6px;font-size:14px;display:flex;align-items:center;gap:8px}
-.pill{display:inline-block;padding:4px 8px;border-radius:999px;background:var(--card);border:1px solid #233055;font-size:12px;color:#9aa6b2}
+.section h3{margin:0 0 6px;font-size:14px}
+.pill{display:inline-block;padding:4px 8px;border-radius:999px;background:var(--card);border:1px solid #233055;font-size:12px;color:var(--muted)}
 .team{font-weight:700}
 .away{color:var(--away)}
 .home{color:var(--home)}
@@ -36,10 +34,6 @@ hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
 .stickyhead{position:sticky;top:0;background:linear-gradient(var(--panel),var(--panel));z-index:2;border-bottom:1px solid #1f2740}
 .warn{color:#fca5a5}
 kbd{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;background:#0e1630;border:1px solid #2a355a;border-radius:6px;padding:1px 5px;font-size:12px}
-.score{font-weight:700}
-.win{color:#86efac}
-.loss{color:#fca5a5}
-.simcol{width:1%;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -63,7 +57,6 @@ kbd{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mo
           <span class="pill" id="gamesPill">0 games</span>
           <span class="pill" id="teamsPill">0 teams</span>
           <span class="pill" id="csvPill">CSV: loading…</span>
-          <span class="pill" id="playersPill">Players: —</span>
         </div>
       </div>
       <hr>
@@ -72,14 +65,11 @@ kbd{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mo
 
     <div class="small">
       Works with either classic <kbd>Home</kbd>/<kbd>Away</kbd> columns or
-      nflfastR-style <kbd>team</kbd>/<kbd>opp</kbd> (+ <kbd>home_away</kbd>, <kbd>game_id</kbd>).
-      Sim buttons call <code>window.runGameHeadless(home, away, playersUrl)</code> (if present), else quick sim.
-      Results &amp; standings are stored per season in <code>localStorage</code> (<code>sim:&lt;year&gt;:results</code> / <code>sim:&lt;year&gt;:standings</code>).
+      team-centric nflfastR output (<kbd>team</kbd>, <kbd>opp</kbd>, <kbd>home_away</kbd>, <kbd>game_id</kbd>).
+      Use <code>?players=</code> and/or <code>?schedule=</code> to override files.
     </div>
   </main>
 
-<!-- engine is optional -->
-<script src="engine.js"></script>
 <script>
 /* ===== Params & link forwarding ===== */
 const PARAMS = new URLSearchParams(location.search);
@@ -90,8 +80,8 @@ const RAW_SCHEDULE_PARAM= (PARAMS.get('schedule')||'').replace('/refs/heads/','/
   const p = RAW_PLAYERS_PARAM ? `?players=${encodeURIComponent(RAW_PLAYERS_PARAM)}` : '';
   const s = RAW_SCHEDULE_PARAM ? (p?`&schedule=${encodeURIComponent(RAW_SCHEDULE_PARAM)}`:`?schedule=${encodeURIComponent(RAW_SCHEDULE_PARAM)}`) : '';
   const both = p + s;
-  document.getElementById('toStandings').href = `standings.html${both}`;
-  document.getElementById('toGames').href     = `index.html${both}`;
+  document.getElementById('toStandings').href = `standings.html${p}`;
+  document.getElementById('toGames').href     = `index.html${p}`;
   document.getElementById('simSeasonBtn').addEventListener('click', ()=> location.href=`sim_season.html${both}`);
 })();
 
@@ -100,15 +90,10 @@ const SCHEDULE_URLS = RAW_SCHEDULE_PARAM
   ? [RAW_SCHEDULE_PARAM, new URL('schedule.csv', location.href).href]
   : [new URL('schedule.csv', location.href).href];
 
-const PLAYERS_URLS = RAW_PLAYERS_PARAM
-  ? [RAW_PLAYERS_PARAM, new URL('players.csv', location.href).href]
-  : [new URL('players.csv', location.href).href];
-
 /* ===== DOM ===== */
 const csvPill   = document.getElementById('csvPill');
 const gamesPill = document.getElementById('gamesPill');
 const teamsPill = document.getElementById('teamsPill');
-const playersPill = document.getElementById('playersPill');
 const root      = document.getElementById('scheduleRoot');
 
 /* ===== Helpers: fetch + CSV ===== */
@@ -147,8 +132,10 @@ function parseSmart(text){
 const norm = s => String(s||'').trim().toLowerCase();
 function findHeaderIndex(rows){
   const wants = [
+    // classic
     ['home','away'], ['home team','away team'], ['home_team','away_team'],
     ['team_home','team_away'], ['home_team_abbr','away_team_abbr'],
+    // team-centric
     ['team','opp']
   ];
   for(let i=0;i<Math.min(20, rows.length);i++){
@@ -163,171 +150,118 @@ function rowsToObjects(rows, headerIdx){
     const o={}; header.forEach((h,j)=> o[h] = (r[j]===undefined ? '' : r[j])); return o;
   });
 }
-function toInt(x){ const n=parseInt(x,10); return Number.isFinite(n)?n:NaN; }
 function toWeek(x){ const n = parseInt(String(x||'').replace(/[^\d]/g,''),10); return Number.isFinite(n)?n:1; }
 
-/* ===== Schedule builders (now include season + type) ===== */
+/* ===== Schedule builders ===== */
+// 1) Direct home/away rows
 function mapDirectRow(r){
   const home = r.Home || r.home || r['Home Team'] || r['home_team'] || r['team_home'] || r['home_team_abbr'] || '';
   const away = r.Away || r.away || r['Away Team'] || r['away_team'] || r['team_away'] || r['away_team_abbr'] || '';
   const wk   = r.Week || r.week || r.Wk || '';
   const date = r.Date || r.date || r.gameday || r.game_date || '';
   const time = r.Time || r.time || r.game_time_eastern || '';
-  const venue= r.Venue|| r.venue|| r.Stadium|| r.site || '';
-  let season = toInt(r.season||r.Season); if(!Number.isFinite(season)){ const y=toInt(String(date).slice(0,4)); if(Number.isFinite(y)) season=y; }
-  const season_type = String(r.season_type||r.Season_Type||'REG').toUpperCase();
-  return { season:+season, season_type, week: toWeek(wk), home: String(home).trim(), away: String(away).trim(),
-           date:String(date).trim(), time:String(time).trim(), venue:String(venue).trim(), gid:String(r.game_id||'').trim() };
+  const venue= r.Venue || r.venue || r.Stadium || r.site || '';
+  return { week: toWeek(wk), home: String(home).trim(), away: String(away).trim(), date:String(date).trim(), time:String(time).trim(), venue:String(venue).trim() };
 }
+// 2) Team/opp rows -> pair by game_id
 function buildFromTeamOpp(objs){
   const getHA = r => {
-    const s = String(r.home_away || r.homeaway || r.ha || '').trim().toUpperCase();
-    if(s==='H'||s==='HOME'||s==='1'||s==='TRUE') return 'H';
-    if(s==='A'||s==='AWAY'||s==='@'||s==='0'||s==='FALSE') return 'A';
+    const s = String(r.home_away || r.homeaway || r.ha || r.site || '').trim().toUpperCase();
+    if(s==='H' || s==='HOME' || s==='1' || s==='TRUE') return 'H';
+    if(s==='A' || s==='AWAY' || s==='@' || s==='0' || s==='FALSE') return 'A';
     return '';
   };
   const keyFor = r => {
-    const rid = String(r.row_id || '').trim();
-    const gid = String(r.game_id || '').trim() || (rid.includes(':') ? rid.split(':')[0] : '');
+    const rid = String(r.row_id || r.rowid || '').trim();
+    const gid = String(r.game_id || r.gameid || r.GAME_ID || '').trim() || (rid.includes(':') ? rid.split(':')[0] : '');
     if(gid) return gid;
-    const season=r.season||'', wk=r.week||'', date=r.date||'';
-    const t=(r.team||'').trim(), o=(r.opp||'').trim();
+    // fallback key if game_id missing
+    const season = r.season || r.Season || '';
+    const wk = r.week || r.Week || '';
+    const date = r.date || r.Date || '';
+    const t = (r.team || r.Team || '').trim();
+    const o = (r.opp  || r.Opp  || '').trim();
     return `${season}|${wk}|${date}|${[t,o].sort().join('@')}`;
   };
 
   const byKey = new Map();
   for(const r of objs){
-    const team = String(r.team||'').trim(), opp = String(r.opp||'').trim();
-    if(!team||!opp) continue;
-    const k=keyFor(r);
-    if(!byKey.has(k)) byKey.set(k,[]);
+    const team = String(r.team || r.Team || '').trim();
+    const opp  = String(r.opp  || r.Opp  || '').trim();
+    if(!team || !opp) continue;
+    const k = keyFor(r);
+    if(!byKey.has(k)) byKey.set(k, []);
     byKey.get(k).push(r);
   }
 
-  const out=[];
+  const out = [];
   for(const rows of byKey.values()){
     const r0 = rows[0];
     const week = toWeek(r0.week || r0.Week);
     const date = String(r0.date || r0.Date || '').trim();
     const time = String(r0.game_time_eastern || r0.time || '').trim();
     const venue= String(r0.venue || r0.site || r0.Stadium || '').trim();
-    let season = toInt(r0.season||r0.Season); if(!Number.isFinite(season)){ const y=toInt(String(date).slice(0,4)); if(Number.isFinite(y)) season=y; }
-    const season_type = String(r0.season_type||r0.Season_Type||'REG').toUpperCase();
-    const gid = String(r0.game_id||'').trim();
 
     let home='', away='';
-    const H = rows.find(rr=>getHA(rr)==='H');
-    const A = rows.find(rr=>getHA(rr)==='A');
-    if(H){ home=String(H.team).trim(); away=String(H.opp).trim(); }
+    const homeRow = rows.find(rr => getHA(rr)==='H');
+    const awayRow = rows.find(rr => getHA(rr)==='A');
+
+    if(homeRow){ home = String(homeRow.team).trim(); away = String(homeRow.opp).trim(); }
     else if(rows.length===1){
-      const rr=r0, ha=getHA(rr);
+      const rr = r0; const ha = getHA(rr);
       if(ha==='H'){ home=String(rr.team).trim(); away=String(rr.opp).trim(); }
       else { home=String(rr.opp).trim(); away=String(rr.team).trim(); }
     }else{
-      const a=rows[0], b=rows[1];
-      home=String(a.team).trim(); away=String(a.opp||b.team).trim();
+      // No explicit HA flags; infer from symmetry
+      const a = rows[0], b = rows[1];
+      if(String(a.team).trim() === String(b.opp).trim() && String(b.team).trim() === String(a.opp).trim()){
+        // arbitrary but stable
+        home = String(a.team).trim(); away = String(a.opp).trim();
+      }else{
+        home = String(a.team).trim(); away = String(a.opp || b.team).trim();
+      }
     }
-    if(home&&away) out.push({season:+season, season_type, week, home, away, date, time, venue, gid});
+    if(home && away){
+      out.push({ week, home, away, date, time, venue });
+    }
   }
   return out;
 }
 
-/* ===== Sim glue ===== */
-let PLAYERS_URL_USED = '';
-let BUSY=false;
-
-function resKey(g){
-  // prefer game_id if present, else full composite
-  return g.gid ? `gid:${g.gid}` : [g.season,g.season_type,g.week,g.home,g.away,g.date].join('|');
-}
-function keysFor(season){ return { res:`sim:${season}:results`, std:`sim:${season}:standings` }; }
-function getResults(season){ try{ return JSON.parse(localStorage.getItem(keysFor(season).res)||'[]'); }catch(e){ return []; } }
-function setResults(season, rows){ try{ localStorage.setItem(keysFor(season).res, JSON.stringify(rows)); }catch(e){} }
-function getStandings(season){ try{ return JSON.parse(localStorage.getItem(keysFor(season).std)||'{}'); }catch(e){ return {}; } }
-function setStandings(season, obj){ try{ localStorage.setItem(keysFor(season).std, JSON.stringify(obj)); }catch(e){} }
-
-function computeStandings(season, teams, results){
-  const st={}; teams.forEach(t=>st[t]={team:t,wins:0,losses:0,pf:0,pa:0});
-  for(const r of results){
-    const home=r.Home, away=r.Away;
-    const hp=Number(r.HomeScore)||0, ap=Number(r.AwayScore)||0;
-    if(!st[home]) st[home]={team:home,wins:0,losses:0,pf:0,pa:0};
-    if(!st[away]) st[away]={team:away,wins:0,losses:0,pf:0,pa:0};
-    st[home].pf+=hp; st[home].pa+=ap; st[away].pf+=ap; st[away].pa+=hp;
-    if(hp>ap){ st[home].wins++; st[away].losses++; } else { st[away].wins++; st[home].losses++; }
-  }
-  setStandings(season, st);
-  return st;
-}
-
-async function quickSimGame(){ // simple neutral quick sim
-  const drives=12 + Math.round((Math.random()-0.5)*2);
-  const side=()=>{ let pts=0; for(let i=0;i<drives;i++){ const r=Math.random(); if(r<0.30){ pts+=6; if(Math.random()<0.94) pts+=1; } else if(r<0.48){ pts+=3; } } return pts; };
-  let hp=side(), ap=side();
-  if(Math.abs(hp-ap)<=2 && Math.random()<0.35){ (hp<=ap)?(hp+=3):(ap+=3); }
-  if(hp===ap){ (Math.random()<0.5)?(hp+=3):(ap+=3); }
-  return {homePts:hp,awayPts:ap};
-}
-async function simulateGame(home, away){
-  if (typeof window.runGameHeadless === 'function') {
-    return await window.runGameHeadless(home, away, PLAYERS_URL_USED);
-  }
-  return await quickSimGame();
-}
-
-/* ===== Render helpers (with Sim UI) ===== */
-function gameRowHTML(g, resultsMap){
+/* ===== Render helpers ===== */
+function gameRowHTML(g){
   const meta = [g.date, g.time, g.venue].filter(Boolean).join(' • ');
-  const key = resKey(g);
-  const res = resultsMap.get(key);
-  const played = !!res;
-  const ap = played ? (res.awayPts ?? res.AwayScore) : '';
-  const hp = played ? (res.homePts ?? res.HomeScore) : '';
-  const winner = played ? (hp>ap ? g.home : g.away) : '';
-  const clsAway = played && winner===g.away ? 'win' : (played ? 'loss' : '');
-  const clsHome = played && winner===g.home ? 'win' : (played ? 'loss' : '');
-
-  return `<tr data-key="${key}">
+  return `<tr>
     <td class="right nowrap">W${g.week}</td>
-    <td><span class="team away ${clsAway}">${g.away}</span> @ <span class="team home ${clsHome}">${g.home}</span></td>
+    <td><span class="team away">${g.away}</span> @ <span class="team home">${g.home}</span></td>
     <td class="small">${meta}</td>
-    <td class="right simcol">${played?`<span class="score">${ap}-${hp}</span>`:`<button class="btn small" data-action="sim-game" data-key="${key}">Sim</button>`}</td>
   </tr>`;
 }
-function weekTable(weekNum, games, resultsMap){
-  const unplayed = games.filter(g=>!resultsMap.has(resKey(g))).length;
+function weekTable(weekNum, games){
   return `
     <div class="section">
-      <h3>Week ${weekNum} ${unplayed? `<button class="btn small" data-action="sim-week" data-week="${weekNum}">Sim Week</button>` : `<span class="pill">All played</span>`}</h3>
+      <h3>Week ${weekNum}</h3>
       <table class="table">
-        <thead class="stickyhead"><tr><th class="right">Wk</th><th>Matchup</th><th>Details</th><th class="right">Sim</th></tr></thead>
-        <tbody>${games.map(g=>gameRowHTML(g, resultsMap)).join('')}</tbody>
+        <thead class="stickyhead"><tr><th class="right">Wk</th><th>Matchup</th><th>Details</th></tr></thead>
+        <tbody>${games.map(gameRowHTML).join('')}</tbody>
       </table>
     </div>`;
 }
-function teamTable(team, list, resultsMap){
+function teamTable(team, list){
   return `
     <div class="section">
       <h3>${team}</h3>
       <table class="table">
-        <thead class="stickyhead"><tr><th class="right">Wk</th><th>Opponent</th><th>Details</th><th class="right">Sim</th></tr></thead>
+        <thead class="stickyhead"><tr><th class="right">Wk</th><th>Opponent</th><th>Details</th></tr></thead>
         <tbody>
           ${list.map(g=>{
             const isHome = g.home===team;
             const opp = isHome ? g.away : g.home;
             const meta = [g.date, g.time, g.venue].filter(Boolean).join(' • ');
-            const key = resKey(g);
-            const res = resultsMap.get(key);
-            const played = !!res;
-            const hp = played ? (res.homePts ?? res.HomeScore) : 0;
-            const ap = played ? (res.awayPts ?? res.AwayScore) : 0;
-            const score = played ? (isHome? `${ap}-${hp}` : `${hp}-${ap}`) : '';
-            const win = played ? ((isHome?hp:ap) > (isHome?ap:hp)) : null;
-            return `<tr data-key="${key}">
+            return `<tr>
               <td class="right nowrap">W${g.week}</td>
-              <td>${isHome ? 'vs' : '@'} <span class="team ${win===true?'win':win===false?'loss':''}">${opp}</span></td>
+              <td>${isHome ? 'vs' : '@'} <span class="team ${isHome?'home':'away'}">${opp}</span></td>
               <td class="small">${meta}</td>
-              <td class="right simcol">${played?`<span class="score">${score}</span>`:`<button class="btn small" data-action="sim-game" data-key="${key}">Sim</button>`}</td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -336,10 +270,8 @@ function teamTable(team, list, resultsMap){
 }
 
 /* ===== State & View ===== */
-let SCHEDULE = [];    // all rows (with season)
+let SCHEDULE = [];
 let VIEW = 'week';
-let ACTIVE_SEASON = null;
-
 const tabs = Array.from(document.querySelectorAll('.viewtab'));
 tabs.forEach(b=>{
   b.addEventListener('click', ()=>{
@@ -350,19 +282,6 @@ tabs.forEach(b=>{
   });
 });
 
-function resultsMapForAllSeasons(){
-  const seasons = Array.from(new Set(SCHEDULE.map(g=>g.season)));
-  const map = new Map();
-  seasons.forEach(season=>{
-    const r = getResults(season);
-    r.forEach(rec=>{
-      const key = rec.Key || (rec.gid ? `gid:${rec.gid}` : [rec.Season,rec.Type,rec.Week,rec.Home,rec.Away,rec.Date].join('|'));
-      map.set(key, rec);
-    });
-  });
-  return map;
-}
-
 function render(){
   if(!SCHEDULE.length){
     root.innerHTML = '<div class="small">No games found.</div>';
@@ -370,9 +289,6 @@ function render(){
     teamsPill.textContent = '0 teams';
     return;
   }
-
-  const resMap = resultsMapForAllSeasons();
-
   if (VIEW==='team'){
     const byTeam = new Map();
     SCHEDULE.forEach(g=>{
@@ -384,38 +300,21 @@ function render(){
     const teams = Array.from(byTeam.keys()).sort((a,b)=>a.localeCompare(b));
     root.innerHTML = teams.map(t=>{
       const list = byTeam.get(t).slice().sort((a,b)=> a.week-b.week || (a.home+a.away).localeCompare(b.home+b.away));
-      return teamTable(t, list, resMap);
+      return teamTable(t, list);
     }).join('');
-
-    // pills
-    const uniqueGames = SCHEDULE.length;
-    const uniqueTeams = teams.length;
-    gamesPill.textContent = `${uniqueGames} games`;
-    teamsPill.textContent = `${uniqueTeams} teams`;
   } else {
     const byWeek = new Map();
     SCHEDULE.forEach(g=>{ if(!byWeek.has(g.week)) byWeek.set(g.week, []); byWeek.get(g.week).push(g); });
     const weeks = Array.from(byWeek.keys()).sort((a,b)=>a-b);
     root.innerHTML = weeks.map(w=>{
       const games = byWeek.get(w).slice().sort((a,b)=> (a.away+a.home).localeCompare(b.away+b.home));
-      return weekTable(w, games, resMap);
+      return weekTable(w, games);
     }).join('');
-
-    gamesPill.textContent = `${SCHEDULE.length} games`;
-    const teamSet=new Set(); SCHEDULE.forEach(g=>{teamSet.add(g.home); teamSet.add(g.away);});
-    teamsPill.textContent = `${teamSet.size} teams`;
   }
 }
 
 /* ===== Boot ===== */
 (async function init(){
-  // try to resolve a players URL (used only when engine.js exists)
-  try{
-    const { url: purl } = await fetchCsvFrom(PLAYERS_URLS);
-    PLAYERS_URL_USED = purl;
-    playersPill.textContent = 'Players: ok';
-  }catch(e){ playersPill.textContent='Players: n/a'; }
-
   try{
     const { text, url } = await fetchCsvFrom(SCHEDULE_URLS);
     csvPill.textContent = `CSV: ${url.includes('githubusercontent')?'remote':'local'}`;
@@ -426,15 +325,20 @@ function render(){
     const header = rows[hi].map(h=>String(h||'').trim().toLowerCase());
     const objs = rowsToObjects(rows, hi);
 
+    // Decide mapping path
     const hasTeamOpp = header.includes('team') && header.includes('opp');
     const hasHomeAwayCols = (header.includes('home') && header.includes('away')) ||
                             (header.includes('home_team') && header.includes('away_team')) ||
                             (header.includes('team_home') && header.includes('team_away')) ||
                             (header.includes('home_team_abbr') && header.includes('away_team_abbr'));
 
-    if(hasTeamOpp)       SCHEDULE = buildFromTeamOpp(objs);
-    else if(hasHomeAwayCols) SCHEDULE = objs.map(mapDirectRow).filter(g=>g.home&&g.away);
-    else                 SCHEDULE = [];
+    if(hasTeamOpp){
+      SCHEDULE = buildFromTeamOpp(objs);
+    }else if(hasHomeAwayCols){
+      SCHEDULE = objs.map(mapDirectRow).filter(g => g.home && g.away);
+    }else{
+      SCHEDULE = []; // triggers diagnostics below
+    }
 
     if(!SCHEDULE.length){
       const hdrHtml = rows[hi].map(h=>`<li><kbd>${h}</kbd></li>`).join('');
@@ -443,41 +347,23 @@ function render(){
           <h3>Couldn’t build games from schedule.csv</h3>
           <div>Detected header:</div>
           <ul style="columns:3; margin:6px 0">${hdrHtml}</ul>
-          <div class="small">Expected either <kbd>Home</kbd>/<kbd>Away</kbd> or <kbd>team</kbd>/<kbd>opp</kbd> (+ <kbd>home_away</kbd> / <kbd>game_id</kbd>).</div>
+          <div class="small">Expected either <kbd>Home</kbd>/<kbd>Away</kbd> or <kbd>team</kbd>/<kbd>opp</kbd> (+ <kbd>home_away</kbd> or <kbd>game_id</kbd>).</div>
         </div>`;
       gamesPill.textContent = '0 games'; teamsPill.textContent = '0 teams';
       return;
     }
 
-    // choose active season (most common), but we persist per game’s season anyway
-    const seasonCounts = new Map();
-    SCHEDULE.forEach(g=>seasonCounts.set(g.season, (seasonCounts.get(g.season)||0)+1));
-    ACTIVE_SEASON = Array.from(seasonCounts.entries()).sort((a,b)=>b[1]-a[1])[0][0];
+    // Deduplicate just in case, then sort
+    const keySet = new Set(); const unique=[];
+    for(const g of SCHEDULE){
+      const k = `${g.week}|${g.home}|${g.away}|${g.date}`;
+      if(!keySet.has(k)){ keySet.add(k); unique.push(g); }
+    }
+    SCHEDULE = unique;
 
-    // click handlers (event delegation)
-    root.addEventListener('click', async (ev)=>{
-      const btn = ev.target.closest && ev.target.closest('button[data-action]');
-      if(!btn || BUSY) return;
-      const action = btn.dataset.action;
-      if(action==='sim-game'){
-        const key = btn.dataset.key;
-        const g = SCHEDULE.find(x => resKey(x)===key);
-        if(!g) return;
-        await runOneGame(g);
-        render();
-      }
-      if(action==='sim-week'){
-        const wk = Number(btn.dataset.week);
-        const list = SCHEDULE.filter(g=>g.week===wk);
-        for(const g of list){
-          const cur = getResults(g.season);
-          const already = cur.some(r => (r.Key||resKey(g)) === resKey(g));
-          if(already) continue;
-          await runOneGame(g);
-        }
-        render();
-      }
-    });
+    const teams = Array.from(new Set(SCHEDULE.flatMap(g=>[g.home,g.away]))).sort();
+    gamesPill.textContent = `${SCHEDULE.length} games`;
+    teamsPill.textContent = `${teams.length} teams`;
 
     render();
   }catch(e){
@@ -486,28 +372,6 @@ function render(){
     root.innerHTML = `<div class="small warn">Could not load <code>schedule.csv</code>. Place it next to this file or pass <code>?schedule=&lt;raw csv url&gt;</code>.</div>`;
   }
 })();
-
-/* ===== One game executor ===== */
-async function runOneGame(g){
-  BUSY = true;
-  try{
-    const { homePts, awayPts } = await simulateGame(g.home, g.away);
-    const rec = {
-      Season:g.season, Type:g.season_type, Week:g.week, Date:g.date, Time:g.time,
-      Away:g.away, Home:g.home, AwayScore:awayPts, HomeScore:homePts,
-      awayPts:awayPts, homePts:homePts, gid:g.gid||'', Key:resKey(g),
-      Winner: homePts>awayPts ? g.home : g.away
-    };
-    const cur = getResults(g.season);
-    const idx = cur.findIndex(r => (r.Key||resKey(g)) === resKey(g));
-    if(idx>=0) cur[idx]=rec; else cur.push(rec);
-    setResults(g.season, cur);
-
-    const teams = Array.from(new Set(SCHEDULE.filter(x=>x.season===g.season).flatMap(x=>[x.home,x.away])));
-    computeStandings(g.season, teams, cur);
-  }catch(e){ console.error('sim error', e); }
-  finally{ BUSY=false; }
-}
 </script>
 </body>
 </html>
