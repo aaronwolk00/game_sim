@@ -1,4 +1,4 @@
-<!doctype html>
+<!doctype html> 
 <html lang="en">
 <head>
 <meta charset="utf-8" />
@@ -84,9 +84,10 @@ kbd{
   <div class="row" style="justify-content:space-between;align-items:center">
     <h1>Schedule</h1>
     <div class="row">
-        <a id="toStandings" class="btn ghost">← Standings</a>
-        <a id="toGames" class="btn ghost">Weekly Games</a>
-      </div>  
+      <a id="toStandings" class="btn ghost">← Standings</a>
+      <a id="toGames" class="btn ghost">Weekly Games</a>
+      <a id="simSeasonBtn" class="btn">▶ Sim Season</a>
+    </div>
   </div>
 
   <div class="panel">
@@ -96,7 +97,6 @@ kbd{
         <button class="viewtab" data-mode="team">By Team</button>
       </div>
       <div class="row">
-        <button id="resetSimsBtn" class="btn ghost" style="padding:6px 10px;font-size:12px">Reset</button>
         <span class="pill" id="gamesPill">0 games</span>
         <span class="pill" id="teamsPill">0 teams</span>
         <span class="pill" id="seasonPill">Season: —</span>
@@ -115,6 +115,7 @@ kbd{
   </div>
 </main>
 
+<!-- NEW: load engine.js so window.runGameHeadless is available -->
 <script src="engine.js"></script>
 
 <script>
@@ -135,13 +136,17 @@ if (seasonParamRaw) {
     if (Number.isFinite(sn)) SEASON_FILTER = sn;
   }
 }
+
 (function wireLinks(){
   const p = RAW_PLAYERS_PARAM  ? `?players=${encodeURIComponent(RAW_PLAYERS_PARAM)}` : '';
   const s = RAW_SCHEDULE_PARAM ? (p?`&schedule=${encodeURIComponent(RAW_SCHEDULE_PARAM)}`:`?schedule=${encodeURIComponent(RAW_SCHEDULE_PARAM)}`) : '';
+  const both = p + s;
   document.getElementById('toStandings').href = `standings.html${p}`;
   document.getElementById('toGames').href     = `index.html${p}`;
+  document.getElementById('simSeasonBtn').addEventListener('click', () => {
+    location.href = `sim_season.html${both}`;
+  });
 })();
-
 
 /* ===== Sources ===== */
 const SCHEDULE_URLS = RAW_SCHEDULE_PARAM
@@ -154,74 +159,87 @@ const gamesPill  = document.getElementById('gamesPill');
 const teamsPill  = document.getElementById('teamsPill');
 const seasonPill = document.getElementById('seasonPill');
 const root       = document.getElementById('scheduleRoot');
-const resetBtn   = document.getElementById('resetSimsBtn');
-resetBtn.addEventListener('click', resetAllSims);
 
+/* ===== Headless sim helpers ===== */
 
+/* simple fallback if engine.js hasn't exposed window.runGameHeadless */
+function quickSimGame(home, away){
+  const rng = Math.random;
+  const drivesPerTeam = 12 + Math.round((rng() - 0.5) * 2); // 11–13
+  const pTD = 0.23 + rng() * 0.07;
+  const pFG = 0.17 + rng() * 0.05;
+  const xp  = 0.94;
 
-/* ===== Headless sim helpers (real engine.js integration) ===== */
+  function simSide(){
+    let pts = 0;
+    for (let i=0;i<drivesPerTeam;i++){
+      const r = rng();
+      if (r < pTD){
+        pts += 6;
+        if (rng() < xp) pts += 1;
+      } else if (r < pTD + pFG){
+        pts += 3;
+      }
+    }
+    return pts;
+  }
 
-// store all simmed games so standings can update live
-function updateStandingsAfterGame(home, away, homePts, awayPts){
-  const data = JSON.parse(localStorage.getItem('headlessResults') || '{}');
-  data[`${home}|${away}`] = { home, away, homePts, awayPts, time: Date.now() };
-  localStorage.setItem('headlessResults', JSON.stringify(data));
+  let homePts = simSide();
+  let awayPts = simSide();
+
+  if (homePts === awayPts){
+    // tiny OT nudge
+    if (rng() < 0.5) homePts += 3;
+    else awayPts += 3;
+  }
+  return { homePts, awayPts };
 }
 
+/* MAIN: per-row sim, prefers engine.js headless, falls back to quickSimGame */
 async function runSingleGame(home, away, rowEl){
   const simCell = rowEl.querySelector('.sim-cell');
   if (!simCell) return;
+  const original = simCell.innerHTML;
   simCell.textContent = 'Sim…';
 
   try{
     const PLAYERS_URL = RAW_PLAYERS_PARAM || 'players.csv';
-    if (typeof window.runGameHeadless !== 'function'){
-      console.warn('⚠️ engine.js not loaded or missing runGameHeadless');
-      simCell.textContent = 'Err';
-      return;
-    }
-    const result = await window.runGameHeadless(home, away, PLAYERS_URL);
-    const homePts = result.homePts ?? 0;
-    const awayPts = result.awayPts ?? 0;
+    let result;
 
-    simCell.textContent = `${awayPts}–${homePts}`;
-    updateStandingsAfterGame(home, away, homePts, awayPts);
+    if (typeof window.runGameHeadless === 'function'){
+      // EXPECTED: engine.js implements this and returns { homePts, awayPts } instantly
+      result = await window.runGameHeadless(home, away, PLAYERS_URL);
+    } else {
+      // safe local fallback so the page never breaks
+      result = quickSimGame(home, away);
+    }
+
+    const homePts = result.homePts ?? result.homeScore ?? result.home;
+    const awayPts = result.awayPts ?? result.awayScore ?? result.away;
+    if (homePts == null || awayPts == null){
+      simCell.textContent = 'Err';
+    } else {
+      // show as Away–Home to match "away @ home" ordering
+      simCell.textContent = `${awayPts}–${homePts}`;
+    }
   }catch(err){
     console.error('Headless sim failed', err);
     simCell.textContent = 'Err';
   }
 }
 
-function resetAllSims(){
-  localStorage.removeItem('headlessResults');
-  document.querySelectorAll('.sim-cell').forEach(c => c.textContent = '');
-  console.log('✅ Reset all sim results');
-}
-
-/* Attach click handlers & hydrate any existing sim results */
+/* bind sim buttons after each render */
 function attachSimHandlers(){
-  const stored = JSON.parse(localStorage.getItem('headlessResults') || '{}');
-
-  // For every rendered game row...
-  document.querySelectorAll('.game-row').forEach(row => {
-    const home = row.dataset.home;
-    const away = row.dataset.away;
-    const key  = `${home}|${away}`;
-    const simCell = row.querySelector('.sim-cell');
-    const btn = row.querySelector('.sim-btn');
-
-    if (!simCell || !btn) return;
-
-    // If we already have a result in localStorage, show it
-    const rec = stored[key];
-    if (rec && typeof rec.homePts === 'number' && typeof rec.awayPts === 'number') {
-      simCell.textContent = `${rec.awayPts}–${rec.homePts}`;
-    }
-
-    // Clicking the Sim button should NOT follow the row's onclick link
-    btn.addEventListener('click', (ev) => {
-      ev.stopPropagation(); // prevent navigation to game.html
-      runSingleGame(home, away, row);
+  const buttons = root.querySelectorAll('.sim-btn');
+  buttons.forEach(btn=>{
+    btn.addEventListener('click', async (e)=>{
+      e.stopPropagation(); // don’t trigger row click → game.html
+      const row = btn.closest('tr');
+      if (!row) return;
+      const home = row.dataset.home;
+      const away = row.dataset.away;
+      if (!home || !away) return;
+      await runSingleGame(home, away, row);
     });
   });
 }
@@ -366,11 +384,11 @@ function buildFromTeamOpp(objs){
                 (rid.includes(':') ? rid.split(':')[0] : '');
     if (gid) return gid;
     const season = r.season || r.Season || '';
-    const wk = r.week || r.Week || '';
+    const week = r.week || r.Week || '';
     const date = r.date || r.Date || '';
     const t = (r.team || r.Team || '').trim();
     const o = (r.opp  || r.Opp  || '').trim();
-    return `${season}|${wk}|${date}|${[t,o].sort().join('@')}`;
+    return `${season}|${week}|${date}|${[t,o].sort().join('@')}`;
   };
 
   const byKey = new Map();
