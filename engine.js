@@ -1847,6 +1847,61 @@ async function tryLoadStadiumCsv(){
   
   
   startBtn.addEventListener('click',()=>{if(running)return;homeName.textContent=homeLabel.value||'Home';awayName.textContent=awayLabel.value||'Away';startGame();});
+  
+  /* ===== Headless simulation export (used by schedule.html) ===== */
+window.runGameHeadless = async function(homeTeamName, awayTeamName, playersUrl = 'players.csv'){
+    try{
+      // Prepare teams from CSV
+      if (!PLAYERS_CSV_ROWS) await tryLoadPlayersCsv(true);
+      const home = teamFromCsv(homeTeamName) || buildTeam(seedRoster(homeTeamName + '-H'));
+      const away = teamFromCsv(awayTeamName) || buildTeam(seedRoster(awayTeamName + '-A'));
+  
+      // Initialize minimal sim state (no UI)
+      const r = rngFromSeed(homeTeamName + awayTeamName + Date.now());
+      const simSilent = {
+        rng: r,
+        score: { home:0, away:0 },
+        hud:   { poss: (r()<0.5?'Home':'Away'), qtr:1, secs:900, down:1, dist:10, yard:25 },
+        crowd: { cap:72000, present:60000, mood:0 }
+      };
+  
+      // Run a quick game by stepping the same play loop until final whistle
+      // We reuse your loop logic but without any drawing or UI
+      const speed = 0; // instant ticks
+      HOME = home;
+      AWAY = away;
+      sim = simSilent;
+      running = true; paused = false;
+  
+      // Use same kickoff and logic as startGame()
+      beginKickoff(sim.hud.poss==='Home'?'Away':'Home');
+      doKickoff();
+  
+      // Run the main simulation loop headlessly until final
+      // We borrow your async loop but without the DOM animation delay.
+      const maxTicks = 6000; // failsafe
+      let ticks = 0;
+      while (running && ticks < maxTicks){
+        await new Promise(rs=>setTimeout(rs, 0));
+        if (sim.hud.qtr > 4) break;
+        ticks++;
+        // advance one cycle of your engine’s tick logic manually
+        // (simplified: let loop() handle normal progress)
+        if (typeof loop === 'function') loop(0);
+        if (!running) break;
+      }
+  
+      const result = { homePts: sim.score.home, awayPts: sim.score.away };
+      running = false;
+      return result;
+    }catch(err){
+      console.error('[runGameHeadless] failed:', err);
+      return { homePts: 0, awayPts: 0 };
+    }
+  };
+  
+  
+  
   pauseBtn.addEventListener('click',pauseToggle);
   resetBtn.addEventListener('click',hardReset);
   document.addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault();pauseToggle();}});
