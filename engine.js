@@ -273,8 +273,10 @@ function applyStadiumFromTeams(){
     else                precip.value = (lat>40 ? 'Snow' : 'Heavy Rain');
   }
 
-  fansPill.textContent = `Fans: ${sim.crowd.present.toLocaleString()}`;
-  renderCrowdMeter();
+  if (!HEADLESS_MODE) {
+    fansPill.textContent = `Fans: ${c.present.toLocaleString()}`;
+    renderCrowdMeter();
+}
 }
 
 /** 0–1 crowd loudness, based on stadium + attendance + mood */
@@ -343,7 +345,7 @@ btnForceLocalCsv.onclick = async () => {
   btnListCsvTeams.click();
 };
 
-
+let HEADLESS_MODE = false;
 
 /* ===== WP toggle (UI injected) ===== */
 let showWP = true;
@@ -409,7 +411,7 @@ function logPlay(tag, line, off, scoring=false, epa=null, wpd=null, driveEp=null
     const short = line.replace(/^Q\d+\s+\d+:\d+\s+\|\s+[^—]+—\s*/,'').trim();
     epaPlays.push({ epa, text: short });
     if (epaPlays.length > 800) epaPlays.shift();
-    renderTopEpa();
+    if (!HEADLESS_MODE) renderTopEpa();
   }
 }
 
@@ -1735,7 +1737,7 @@ async function tryLoadStadiumCsv(){
   
     HOME.stats.team={plays:0,yards:0,passYds:0,rushYds:0,punts:0,fgm:0,fga:0,td:0,ints:0,downs:0,pen:0,third:{c:0,a:0},fourth:{c:0,a:0},epa:0}; HOME.drives=[];
     AWAY.stats.team={plays:0,yards:0,passYds:0,rushYds:0,punts:0,fgm:0,fga:0,td:0,ints:0,downs:0,pen:0,third:{c:0,a:0},fourth:{c:0,a:0},epa:0}; AWAY.drives=[];
-    renderBox(); renderLeaders(); renderTopEpa();
+    if (!HEADLESS_MODE) renderBox(); if (!HEADLESS_MODE) renderLeaders(); if (!HEADLESS_MODE) renderTopEpa();
   
     const r = rngFromSeed(seed.value||'seed');
     const receive = r()<0.5 ? 'Home' : 'Away';
@@ -1766,7 +1768,7 @@ async function tryLoadStadiumCsv(){
   
   
     beginKickoff(receive==='Home'?'Away':'Home'); doKickoff();
-    updateHUD(); updateScore(); drawWP(); renderPlays(); Field.render({hud:sim.hud});
+    if (!HEADLESS_MODE) updateHUD(); if (!HEADLESS_MODE) updateScore(); if (!HEADLESS_MODE) drawWP(); if (!HEADLESS_MODE) renderPlays(); if (!HEADLESS_MODE) Field.render({ hud: sim.hud });
     loop(+speed.value||0);
   }
   
@@ -1836,13 +1838,16 @@ async function tryLoadStadiumCsv(){
     // UI refresh
     feed.innerHTML = '';
     lastPlay.textContent = 'Last Play: —';
-    updateHUD();
-    updateScore();
-    drawWP();
-    renderBox();
-    renderLeaders();
-    renderTopEpa();
-    Field.render({ hud: sim.hud });
+    if (!HEADLESS_MODE) updateHUD();
+    if (!HEADLESS_MODE){
+        updateScore();
+        drawWP();
+        renderBox();
+        renderLeaders();
+        renderTopEpa();
+        renderCrowdMeter();
+    }
+    if (!HEADLESS_MODE) Field.render({ hud: sim.hud });
   }
   
   
@@ -2211,7 +2216,7 @@ window.runGameHeadless = async function(homeTeamName, awayTeamName, playersUrl =
           doKickoff(); updateHUD(); updateScore(); Field.render({hud:h});
           const t=stateWP(s.home,s.away,h.qtr,h.secs,h.yard,h.poss,wpPrior);
           wpSmooth=0.97*wpSmooth+0.03*t; wpSeries.push(wpSmooth);
-          wpVal.textContent=(wpSmooth*100).toFixed(1)+'%'; drawWP();
+          wpVal.textContent=(wpSmooth*100).toFixed(1)+'%'; if (!HEADLESS_MODE) drawWP();
           updateCrowd();
           if (ms>0) await new Promise(rs=>setTimeout(rs,ms));
           continue;
@@ -2386,7 +2391,7 @@ window.runGameHeadless = async function(homeTeamName, awayTeamName, playersUrl =
             const t = stateWP(s.home, s.away, h.qtr, h.secs, h.yard, h.poss, wpPrior);
             wpSmooth = 0.97*wpSmooth + 0.03*t; wpSeries.push(wpSmooth);
             wpVal.textContent = (wpSmooth*100).toFixed(1) + '%'; if (wpSeries.length>600) wpSeries.shift();
-            drawWP(); renderBox(); renderLeaders(); renderTopEpa(); updateCrowd();
+            if (!HEADLESS_MODE) drawWP(); if (!HEADLESS_MODE) renderBox(); if (!HEADLESS_MODE) renderLeaders(); if (!HEADLESS_MODE) renderTopEpa(); updateCrowd();
   
             if (h.secs <= 0) handleQuarterEnd();
             if (ms>0) await new Promise(rs=>setTimeout(rs,ms));
@@ -2792,11 +2797,11 @@ window.runGameHeadless = async function(homeTeamName, awayTeamName, playersUrl =
         (h.poss==='Home'?HOME:AWAY).stats.team.epa += (epa||0);
   
         // visuals
-        updateHUD(); updateScore(); Field.render({hud:h});
+        if (!HEADLESS_MODE) updateHUD(); if (!HEADLESS_MODE) updateScore(); if (!HEADLESS_MODE) Field.render({hud:h});
         wpSmooth=0.97*wpSmooth+0.03*wp1; wpSeries.push(wpSmooth);
         wpVal.textContent=(wpSmooth*100).toFixed(1)+'%';
         if (wpSeries.length>600) wpSeries.shift();
-        drawWP(); renderBox(); renderLeaders(); renderTopEpa(); updateCrowd();
+        if (!HEADLESS_MODE) drawWP(); if (!HEADLESS_MODE) renderBox(); if (!HEADLESS_MODE) renderLeaders(); if (!HEADLESS_MODE) renderTopEpa(); updateCrowd();
   
         // Quarter/end handling (use your helper)
         if (h.secs <= 0) {
