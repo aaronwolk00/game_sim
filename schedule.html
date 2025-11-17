@@ -116,6 +116,11 @@ kbd{
 </main>
 
 <script>
+    window.HEADLESS_MODE = true;
+  </script>
+<script src="engine.js"></script>
+
+<script>
 /* ===== Params & link forwarding ===== */
 const PARAMS = new URLSearchParams(location.search);
 const RAW_PLAYERS_PARAM  = (PARAMS.get('players')  || '').replace('/refs/heads/','/');
