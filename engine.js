@@ -324,28 +324,31 @@ const {
 );
 
 
-btnListCsvTeams.onclick = () => {
-  let msg = '';
-  if (!PLAYERS_CSV_ROWS) {
-    msg = 'CSV not loaded yet.\n\nTip: If you opened this HTML via file:// most browsers block fetch(). Serve it via localhost (e.g., `python -m http.server`).';
-  } else {
-    msg = `Teams found (${TEAM_SHEETS.length}):\n` + TEAM_SHEETS.join(', ');
-  }
-  csvOut.textContent = msg;
-  csvOut.style.display = 'block';
-};
+if (!HEADLESS_MODE && btnListCsvTeams){
+    btnListCsvTeams.onclick = () => {
+    let msg = '';
+    if (!PLAYERS_CSV_ROWS) {
+        msg = 'CSV not loaded yet.\n\nTip: If you opened this HTML via file:// most browsers block fetch(). Serve it via localhost (e.g., `python -m http.server`).';
+    } else {
+        msg = `Teams found (${TEAM_SHEETS.length}):\n` + TEAM_SHEETS.join(', ');
+    }
+    csvOut.textContent = msg;
+    csvOut.style.display = 'block';
+    };
+}
+if (!HEADLESS_MODE && btnForceLocalCsv) {
+    btnForceLocalCsv.onclick = async () => {
+    rosterStatus.textContent = 'Forcing local CSV (players.csv / Players.csv)...';
+    const ok = await tryLoadPlayersCsv(false); // forceLocal = true
+    rosterStatus.textContent = ok
+        ? `Loaded ${TEAM_SHEETS.length} teams from CSV (local)`
+        : 'Failed to load local CSV — still using generated players.';
+    // also dump list
+    btnListCsvTeams.click();
+    };
+}
 
-btnForceLocalCsv.onclick = async () => {
-  rosterStatus.textContent = 'Forcing local CSV (players.csv / Players.csv)...';
-  const ok = await tryLoadPlayersCsv(true); // forceLocal = true
-  rosterStatus.textContent = ok
-    ? `Loaded ${TEAM_SHEETS.length} teams from CSV (local)`
-    : 'Failed to load local CSV — still using generated players.';
-  // also dump list
-  btnListCsvTeams.click();
-};
-
-let HEADLESS_MODE = false;
+const HEADLESS_MODE = typeof window !== 'undefined' && window.HEADLESS_MODE === true;
 
 /* ===== WP toggle (UI injected) ===== */
 let showWP = true;
@@ -1141,11 +1144,12 @@ function renderDrives(){
 
 
 let activeTab='plays';
-tabPlays.onclick=()=>{activeTab='plays';tabPlays.classList.add('active');[tabScoring,tabDrives,tabAdvanced].forEach(x=>x.classList.remove('active'));renderPlays();}
-tabScoring.onclick=()=>{activeTab='scoring';tabScoring.classList.add('active');[tabPlays,tabDrives,tabAdvanced].forEach(x=>x.classList.remove('active'));feed.innerHTML='';scoring.forEach(s=>{const d=document.createElement('div');d.className='item score';d.innerHTML=`<div><span class="tag">SCORE</span>${s.text}</div><div class="aux">${s.score}</div>`;feed.appendChild(d);});}
-tabDrives.onclick=()=>{activeTab='drives';tabDrives.classList.add('active');[tabPlays,tabScoring,tabAdvanced].forEach(x=>x.classList.remove('active'));renderDrives();}
-tabAdvanced.onclick=()=>{activeTab='advanced';tabAdvanced.classList.add('active');[tabPlays,tabScoring,tabDrives].forEach(x=>x.classList.remove('active'));renderAdvanced();}
-
+if (!HEADLESS_MODE && tabPlays && tabScoring && tabDrives && tabAdvanced) {
+    tabPlays.onclick=()=>{activeTab='plays';tabPlays.classList.add('active');[tabScoring,tabDrives,tabAdvanced].forEach(x=>x.classList.remove('active'));renderPlays();}
+    tabScoring.onclick=()=>{activeTab='scoring';tabScoring.classList.add('active');[tabPlays,tabDrives,tabAdvanced].forEach(x=>x.classList.remove('active'));feed.innerHTML='';scoring.forEach(s=>{const d=document.createElement('div');d.className='item score';d.innerHTML=`<div><span class="tag">SCORE</span>${s.text}</div><div class="aux">${s.score}</div>`;feed.appendChild(d);});}
+    tabDrives.onclick=()=>{activeTab='drives';tabDrives.classList.add('active');[tabPlays,tabScoring,tabAdvanced].forEach(x=>x.classList.remove('active'));renderDrives();}
+    tabAdvanced.onclick=()=>{activeTab='advanced';tabAdvanced.classList.add('active');[tabPlays,tabScoring,tabDrives].forEach(x=>x.classList.remove('active'));renderAdvanced();}
+}
 
 // === Stadium CSV loader (team_stadiums.csv in same folder as this HTML) ===
 async function tryLoadStadiumCsv(){
@@ -1851,7 +1855,9 @@ async function tryLoadStadiumCsv(){
   }
   
   
-  startBtn.addEventListener('click',()=>{if(running)return;homeName.textContent=homeLabel.value||'Home';awayName.textContent=awayLabel.value||'Away';startGame();});
+  if (!HEADLESS_MODE && startBtn) {
+      startBtn.addEventListener('click',()=>{if(running)return;homeName.textContent=homeLabel.value||'Home';awayName.textContent=awayLabel.value||'Away';startGame();});
+  }
   
 /* ===== Headless simulation export (used by schedule.html) ===== */
 if (typeof window !== 'undefined') {
@@ -1862,7 +1868,7 @@ if (typeof window !== 'undefined') {
   
           // ensure players are loaded; keep your existing loader semantics
           if (!PLAYERS_CSV_ROWS){
-              await tryLoadPlayersCsv(true);
+              await tryLoadPlayersCsv(false);
           }
   
           const home = teamFromCsv(homeName) || buildTeam(seedRoster(homeName + '-H'));
@@ -1926,8 +1932,13 @@ if (typeof window !== 'undefined') {
   
   
   
-  pauseBtn.addEventListener('click',pauseToggle);
-  resetBtn.addEventListener('click',hardReset);
+  if (!HEADLESS_MODE && pauseBtn) {
+    pauseBtn.addEventListener('click', pauseToggle);
+  }
+  
+  if (!HEADLESS_MODE && resetBtn) {
+    resetBtn.addEventListener('click', hardReset);
+  }
   document.addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault();pauseToggle();}});
   
   ['change','input'].forEach(evt => {
@@ -2179,8 +2190,13 @@ if (typeof window !== 'undefined') {
   
     const desired = Math.max(0, Math.min(cap, target - Math.floor(cap * leaveRate)));
     c.present = Math.round(0.9 * c.present + 0.1 * desired);
-    fansPill.textContent = `Fans: ${c.present.toLocaleString()}`;
-    renderCrowdMeter();
+    if (!HEADLESS_MODE) {
+        const c = sim.crowd;
+        if (fansPill && c) {
+          fansPill.textContent = `Fans: ${c.present.toLocaleString()}`;
+          renderCrowdMeter();
+        }
+    }
   }
   
   function calcPlayTime(isScored){
