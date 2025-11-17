@@ -115,6 +115,8 @@ kbd{
   </div>
 </main>
 
+<script src="engine.js"></script>
+
 <script>
 /* ===== Params & link forwarding ===== */
 const PARAMS = new URLSearchParams(location.search);
@@ -196,6 +198,33 @@ function resetAllSims(){
   console.log('✅ Reset all sim results');
 }
 
+/* Attach click handlers & hydrate any existing sim results */
+function attachSimHandlers(){
+  const stored = JSON.parse(localStorage.getItem('headlessResults') || '{}');
+
+  // For every rendered game row...
+  document.querySelectorAll('.game-row').forEach(row => {
+    const home = row.dataset.home;
+    const away = row.dataset.away;
+    const key  = `${home}|${away}`;
+    const simCell = row.querySelector('.sim-cell');
+    const btn = row.querySelector('.sim-btn');
+
+    if (!simCell || !btn) return;
+
+    // If we already have a result in localStorage, show it
+    const rec = stored[key];
+    if (rec && typeof rec.homePts === 'number' && typeof rec.awayPts === 'number') {
+      simCell.textContent = `${rec.awayPts}–${rec.homePts}`;
+    }
+
+    // Clicking the Sim button should NOT follow the row's onclick link
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation(); // prevent navigation to game.html
+      runSingleGame(home, away, row);
+    });
+  });
+}
 
 /* ===== Helpers: fetch + CSV ===== */
 async function fetchCsvFrom(urls){
