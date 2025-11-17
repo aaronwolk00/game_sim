@@ -47,6 +47,10 @@ hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
 .table th{font-weight:700;color:#dbe3ef}
 .right{text-align:right}
 
+/* small helpers for sim column */
+.sim-cell{text-align:right}
+.sim-btn{padding:4px 8px;font-size:11px}
+
 .section{
   background:rgba(255,255,255,.02);border:1px solid #1c2440;
   border-radius:12px;padding:8px;margin-top:8px;
@@ -152,6 +156,86 @@ const gamesPill  = document.getElementById('gamesPill');
 const teamsPill  = document.getElementById('teamsPill');
 const seasonPill = document.getElementById('seasonPill');
 const root       = document.getElementById('scheduleRoot');
+
+/* ===== Headless sim helpers ===== */
+
+/* simple fallback if engine.js hasn't exposed window.runGameHeadless */
+function quickSimGame(home, away){
+  const rng = Math.random;
+  const drivesPerTeam = 12 + Math.round((rng() - 0.5) * 2); // 11–13
+  const pTD = 0.23 + rng() * 0.07;
+  const pFG = 0.17 + rng() * 0.05;
+  const xp  = 0.94;
+
+  function simSide(){
+    let pts = 0;
+    for (let i=0;i<drivesPerTeam;i++){
+      const r = rng();
+      if (r < pTD){
+        pts += 6;
+        if (rng() < xp) pts += 1;
+      } else if (r < pTD + pFG){
+        pts += 3;
+      }
+    }
+    return pts;
+  }
+
+  let homePts = simSide();
+  let awayPts = simSide();
+
+  if (homePts === awayPts){
+    // tiny OT nudge
+    if (rng() < 0.5) homePts += 3;
+    else awayPts += 3;
+  }
+  return { homePts, awayPts };
+}
+
+async function runSingleGame(home, away, rowEl){
+  const simCell = rowEl.querySelector('.sim-cell');
+  if (!simCell) return;
+  const original = simCell.innerHTML;
+  simCell.textContent = 'Sim…';
+
+  try{
+    const PLAYERS_URL = RAW_PLAYERS_PARAM || 'players.csv';
+    let result;
+    if (typeof window.runGameHeadless === 'function'){
+      // expected to return { homePts, awayPts }
+      result = await window.runGameHeadless(home, away, PLAYERS_URL);
+    } else {
+      result = quickSimGame(home, away);
+    }
+    const homePts = result.homePts ?? result.homeScore ?? result.home;
+    const awayPts = result.awayPts ?? result.awayScore ?? result.away;
+    if (homePts == null || awayPts == null){
+      simCell.textContent = 'Err';
+    } else {
+      // show as Away–Home to match "away @ home" ordering
+      simCell.textContent = `${awayPts}–${homePts}`;
+    }
+  }catch(err){
+    console.error('Headless sim failed', err);
+    simCell.textContent = 'Err';
+  }
+}
+
+/* bind sim buttons after each render */
+function attachSimHandlers(){
+  const buttons = root.querySelectorAll('.sim-btn');
+  buttons.forEach(btn=>{
+    btn.addEventListener('click', async (e)=>{
+      e.stopPropagation(); // don’t trigger row click → game.html
+      const row = btn.closest('tr');
+      if (!row) return;
+      const home = row.dataset.home;
+      const away = row.dataset.away;
+      if (!home || !away) return;
+      await runSingleGame(home, away, row);
+    });
+  });
+}
 
 /* ===== Helpers: fetch + CSV ===== */
 async function fetchCsvFrom(urls){
@@ -368,10 +452,11 @@ function gameRowHTML(g){
   const meta = [g.date, g.time, g.venue].filter(Boolean).join(' • ');
   const href = gameLink(g.home, g.away);
   const onClick = `location.href='${href}'`;
-  return `<tr class="game-row" onclick="${onClick}" style="cursor:pointer">
+  return `<tr class="game-row" data-home="${g.home}" data-away="${g.away}" onclick="${onClick}" style="cursor:pointer">
     <td class="right nowrap">W${g.week}</td>
     <td><span class="team away">${g.away}</span> @ <span class="team home">${g.home}</span></td>
     <td class="small">${meta}</td>
+    <td class="small sim-cell"><button type="button" class="btn ghost sim-btn">Sim</button></td>
   </tr>`;
 }
 function weekTable(weekNum, games){
@@ -380,7 +465,7 @@ function weekTable(weekNum, games){
       <h3>Week ${weekNum}</h3>
       <table class="table">
         <thead class="stickyhead">
-          <tr><th class="right">Wk</th><th>Matchup</th><th>Details</th></tr>
+          <tr><th class="right">Wk</th><th>Matchup</th><th>Details</th><th>Sim</th></tr>
         </thead>
         <tbody>${games.map(gameRowHTML).join('')}</tbody>
       </table>
@@ -392,7 +477,7 @@ function teamTable(team, list){
       <h3>${team}</h3>
       <table class="table">
         <thead class="stickyhead">
-          <tr><th class="right">Wk</th><th>Opponent</th><th>Details</th></tr>
+          <tr><th class="right">Wk</th><th>Opponent</th><th>Details</th><th>Sim</th></tr>
         </thead>
         <tbody>
           ${list.map(g=>{
@@ -401,10 +486,11 @@ function teamTable(team, list){
             const meta = [g.date, g.time, g.venue].filter(Boolean).join(' • ');
             const href = gameLink(g.home, g.away);
             const onClick = `location.href='${href}'`;
-            return `<tr class="game-row" onclick="${onClick}" style="cursor:pointer">
+            return `<tr class="game-row" data-home="${g.home}" data-away="${g.away}" onclick="${onClick}" style="cursor:pointer">
               <td class="right nowrap">W${g.week}</td>
               <td>${isHome ? 'vs' : '@'} <span class="team ${isHome?'home':'away'}">${opp}</span></td>
               <td class="small">${meta}</td>
+              <td class="small sim-cell"><button type="button" class="btn ghost sim-btn">Sim</button></td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -461,6 +547,9 @@ function render(){
       return weekTable(w, games);
     }).join('');
   }
+
+  // wire up Sim buttons for the freshly-rendered DOM
+  attachSimHandlers();
 }
 
 /* ===== Boot ===== */
