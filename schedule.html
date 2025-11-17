@@ -116,11 +116,22 @@ kbd{
 </main>
 
 <script>
-    window.HEADLESS_MODE = false;
-  </script>
-<script src="engine.js"></script>
+    // === Optional headless engine loader (safe) ===
+(function loadHeadlessEngine(){
+  // tell engine.js to run headless if it respects this flag
+  window.HEADLESS_MODE = true;      // or false if you need to test UI mode
 
-<script>
+  const s = document.createElement('script');
+  s.src = 'engine.js';
+  s.onload = () => {
+    console.log('engine.js loaded, headless sim ready (if runGameHeadless is defined).');
+  };
+  s.onerror = (err) => {
+    console.warn('engine.js failed to load; falling back to quickSim only.', err);
+  };
+  document.head.appendChild(s);
+})();
+
 /* ===== Params & link forwarding ===== */
 const PARAMS = new URLSearchParams(location.search);
 const RAW_PLAYERS_PARAM  = (PARAMS.get('players')  || '').replace('/refs/heads/','/');
@@ -645,4 +656,3 @@ function render(){
 </script>
 </body>
 </html>
-
