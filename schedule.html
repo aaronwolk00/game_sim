@@ -218,7 +218,7 @@ async function runSingleGame(home, away, rowEl){
     const PLAYERS_URL = RAW_PLAYERS_PARAM || 'players.csv';
     let result;
     if (typeof window.runGameHeadless === 'function'){
-      // expected to return { homePts, awayPts }
+      // now this calls the REAL engine.js logic
       result = await window.runGameHeadless(home, away, PLAYERS_URL);
     } else {
       result = quickSimGame(home, away);
@@ -228,7 +228,6 @@ async function runSingleGame(home, away, rowEl){
     if (homePts == null || awayPts == null){
       simCell.textContent = 'Err';
     } else {
-      // show as Away–Home to match "away @ home" ordering
       simCell.textContent = `${awayPts}–${homePts}`;
     }
   }catch(err){
@@ -236,6 +235,7 @@ async function runSingleGame(home, away, rowEl){
     simCell.textContent = 'Err';
   }
 }
+
 
 /* bind sim buttons after each render */
 function attachSimHandlers(){
