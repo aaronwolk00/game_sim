@@ -1,4 +1,4 @@
-<!doctype html> 
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
@@ -115,9 +115,6 @@ kbd{
   </div>
 </main>
 
-<!-- NEW: load engine.js so window.runGameHeadless is available -->
-<script src="engine.js"></script>
-
 <script>
 /* ===== Params & link forwarding ===== */
 const PARAMS = new URLSearchParams(location.search);
@@ -195,7 +192,6 @@ function quickSimGame(home, away){
   return { homePts, awayPts };
 }
 
-/* MAIN: per-row sim, prefers engine.js headless, falls back to quickSimGame */
 async function runSingleGame(home, away, rowEl){
   const simCell = rowEl.querySelector('.sim-cell');
   if (!simCell) return;
@@ -205,15 +201,12 @@ async function runSingleGame(home, away, rowEl){
   try{
     const PLAYERS_URL = RAW_PLAYERS_PARAM || 'players.csv';
     let result;
-
     if (typeof window.runGameHeadless === 'function'){
-      // EXPECTED: engine.js implements this and returns { homePts, awayPts } instantly
+      // expected to return { homePts, awayPts }
       result = await window.runGameHeadless(home, away, PLAYERS_URL);
     } else {
-      // safe local fallback so the page never breaks
       result = quickSimGame(home, away);
     }
-
     const homePts = result.homePts ?? result.homeScore ?? result.home;
     const awayPts = result.awayPts ?? result.awayScore ?? result.away;
     if (homePts == null || awayPts == null){
@@ -384,11 +377,11 @@ function buildFromTeamOpp(objs){
                 (rid.includes(':') ? rid.split(':')[0] : '');
     if (gid) return gid;
     const season = r.season || r.Season || '';
-    const week = r.week || r.Week || '';
+    const wk = r.week || r.Week || '';
     const date = r.date || r.Date || '';
     const t = (r.team || r.Team || '').trim();
     const o = (r.opp  || r.Opp  || '').trim();
-    return `${season}|${week}|${date}|${[t,o].sort().join('@')}`;
+    return `${season}|${wk}|${date}|${[t,o].sort().join('@')}`;
   };
 
   const byKey = new Map();
