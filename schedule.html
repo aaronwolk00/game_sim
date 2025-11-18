@@ -178,10 +178,15 @@ const seasonPill = document.getElementById('seasonPill');
 const root       = document.getElementById('scheduleRoot');
 
 /* ===== Shared results / live channel ===== */
-const LOCAL_RESULTS_KEY = 'headlessResults';
+const LOCAL_RESULTS_KEY   = 'headlessResults';
+const LIVE_STANDINGS_KEY  = 'simSeason:2020:standings';  // same key standings.html uses
 const liveChan = (typeof BroadcastChannel !== 'undefined')
   ? new BroadcastChannel('nfl-sim-2020')
   : null;
+
+// long team names discovered from schedule.csv
+let TEAMS_LONG = [];
+
 
 function loadLocalResults(){
   try{
@@ -231,18 +236,83 @@ function applyExistingResults(){
 
 function resetSeasonResults(){
   try{
-    localStorage.removeItem(LOCAL_RESULTS_KEY);
+    // 1) Clear per-game results (no headless games yet)
+    localStorage.setItem(LOCAL_RESULTS_KEY, JSON.stringify({}));
+
+    // 2) Choose long team names:
+    //    - Prefer those discovered from schedule.csv
+    //    - Fallback to a hard-coded full list if schedule isn't loaded yet
+    const teams = (TEAMS_LONG && TEAMS_LONG.length)
+      ? TEAMS_LONG
+      : [
+          'Arizona Cardinals',
+          'Atlanta Falcons',
+          'Baltimore Ravens',
+          'Buffalo Bills',
+          'Carolina Panthers',
+          'Chicago Bears',
+          'Cincinnati Bengals',
+          'Cleveland Browns',
+          'Dallas Cowboys',
+          'Denver Broncos',
+          'Detroit Lions',
+          'Green Bay Packers',
+          'Houston Texans',
+          'Indianapolis Colts',
+          'Jacksonville Jaguars',
+          'Kansas City Chiefs',
+          'Las Vegas Raiders',
+          'Los Angeles Chargers',
+          'Los Angeles Rams',
+          'Miami Dolphins',
+          'Minnesota Vikings',
+          'New England Patriots',
+          'New Orleans Saints',
+          'New York Giants',
+          'New York Jets',
+          'Philadelphia Eagles',
+          'Pittsburgh Steelers',
+          'San Francisco 49ers',
+          'Seattle Seahawks',
+          'Tampa Bay Buccaneers',
+          'Tennessee Titans',
+          'Washington Commanders'
+        ];
+
+    // 3) Build a baseline standings object: all long names, all 0–0 with 0 PF/PA
+    const baseline = {};
+    teams.forEach(name => {
+      baseline[name] = {
+        team:   name,
+        wins:   0,
+        losses: 0,
+        pf:     0,
+        pa:     0
+      };
+    });
+
+    // 4) Store it under the same key standings.html reads
+    localStorage.setItem(LIVE_STANDINGS_KEY, JSON.stringify(baseline));
   }catch(e){
-    console.warn('Could not clear headlessResults', e);
+    console.warn('Could not reset season standings', e);
   }
+
+  // 5) Notify any open standings.html tab so it can immediately repaint
   if (liveChan){
     try{
-      liveChan.postMessage({ type: 'headlessResultsReset' });
+      const baseline = JSON.parse(localStorage.getItem(LIVE_STANDINGS_KEY) || '{}');
+      liveChan.postMessage({
+        type:      'standings',
+        standings: baseline,
+        progress:  { done: 0, total: 0 }
+      });
     }catch(e){}
   }
-  // Reload so schedule + standings both re-pull a clean state
+
+  // 6) Reload this page so Sim buttons + UI are in a clean state
   location.reload();
 }
+
 
 
 /* ===== Headless sim helpers ===== */
@@ -715,6 +785,7 @@ function render(){
     }
 
     const teams = Array.from(new Set(SCHEDULE.flatMap(g=>[g.home,g.away]))).sort();
+    TEAMS_LONG = teams;
     gamesPill.textContent = `${SCHEDULE.length} games`;
     teamsPill.textContent = `${teams.length} teams`;
 

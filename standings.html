@@ -79,6 +79,57 @@ const teamCount = document.getElementById('teamCount');
 const livePill = document.getElementById('livePill');
 const elStandings = document.getElementById('standings');
 
+// === Baseline long-name team list (used for 0–0 default standings) ===
+const LONG_TEAM_NAMES = [
+  'Arizona Cardinals',
+  'Atlanta Falcons',
+  'Baltimore Ravens',
+  'Buffalo Bills',
+  'Carolina Panthers',
+  'Chicago Bears',
+  'Cincinnati Bengals',
+  'Cleveland Browns',
+  'Dallas Cowboys',
+  'Denver Broncos',
+  'Detroit Lions',
+  'Green Bay Packers',
+  'Houston Texans',
+  'Indianapolis Colts',
+  'Jacksonville Jaguars',
+  'Kansas City Chiefs',
+  'Las Vegas Raiders',
+  'Los Angeles Chargers',
+  'Los Angeles Rams',
+  'Miami Dolphins',
+  'Minnesota Vikings',
+  'New England Patriots',
+  'New Orleans Saints',
+  'New York Giants',
+  'New York Jets',
+  'Philadelphia Eagles',
+  'Pittsburgh Steelers',
+  'San Francisco 49ers',
+  'Seattle Seahawks',
+  'Tampa Bay Buccaneers',
+  'Tennessee Titans',
+  'Washington Commanders'
+];
+
+function createBaselineStandings(){
+  const obj = {};
+  LONG_TEAM_NAMES.forEach(name => {
+    obj[name] = {
+      team:   name,
+      wins:   0,
+      losses: 0,
+      pf:     0,
+      pa:     0
+    };
+  });
+  return obj;
+}
+
+
 /* ========= Keys & Live wiring ========= */
 const LIVE_KEY_STANDINGS = 'simSeason:2020:standings';
 const LOCAL_RESULTS_KEY  = 'headlessResults';
@@ -316,59 +367,49 @@ function applyHeadlessResults(standings){
 }
 
 /* ========= Boot ========= */
+/* ========= Boot ========= */
 (async function init(){
-  // 1) Try to show last known full-season standings from sim_season
+  let stand;
+
+  // 1) Load saved season standings if present; otherwise create 0–0 baseline
   try{
     const cached = localStorage.getItem(LIVE_KEY_STANDINGS);
-    if(cached){
-      const stand = JSON.parse(cached);
-      HAS_LIVE_SEASON = true;
-      applyHeadlessResults(stand);
-      const rows = Object.values(stand).sort((a,b)=>
-        (b.wins-a.wins) ||
-        ((b.pf-b.pa)-(a.pf-a.pa)) ||
-        a.team.localeCompare(b.team)
-      );
-      elStandings.innerHTML = tableStandingsHTML(rows);
+    if (cached){
+      stand = JSON.parse(cached);
       livePill.textContent = 'Live: cached';
-    }
-  }catch(e){}
-
-  // 2) Load players.csv → know teams, show rating-based baseline if nothing else
-  try{
-    const { txt, url } = await fetchCsvText();
-    csvPill.textContent = `Players CSV: ${url.includes('githubusercontent')?'remote':'local'}`;
-
-    const rows = parseCsvToRows(txt);
-    const headerIdx = findHeaderIndex(rows);
-    const objs = rowsToObjects(rows, headerIdx);
-
-    const teams = rateTeams(objs);
-    teamCount.textContent = `${teams.length} teams`;
-    KNOWN_TEAM_NAMES = teams.map(t => t.team);
-
-    // if we *don't* already have standings from a live / cached season,
-    // try to render standings from local single-game results
-    if (!HAS_LIVE_SEASON){
-      renderLocalStandingsIfAny();
-    }
-
-    // If we still have nothing rendered, fall back to rating order.
-    if(!elStandings.innerHTML){
-      const ordered = teams.sort((a,b)=> b.rating - a.rating || a.team.localeCompare(b.team));
-      elStandings.innerHTML = tableRatingsHTML(ordered);
-      livePill.textContent = 'Live: idle';
+    } else {
+      stand = createBaselineStandings();
+      livePill.textContent = 'Live: baseline';
     }
   }catch(e){
     console.error(e);
-    csvPill.textContent = 'Players CSV: error';
-    if(!elStandings.innerHTML){
-      elStandings.innerHTML = `<div class="small" style="color:#fca5a5">
-        Could not load <code>players.csv</code>. Waiting for live sim or local results…
-      </div>`;
-    }
+    stand = createBaselineStandings();
+    livePill.textContent = 'Live: baseline';
   }
+
+  // 2) Apply any per-game results from schedule.html (headlessResults)
+  try{
+    applyHeadlessResults(stand);
+  }catch(e){
+    console.error(e);
+  }
+
+  // 3) Sort + render standings
+  const rows = Object.values(stand).sort((a,b)=>
+    (b.wins - a.wins) ||
+    ((b.pf - b.pa) - (a.pf - a.pa)) ||
+    a.team.localeCompare(b.team)
+  );
+  elStandings.innerHTML = tableStandingsHTML(rows);
+  teamCount.textContent = `${rows.length} teams`;
+  csvPill.textContent = 'Standings: local';
+
+  // 4) Save the updated standings back to localStorage
+  try{
+    localStorage.setItem(LIVE_KEY_STANDINGS, JSON.stringify(stand));
+  }catch(e){}
 })();
+
 </script>
 </body>
 </html>
