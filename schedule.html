@@ -86,6 +86,7 @@ kbd{
     <div class="row">
       <a id="toStandings" class="btn ghost">← Standings</a>
       <a id="toGames" class="btn ghost">Weekly Games</a>
+      <button id="simNextWeekBtn" class="btn">▶ Sim Next Week</button>
       <button id="resetSeasonBtn" class="btn ghost">⟲ Reset Season</button>
     </div>
   </div>
@@ -155,6 +156,7 @@ if (seasonParamRaw) {
   const s = RAW_SCHEDULE_PARAM ? (p?`&schedule=${encodeURIComponent(RAW_SCHEDULE_PARAM)}`:`?schedule=${encodeURIComponent(RAW_SCHEDULE_PARAM)}`) : '';
   document.getElementById('toStandings').href = `standings.html${p}`;
   document.getElementById('toGames').href     = `index.html${p}`;
+
   const resetBtn = document.getElementById('resetSeasonBtn');
   if (resetBtn){
     resetBtn.addEventListener('click', () => {
@@ -163,7 +165,29 @@ if (seasonParamRaw) {
       }
     });
   }
+
+  const simNextWeekBtn = document.getElementById('simNextWeekBtn');
+  if (simNextWeekBtn){
+    simNextWeekBtn.addEventListener('click', async () => {
+      // figure out which week is the next one with any unplayed games
+      const week = getNextUnplayedWeek();
+      if (!week){
+        alert('All weeks are fully simulated for this season.');
+        return;
+      }
+
+      const originalText = simNextWeekBtn.textContent;
+      simNextWeekBtn.disabled = true;
+      simNextWeekBtn.textContent = `Sim Week ${week}…`;
+
+      await simWeek(week);
+
+      simNextWeekBtn.disabled = false;
+      simNextWeekBtn.textContent = originalText;
+    });
+  }
 })();
+
 
 /* ===== Sources ===== */
 const SCHEDULE_URLS = RAW_SCHEDULE_PARAM
@@ -417,6 +441,36 @@ async function simWeek(week){
     await runSingleGame(home, away, row);
   }
 }
+
+function getNextUnplayedWeek(){
+  if (!SCHEDULE || !SCHEDULE.length) return null;
+
+  const results = loadLocalResults();
+  const weeksSet = new Set();
+
+  // collect all week numbers present in this filtered schedule
+  SCHEDULE.forEach(g => {
+    if (g.week != null) weeksSet.add(g.week);
+  });
+
+  const weeks = Array.from(weeksSet).sort((a,b)=>a-b);
+
+  for (const w of weeks){
+    const gamesInWeek = SCHEDULE.filter(g => g.week === w);
+
+    // if any game in this week has no stored result, this is our "next" week
+    const hasUnplayed = gamesInWeek.some(g => {
+      const key = `${g.home}|${g.away}`;   // how we store results in localStorage
+      return !results[key];
+    });
+
+    if (hasUnplayed) return w;
+  }
+
+  return null;  // everything fully simmed
+}
+
+
 
 function attachWeekSimHandlers(){
   const buttons = root.querySelectorAll('.sim-week-btn');
