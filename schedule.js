@@ -224,37 +224,7 @@
   /* ===== Headless sim helpers ===== */
   
   /* simple fallback if engine.js hasn't exposed window.runGameHeadless */
-  function quickSimGame(home, away){
-    const rng = Math.random;
-    const drivesPerTeam = 12 + Math.round((rng() - 0.5) * 2); // 11–13
-    const pTD = 0.23 + rng() * 0.07;
-    const pFG = 0.17 + rng() * 0.05;
-    const xp  = 0.94;
-  
-    function simSide(){
-      let pts = 0;
-      for (let i=0;i<drivesPerTeam;i++){
-        const r = rng();
-        if (r < pTD){
-          pts += 6;
-          if (rng() < xp) pts += 1;
-        } else if (r < pTD + pFG){
-          pts += 3;
-        }
-      }
-      return pts;
-    }
-  
-    let homePts = simSide();
-    let awayPts = simSide();
-  
-    if (homePts === awayPts){
-      if (rng() < 0.5) homePts += 3;
-      else awayPts += 3;
-    }
-    return { homePts, awayPts };
-  }
-  
+
   async function runSingleGame(home, away, rowEl){
     const simCell = rowEl.querySelector('.sim-cell');
     if (!simCell) return;
