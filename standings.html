@@ -33,7 +33,6 @@ hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
       <div class="row">
         <a id="backLink" class="btn ghost">← Weekly Games</a>
         <a id="toSchedule" class="btn">Schedule</a>
-        <a id="toSimSeason" class="btn">▶ Sim Season</a>
         <span id="livePill" class="pill">Live: idle</span>
       </div>
     </div>
@@ -67,7 +66,6 @@ const both = join(playersParamStr, schedParamStr);
 const qs = both ? `?${both}` : (playersParamStr ? `?${playersParamStr}` : '');
 
 document.getElementById('toSchedule').href = `schedule.html${qs}`;
-document.getElementById('toSimSeason').href = `sim_season.html${qs}`;
 document.getElementById('backLink').href = `index.html${playersParamStr ? `?${playersParamStr}` : ''}`;
 
 /* ========= Sources ========= */

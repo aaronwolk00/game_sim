@@ -86,7 +86,7 @@ kbd{
     <div class="row">
       <a id="toStandings" class="btn ghost">← Standings</a>
       <a id="toGames" class="btn ghost">Weekly Games</a>
-      <a id="simSeasonBtn" class="btn">▶ Sim Season</a>
+      <button id="resetSeasonBtn" class="btn ghost">⟲ Reset Season</button>
     </div>
   </div>
 
@@ -153,12 +153,16 @@ if (seasonParamRaw) {
 (function wireLinks(){
   const p = RAW_PLAYERS_PARAM  ? `?players=${encodeURIComponent(RAW_PLAYERS_PARAM)}` : '';
   const s = RAW_SCHEDULE_PARAM ? (p?`&schedule=${encodeURIComponent(RAW_SCHEDULE_PARAM)}`:`?schedule=${encodeURIComponent(RAW_SCHEDULE_PARAM)}`) : '';
-  const both = p + s;
   document.getElementById('toStandings').href = `standings.html${p}`;
   document.getElementById('toGames').href     = `index.html${p}`;
-  document.getElementById('simSeasonBtn').addEventListener('click', () => {
-    location.href = `sim_season.html${both}`;
-  });
+  const resetBtn = document.getElementById('resetSeasonBtn');
+  if (resetBtn){
+    resetBtn.addEventListener('click', () => {
+      if (confirm('Reset all simulated game results for this season?')){
+        resetSeasonResults();
+      }
+    });
+  }
 })();
 
 /* ===== Sources ===== */
@@ -223,6 +227,21 @@ function applyExistingResults(){
     if (hp == null || ap == null) return;
     simCell.textContent = `${ap}–${hp}`;
   });
+}
+
+function resetSeasonResults(){
+  try{
+    localStorage.removeItem(LOCAL_RESULTS_KEY);
+  }catch(e){
+    console.warn('Could not clear headlessResults', e);
+  }
+  if (liveChan){
+    try{
+      liveChan.postMessage({ type: 'headlessResultsReset' });
+    }catch(e){}
+  }
+  // Reload so schedule + standings both re-pull a clean state
+  location.reload();
 }
 
 
