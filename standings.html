@@ -214,8 +214,9 @@ hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
 
   <script>
     /* ===== Keys & constants ===== */
-    const LIVE_KEY_STANDINGS = 'simSeason:2020:standings';
-    const LOCAL_RESULTS_KEY  = 'headlessResults';
+    const SEASON_KEY = (SEASON_FILTER == null ? 'all' : SEASON_FILTER);
+    const LIVE_KEY_STANDINGS = `simSeason:${SEASON_KEY}:standings`;
+    const LOCAL_RESULTS_KEY  = `headlessResults:${SEASON_KEY}`;
     const TOTAL_WEEKS        = 17;
 
         // ===== Header links (preserve ?players / ?schedule) =====

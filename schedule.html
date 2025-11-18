@@ -200,8 +200,9 @@ const seasonPill = document.getElementById('seasonPill');
 const root       = document.getElementById('scheduleRoot');
 
 /* ===== Shared results / live channel ===== */
-const LOCAL_RESULTS_KEY   = 'headlessResults';
-const LIVE_STANDINGS_KEY  = 'simSeason:2020:standings';  // same key standings.html uses
+const SEASON_KEY = (SEASON_FILTER == null ? 'all' : SEASON_FILTER);
+const LOCAL_RESULTS_KEY  = `headlessResults:${SEASON_KEY}`;
+const LIVE_STANDINGS_KEY = `simSeason:${SEASON_KEY}:standings`;
 const liveChan = (typeof BroadcastChannel !== 'undefined')
   ? new BroadcastChannel('nfl-sim-2020')
   : null;
@@ -247,12 +248,18 @@ function applyExistingResults(){
     const key = `${home}|${away}`;
     const g = results[key];
     if (!g) return;
+    
     const simCell = row.querySelector('.sim-cell');
     if (!simCell) return;
+
     const hp = g.homePts;
     const ap = g.awayPts;
     if (hp == null || ap == null) return;
+
     simCell.textContent = `${ap}–${hp}`;
+
+    // Color-code winner/loser is even nicer, but minimal version:
+    simCell.innerHTML = `<span class="small">${ap}–${hp}</span>`;
   });
 }
 
