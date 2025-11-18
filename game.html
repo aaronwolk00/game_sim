@@ -248,190 +248,305 @@ canvas#field{width:100%;height:260px;background:#062b22;border-radius:12px;borde
 
 <script src="engine.js"></script>
 <script>
-
-/* ===== Advanced Tab (team + players) ===== */
-function renderAdvanced(){
-  const recAgg = (T)=>{
-    let targets=0,air=0,yac=0,catches=0;
-    (T.wr||[]).concat(T.te||[]).concat(T.rb||[]).forEach(p=>{
-      const a=p.adv||{};
-      targets+=a.targets||0;catches+=a.catches||0;
-      air+=a.air||0; yac+=a.yac||0;
-    });
-    return {adot:targets?air/targets:0, yacPer:catches?yac/catches:0};
-  };
-
-  const teamTable = (name,T)=>{
-    const qb=T.qb?.adv||{};
-    const epaP=(T.stats.team.epa/(T.stats.team.plays||1)).toFixed(2);
-    const db=qb.dropbacks||0, pr=db?(qb.pressures/db*100).toFixed(1):'0.0';
-    const ttt=qb.tttN?(qb.ttt/qb.tttN).toFixed(2):'0.00';
-    const cpoe= qb.expN?(((qb.comp||0)/qb.expN - qb.expSum/qb.expN)*100).toFixed(1):'0.0';
-    const rec = recAgg(T);
-    const adot = rec.adot.toFixed(1), yacPer = rec.yacPer.toFixed(1);
-    const topSpeed=(T.players||[]).reduce((m,p)=>Math.max(m,p.adv?.fast||0),0).toFixed(1);
-    return `<tr><th>${name}</th><td>${epaP}</td><td>${db}</td><td>${pr}%</td><td>${ttt}</td><td>${cpoe}%</td><td>${adot}</td><td>${yacPer}</td><td>${topSpeed}</td></tr>`;
-  };
-
-  const teamHTML = `
-    <div class="small" style="margin-bottom:6px">Team Advanced</div>
-    <table class="table">
-      <thead><tr><th></th><th>EPA/play</th><th>Dropbacks</th><th>Pressure%</th><th>TTT (s)</th><th>CPOE</th><th>aDOT</th><th>YAC/rec</th><th>Top speed (mph)</th></tr></thead>
-      <tbody>${teamTable(homeLabel.value,HOME)}${teamTable(awayLabel.value,AWAY)}</tbody>
-    </table>`;
-
-  const playersHTML = renderPlayersTables();
-  feed.innerHTML = teamHTML + '<div class="line"></div>' + playersHTML;
-}
-
-function renderPlayersTables(){
-  const rowsQBs = (T)=> T.qb?[T.qb]:[];
-  const rowsRBs = (T)=> T.rb||[];
-  const rowsWRs = (T)=> (T.wr||[]).concat(T.te||[]);
-  const rowsDEF = (T)=> (T.dl||[]).concat(T.lb||[]).concat(T.db||[]);
-  const fmt=(n)=> (n??0);
-
-  const qbTable = (teamName,T)=>`<div class="small" style="margin-top:6px">${teamName} — Quarterbacks</div>
-    <table class="table"><thead><tr><th>Name</th><th>C/Att</th><th>Yds</th><th>TD</th><th>INT</th><th>Sacks</th><th>DB</th><th>Press%</th><th>TTT</th><th>CPOE</th></tr></thead>
-    <tbody>${rowsQBs(T).map(q=>{const a=q.adv||{};const db=a.dropbacks||0,pr=db?((a.pressures||0)/db*100).toFixed(1):'0.0';const ttt=a.tttN? (a.ttt/a.tttN).toFixed(2):'0.00';const cpoe=a.expN?(((a.comp||0)/a.expN - a.expSum/a.expN)*100).toFixed(1):'0.0';return `<tr><td>${q.first} ${q.last}</td><td>${fmt(a.comp)}/${fmt(a.att)}</td><td>${fmt(a.yards)}</td><td>${fmt(a.td)}</td><td>${fmt(a.int)}</td><td>${fmt(a.sacks)}</td><td>${db}</td><td>${pr}%</td><td>${ttt}</td><td>${cpoe}%</td></tr>`;}).join('')}</tbody></table>`;
-
-  const rbTable = (teamName,T)=>`<div class="small" style="margin-top:6px">${teamName} — Rushers</div>
-    <table class="table"><thead><tr><th>Name</th><th>Att</th><th>Yds</th><th>TD</th><th>Top mph</th></tr></thead>
-    <tbody>${rowsRBs(T).map(p=>{const a=p.adv||{};return `<tr><td>${p.first} ${p.last}</td><td>${fmt(a.carries)}</td><td>${fmt(a.ry)}</td><td>${fmt(a.td)}</td><td>${(a.fast||0).toFixed(1)}</td></tr>`;}).join('')}</tbody></table>`;
-
-  const wrTable = (teamName,T)=>`<div class="small" style="margin-top:6px">${teamName} — Receivers</div>
-    <table class="table"><thead><tr><th>Name</th><th>Tgt</th><th>Rec</th><th>Yds</th><th>TD</th><th>aDOT</th><th>YAC/rec</th><th>Drops</th><th>Sep</th><th>Top mph</th></tr></thead>
-    <tbody>${rowsWRs(T).map(p=>{const a=p.adv||{};const adot=a.ayN?(a.ayDepth/a.ayN).toFixed(1):'0.0';const yac=a.catches? (a.yac/a.catches).toFixed(1):'0.0';const sep=a.sepN? (a.sep/a.sepN).toFixed(1):'0.0';return `<tr><td>${p.first} ${p.last}</td><td>${fmt(a.targets)}</td><td>${fmt(a.catches)}</td><td>${fmt(a.recY)}</td><td>${fmt(a.td)}</td><td>${adot}</td><td>${yac}</td><td>${fmt(a.drops)}</td><td>${sep}</td><td>${(a.fast||0).toFixed(1)}</td></tr>`;}).join('')}</tbody></table>`;
-
-  const defTable = (teamName,T)=>`<div class="small" style="margin-top:6px">${teamName} — Defense</div>
-    <table class="table"><thead><tr><th>Name</th><th>Tkl</th><th>Sacks</th><th>INT</th><th>PD</th></tr></thead>
-    <tbody>${rowsDEF(T).map(p=>{const a=p.adv||{};return `<tr><td>${p.first} ${p.last}</td><td>${fmt(a.tkl)}</td><td>${fmt(a.sk)}</td><td>${fmt(a.ints)}</td><td>${fmt(a.pd)}</td></tr>`;}).join('')}</tbody></table>`;
-
-  return qbTable(homeLabel.value,HOME)+qbTable(awayLabel.value,AWAY)
-       + rbTable(homeLabel.value,HOME)+rbTable(awayLabel.value,AWAY)
-       + wrTable(homeLabel.value,HOME)+wrTable(awayLabel.value,AWAY)
-       + defTable(homeLabel.value,HOME)+defTable(awayLabel.value,AWAY);
-}
-
-
-/* ===== Export ===== */
-function exportBlob(name,data,type){const b=new Blob([data],{type});const url=URL.createObjectURL(b);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);}
-exportCsv.onclick = () => {
-  const lines = ['tag,offense,line,scoring,epa,delta_wp,drive_ep'];
-  plays.forEach(p => {
-    const safeLine = (p.line || '').replace(/"/g, '""');
-    const scoringFlag = p.scoring ? '1' : '0';
-    const epa = Number.isFinite(p.epa) ? p.epa.toFixed(3) : '';
-    const dwp = Number.isFinite(p.wpd) ? p.wpd.toFixed(4) : '';
-    const dep = Number.isFinite(p.driveEp) ? p.driveEp.toFixed(3) : '';
-
-    lines.push([
-      p.tag,
-      p.off || '',
-      `"${safeLine}"`,
-      scoringFlag,
-      epa,
-      dwp,
-      dep
-    ].join(','));
-  });
-  exportBlob('play_log.csv', lines.join('\n'), 'text/csv');
-};
-
-
-/* ===== Init (rosters + (optional) stadiums) ===== */
-(async function init(){
-  startBtn.disabled = true;
-
-  // 1) Safe boot visuals before any CSVs load
-  try {
-    sim = {
-      rng:  rngFromSeed('seed'),
-      score:{ home:0, away:0 },
-      hud:  { poss:'Home', qtr:1, secs:900, down:1, dist:10, yard:25 },
-      crowd:{ cap:0, present:0, mood:0 }
+  /* =========================================================================
+     ADVANCED TAB (TEAM + PLAYERS)
+     ========================================================================= */
+  
+  /** Render the Advanced tab container (team table + player tables) */
+  function renderAdvanced(){
+    const recAgg = (T) => {
+      let targets = 0, air = 0, yac = 0, catches = 0;
+      (T.wr||[]).concat(T.te||[]).concat(T.rb||[]).forEach(p => {
+        const a = p.adv || {};
+        targets += a.targets || 0;
+        catches += a.catches || 0;
+        air     += a.air || 0;
+        yac     += a.yac || 0;
+      });
+      return { adot: targets ? air/targets : 0, yacPer: catches ? yac/catches : 0 };
     };
-    Field.render({ hud: sim.hud });
-    updateHUD();
-    updateScore();
-    drawWP();
-    renderBox();
-    renderLeaders();
-    renderTopEpa();
-    renderCrowdMeter();
-  } catch (e) {
-    console.warn('boot visuals failed:', e);
+  
+    const teamTable = (name, T) => {
+      const qb   = T.qb?.adv || {};
+      const epaP = (T.stats.team.epa / (T.stats.team.plays || 1)).toFixed(2);
+      const db   = qb.dropbacks || 0;
+      const pr   = db ? (qb.pressures/db*100).toFixed(1) : '0.0';
+      const ttt  = qb.tttN ? (qb.ttt/qb.tttN).toFixed(2) : '0.00';
+      const cpoe = qb.expN ? (((qb.comp||0)/qb.expN - qb.expSum/qb.expN)*100).toFixed(1) : '0.0';
+  
+      const rec     = recAgg(T);
+      const adot    = rec.adot.toFixed(1);
+      const yacPer  = rec.yacPer.toFixed(1);
+      const topSpeed= (T.players||[]).reduce((m,p)=>Math.max(m,p.adv?.fast||0),0).toFixed(1);
+  
+      return `<tr><th>${name}</th><td>${epaP}</td><td>${db}</td><td>${pr}%</td><td>${ttt}</td><td>${cpoe}%</td><td>${adot}</td><td>${yacPer}</td><td>${topSpeed}</td></tr>`;
+    };
+  
+    const teamHTML = `
+      <div class="small" style="margin-bottom:6px">Team Advanced</div>
+      <table class="table">
+        <thead>
+          <tr>
+            <th></th><th>EPA/play</th><th>Dropbacks</th><th>Pressure%</th>
+            <th>TTT (s)</th><th>CPOE</th><th>aDOT</th><th>YAC/rec</th><th>Top speed (mph)</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${teamTable(homeLabel.value, HOME)}${teamTable(awayLabel.value, AWAY)}
+        </tbody>
+      </table>`;
+  
+    const playersHTML = renderPlayersTables();
+    feed.innerHTML = teamHTML + '<div class="line"></div>' + playersHTML;
   }
-
-  // helper to pick two distinct teams if URLs are missing/bad
-  function pickTwoDistinct(list){
-    if (!list || !list.length) return ['', ''];
-    if (list.length === 1) return [list[0], list[0]];
-
-    const i = Math.floor(Math.random() * list.length);
-    let   j = Math.floor(Math.random() * list.length);
-    if (j === i) j = (i + 1) % list.length;
-    return [list[i], list[j]];
+  
+  /** Build all player tables for both teams */
+  function renderPlayersTables(){
+    const rowsQBs = (T)=> T.qb?[T.qb]:[];
+    const rowsRBs = (T)=> T.rb||[];
+    const rowsWRs = (T)=> (T.wr||[]).concat(T.te||[]);
+    const rowsDEF = (T)=> (T.dl||[]).concat(T.lb||[]).concat(T.db||[]);
+    const fmt     = (n)=> (n??0);
+  
+    const qbTable = (teamName, T) => `
+      <div class="small" style="margin-top:6px">${teamName} — Quarterbacks</div>
+      <table class="table">
+        <thead>
+          <tr><th>Name</th><th>C/Att</th><th>Yds</th><th>TD</th><th>INT</th><th>Sacks</th><th>DB</th><th>Press%</th><th>TTT</th><th>CPOE</th></tr>
+        </thead>
+        <tbody>${
+          rowsQBs(T).map(q => {
+            const a   = q.adv || {};
+            const db  = a.dropbacks || 0;
+            const pr  = db ? ((a.pressures||0)/db*100).toFixed(1) : '0.0';
+            const ttt = a.tttN ? (a.ttt/a.tttN).toFixed(2) : '0.00';
+            const cpoe= a.expN ? (((a.comp||0)/a.expN - a.expSum/a.expN)*100).toFixed(1) : '0.0';
+            return `<tr>
+              <td>${q.first} ${q.last}</td>
+              <td>${fmt(a.comp)}/${fmt(a.att)}</td>
+              <td>${fmt(a.yards)}</td>
+              <td>${fmt(a.td)}</td>
+              <td>${fmt(a.int)}</td>
+              <td>${fmt(a.sacks)}</td>
+              <td>${db}</td>
+              <td>${pr}%</td>
+              <td>${ttt}</td>
+              <td>${cpoe}%</td>
+            </tr>`;
+          }).join('')
+        }</tbody>
+      </table>`;
+  
+    const rbTable = (teamName, T) => `
+      <div class="small" style="margin-top:6px">${teamName} — Rushers</div>
+      <table class="table">
+        <thead>
+          <tr><th>Name</th><th>Att</th><th>Yds</th><th>TD</th><th>Top mph</th></tr>
+        </thead>
+        <tbody>${
+          rowsRBs(T).map(p => {
+            const a = p.adv || {};
+            return `<tr>
+              <td>${p.first} ${p.last}</td>
+              <td>${fmt(a.carries)}</td>
+              <td>${fmt(a.ry)}</td>
+              <td>${fmt(a.td)}</td>
+              <td>${(a.fast||0).toFixed(1)}</td>
+            </tr>`;
+          }).join('')
+        }</tbody>
+      </table>`;
+  
+    const wrTable = (teamName, T) => `
+      <div class="small" style="margin-top:6px">${teamName} — Receivers</div>
+      <table class="table">
+        <thead>
+          <tr><th>Name</th><th>Tgt</th><th>Rec</th><th>Yds</th><th>TD</th><th>aDOT</th><th>YAC/rec</th><th>Drops</th><th>Sep</th><th>Top mph</th></tr>
+        </thead>
+        <tbody>${
+          rowsWRs(T).map(p => {
+            const a   = p.adv || {};
+            const adot= a.ayN ? (a.ayDepth/a.ayN).toFixed(1) : '0.0';
+            const yac = a.catches ? (a.yac/a.catches).toFixed(1) : '0.0';
+            const sep = a.sepN ? (a.sep/a.sepN).toFixed(1) : '0.0';
+            return `<tr>
+              <td>${p.first} ${p.last}</td>
+              <td>${fmt(a.targets)}</td>
+              <td>${fmt(a.catches)}</td>
+              <td>${fmt(a.recY)}</td>
+              <td>${fmt(a.td)}</td>
+              <td>${adot}</td>
+              <td>${yac}</td>
+              <td>${fmt(a.drops)}</td>
+              <td>${sep}</td>
+              <td>${(a.fast||0).toFixed(1)}</td>
+            </tr>`;
+          }).join('')
+        }</tbody>
+      </table>`;
+  
+    const defTable = (teamName, T) => `
+      <div class="small" style="margin-top:6px">${teamName} — Defense</div>
+      <table class="table">
+        <thead>
+          <tr><th>Name</th><th>Tkl</th><th>Sacks</th><th>INT</th><th>PD</th></tr>
+        </thead>
+        <tbody>${
+          rowsDEF(T).map(p => {
+            const a = p.adv || {};
+            return `<tr>
+              <td>${p.first} ${p.last}</td>
+              <td>${fmt(a.tkl)}</td>
+              <td>${fmt(a.sk)}</td>
+              <td>${fmt(a.ints)}</td>
+              <td>${fmt(a.pd)}</td>
+            </tr>`;
+          }).join('')
+        }</tbody>
+      </table>`;
+  
+    return (
+      qbTable(homeLabel.value, HOME) + qbTable(awayLabel.value, AWAY) +
+      rbTable(homeLabel.value, HOME) + rbTable(awayLabel.value, AWAY) +
+      wrTable(homeLabel.value, HOME) + wrTable(awayLabel.value, AWAY) +
+      defTable(homeLabel.value, HOME) + defTable(awayLabel.value, AWAY)
+    );
   }
-
-  try {
-    
-    await tryLoadStadiumCsv();
-
-
-    // 3) Load players.csv with smart ordering:
-    //    - if ?players= is present → try that path first, then local
-    //    - otherwise → local first, then remote/fallback
-    let loaded = false;
-    const haveParamCsv = !!RAW_PLAYERS_PARAM;
-
-    if (haveParamCsv){
-      // prefer the ?players= CSV
-      loaded = await tryLoadPlayersCsv(false);
-      if (!loaded) loaded = await tryLoadPlayersCsv(true);
-    } else {
-      // no param → local first, then remote
-      loaded = await tryLoadPlayersCsv(true);
-      if (!loaded) loaded = await tryLoadPlayersCsv(false);
+  
+  
+  /* =========================================================================
+     EXPORT (CSV)
+     ========================================================================= */
+  
+  /** Download a named blob (used by Export CSV) */
+  function exportBlob(name, data, type){
+    const b   = new Blob([data], { type });
+    const url = URL.createObjectURL(b);
+    const a   = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+  
+  /** Export play log as CSV */
+  exportCsv.onclick = () => {
+    const lines = ['tag,offense,line,scoring,epa,delta_wp,drive_ep'];
+  
+    plays.forEach(p => {
+      const safeLine    = (p.line || '').replace(/"/g, '""');
+      const scoringFlag = p.scoring ? '1' : '0';
+      const epa         = Number.isFinite(p.epa) ? p.epa.toFixed(3) : '';
+      const dwp         = Number.isFinite(p.wpd) ? p.wpd.toFixed(4) : '';
+      const dep         = Number.isFinite(p.driveEp) ? p.driveEp.toFixed(3) : '';
+  
+      lines.push([
+        p.tag,
+        p.off || '',
+        `"${safeLine}"`,
+        scoringFlag,
+        epa,
+        dwp,
+        dep
+      ].join(','));
+    });
+  
+    exportBlob('play_log.csv', lines.join('\n'), 'text/csv');
+  };
+  
+  
+  /* =========================================================================
+     INIT (ROSTERS + OPTIONAL STADIUMS)
+     ========================================================================= */
+  
+  (async function init(){
+    startBtn.disabled = true;
+  
+    // --- 1) Safe boot visuals before any CSVs load
+    try {
+      sim = {
+        rng:  rngFromSeed('seed'),
+        score:{ home:0, away:0 },
+        hud:  { poss:'Home', qtr:1, secs:900, down:1, dist:10, yard:25 },
+        crowd:{ cap:0, present:0, mood:0 }
+      };
+      Field.render({ hud: sim.hud });
+      updateHUD();
+      updateScore();
+      drawWP();
+      renderBox();
+      renderLeaders();
+      renderTopEpa();
+      renderCrowdMeter();
+    } catch (e) {
+      console.warn('boot visuals failed:', e);
     }
-
-    if (loaded && TEAM_SHEETS && TEAM_SHEETS.length){
-      // respect ?home=&away= if present, otherwise pick two distinct teams
-      const hFromUrl = fuzzyFindTeam(URL_HOME);
-      const aFromUrl = fuzzyFindTeam(URL_AWAY);
-
-      let homeT = hFromUrl || null;
-      let awayT = aFromUrl || null;
-
-      if (!homeT && !awayT){
-        [homeT, awayT] = pickTwoDistinct(TEAM_SHEETS);
-      } else if (!homeT){
-        homeT = TEAM_SHEETS.find(t => t !== awayT) || TEAM_SHEETS[0];
-      } else if (!awayT || awayT === homeT){
-        awayT = TEAM_SHEETS.find(t => t !== homeT) || TEAM_SHEETS[0];
+  
+    // Helper: pick two distinct teams if URLs are missing/bad
+    function pickTwoDistinct(list){
+      if (!list || !list.length) return ['', ''];
+      if (list.length === 1)     return [list[0], list[0]];
+      const i = Math.floor(Math.random() * list.length);
+      let   j = Math.floor(Math.random() * list.length);
+      if (j === i) j = (i + 1) % list.length;
+      return [list[i], list[j]];
+    }
+  
+    // --- 2) Load stadium + players CSVs with smart ordering
+    try {
+      await tryLoadStadiumCsv();
+  
+      let loaded       = false;
+      const haveParamCsv = !!RAW_PLAYERS_PARAM;
+  
+      if (haveParamCsv){
+        // Prefer the ?players= CSV
+        loaded = await tryLoadPlayersCsv(false);
+        if (!loaded) loaded = await tryLoadPlayersCsv(true);
+      } else {
+        // No param → local first, then remote
+        loaded = await tryLoadPlayersCsv(true);
+        if (!loaded) loaded = await tryLoadPlayersCsv(false);
       }
-
-      // sync dropdowns + labels + header names
-      homeTeamSel.value   = homeT;
-      homeLabel.value     = homeT;
-      homeName.textContent= homeT;
-
-      awayTeamSel.value   = awayT;
-      awayLabel.value     = awayT;
-      awayName.textContent= awayT;
-
-      rosterStatus.textContent = 'Loaded ' + TEAM_SHEETS.length + ' teams from CSV';
-      applyStadiumFromTeams();
-    } else {
-      rosterStatus.textContent = 'No players.csv found — using generated players.';
+  
+      // --- 3) Seed UI with selected teams (from URL or random distinct)
+      if (loaded && TEAM_SHEETS && TEAM_SHEETS.length){
+        const hFromUrl = fuzzyFindTeam(URL_HOME);
+        const aFromUrl = fuzzyFindTeam(URL_AWAY);
+  
+        let homeT = hFromUrl || null;
+        let awayT = aFromUrl || null;
+  
+        if (!homeT && !awayT){
+          [homeT, awayT] = pickTwoDistinct(TEAM_SHEETS);
+        } else if (!homeT){
+          homeT = TEAM_SHEETS.find(t => t !== awayT) || TEAM_SHEETS[0];
+        } else if (!awayT || awayT === homeT){
+          awayT = TEAM_SHEETS.find(t => t !== homeT) || TEAM_SHEETS[0];
+        }
+  
+        // Sync dropdowns + labels + header names
+        homeTeamSel.value    = homeT;
+        homeLabel.value      = homeT;
+        homeName.textContent = homeT;
+  
+        awayTeamSel.value    = awayT;
+        awayLabel.value      = awayT;
+        awayName.textContent = awayT;
+  
+        rosterStatus.textContent = 'Loaded ' + TEAM_SHEETS.length + ' teams from CSV';
+        applyStadiumFromTeams();
+      } else {
+        rosterStatus.textContent = 'No players.csv found — using generated players.';
+      }
+    } catch (e) {
+      console.error('init failed:', e);
+      rosterStatus.textContent = 'Roster load error — using generated players.';
+    } finally {
+      startBtn.disabled = false;
     }
-  } catch (e) {
-    console.error('init failed:', e);
-    rosterStatus.textContent = 'Roster load error — using generated players.';
-  } finally {
-    startBtn.disabled = false;
-  }
-})();
-
-
-</script>
+  })();
+  </script>
+  
