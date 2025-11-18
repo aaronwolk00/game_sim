@@ -93,6 +93,25 @@ hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
     const LIVE_KEY_STANDINGS = 'simSeason:2020:standings';
     const LOCAL_RESULTS_KEY  = 'headlessResults';
     const TOTAL_WEEKS        = 17;
+
+        // ===== Header links (preserve ?players / ?schedule) =====
+    (function wireHeaderLinks(){
+      const params = new URLSearchParams(location.search);
+      const rawPlayers  = (params.get('players')  || '').replace('/refs/heads/','/');
+      const rawSchedule = (params.get('schedule') || '').replace('/refs/heads/','/');
+
+      const parts = [];
+      if (rawPlayers)  parts.push(`players=${encodeURIComponent(rawPlayers)}`);
+      if (rawSchedule) parts.push(`schedule=${encodeURIComponent(rawSchedule)}`);
+      const qs = parts.length ? `?${parts.join('&')}` : '';
+
+      const toSchedule = document.getElementById('toSchedule');
+      const backLink   = document.getElementById('backLink');
+
+      if (toSchedule) toSchedule.href = `schedule.html${qs}`;
+      if (backLink)   backLink.href   = `index.html${qs}`;
+    })();
+
     
     const TEAM_META = {
       "Arizona Cardinals":      { conf:"NFC", division:"NFC West" },
