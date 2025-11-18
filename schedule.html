@@ -398,6 +398,48 @@ function attachSimHandlers(){
   });
 }
 
+async function simWeek(week){
+  // Load once so we can skip already-simmed games
+  const existing = loadLocalResults();
+  const rows = root.querySelectorAll(`tr.game-row[data-week="${week}"]`);
+
+  for (const row of rows){
+    const home = row.dataset.home;
+    const away = row.dataset.away;
+    if (!home || !away) continue;
+
+    const key = `${home}|${away}`;
+    if (existing[key]) {
+      // already have a stored result for this matchup, skip
+      continue;
+    }
+
+    await runSingleGame(home, away, row);
+  }
+}
+
+function attachWeekSimHandlers(){
+  const buttons = root.querySelectorAll('.sim-week-btn');
+  buttons.forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const week = parseInt(btn.dataset.week || '0', 10);
+      if (!week) return;
+
+      const originalText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Sim Week…';
+
+      await simWeek(week);
+
+      btn.disabled = false;
+      btn.textContent = originalText;
+    });
+  });
+}
+
+
+
 /* ===== Helpers: fetch + CSV ===== */
 async function fetchCsvFrom(urls){
   let lastErr = null;
@@ -620,10 +662,16 @@ function gameRowHTML(g){
     <td class="small sim-cell"><button type="button" class="btn ghost sim-btn">Sim</button></td>
   </tr>`;
 }
+
 function weekTable(weekNum, games){
   return `
-    <div class="section">
-      <h3>Week ${weekNum}</h3>
+    <div class="section" data-week="${weekNum}">
+      <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:4px">
+        <h3 style="margin:0">Week ${weekNum}</h3>
+        <button type="button" class="btn ghost sim-week-btn" data-week="${weekNum}">
+          ▶ Sim Week
+        </button>
+      </div>
       <table class="table">
         <thead class="stickyhead">
           <tr><th class="right">Wk</th><th>Matchup</th><th>Details</th><th>Sim</th></tr>
@@ -632,6 +680,8 @@ function weekTable(weekNum, games){
       </table>
     </div>`;
 }
+
+
 function teamTable(team, list){
   return `
     <div class="section">
@@ -711,6 +761,7 @@ function render(){
 
   // wire up Sim buttons for the freshly-rendered DOM
   attachSimHandlers();
+  attachWeekSimHandlers();
   applyExistingResults();
 }
 
