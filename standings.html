@@ -41,6 +41,20 @@ hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
 .table th,.table td{border-bottom:1px solid #1f2740;padding:8px 8px;text-align:left}
 .table th{font-weight:700;color:#dbe3ef}
 .right{text-align:right}
+/* subtle zebra striping + hover to reduce eye strain */
+.table tbody tr:nth-child(odd){
+  background:rgba(15,23,42,0.65);
+}
+.table tbody tr:nth-child(even){
+  background:rgba(15,23,42,0.45);
+}
+.table tbody tr:hover{
+  background:rgba(30,64,175,0.6);
+}
+.table tbody tr:first-child td{
+  border-top:1px solid #1f2740;
+}
+
 .section{background:rgba(255,255,255,.02);border:1px solid #1c2440;border-radius:12px;padding:8px;margin-top:8px}
 .section h3{margin:0 0 6px;font-size:14px}
 .pill{display:inline-block;padding:4px 8px;border-radius:999px;background:var(--card);border:1px solid #233055;font-size:12px;color:var(--muted)}
@@ -246,37 +260,39 @@ hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
     }
     
     /* ===== Rendering ===== */
-    function tableHTML(rows){
-      return `
-        <table class="table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Team</th>
-              <th class="right">W</th>
-              <th class="right">L</th>
-              <th class="right">PF</th>
-              <th class="right">PA</th>
-              <th class="right">Diff</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows.map((r,i)=>`
-              <tr>
-                <td class="right">${i+1}</td>
-                <td>${r.team}</td>
-                <td class="right">${r.wins}</td>
-                <td class="right">${r.losses}</td>
-                <td class="right">${r.pf}</td>
-                <td class="right">${r.pa}</td>
-                <td class="right">${r.diff}</td>
-              </tr>`).join('')}
-          </tbody>
-        </table>`;
-    }
+    function tableStandingsHTML(rows, startRank = 1){
+        return `
+            <table class="table">
+            <thead>
+                <tr>
+                <th>#</th>
+                <th>Team</th>
+                <th class="right">W</th>
+                <th class="right">L</th>
+                <th class="right">PF</th>
+                <th class="right">PA</th>
+                <th class="right">Diff</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${rows.map((r,i)=>`
+                <tr>
+                    <td class="right">${startRank + i}</td>
+                    <td>${r.team}</td>
+                    <td class="right">${r.wins}</td>
+                    <td class="right">${r.losses}</td>
+                    <td class="right">${r.pf}</td>
+                    <td class="right">${r.pa}</td>
+                    <td class="right">${r.diff}</td>
+                </tr>`).join('')}
+            </tbody>
+            </table>`;
+        }
+
     
     function renderLeagueView(){
-      elStandings.innerHTML = tableHTML(sortRows(CURRENT_ROWS));
+        const ordered = sortRows(CURRENT_ROWS);
+        elStandings.innerHTML = tableStandingsHTML(ordered);
     }
 
     function renderConferenceView(allRows){
@@ -284,7 +300,7 @@ hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
 
         allRows.forEach(r => {
             const meta = TEAM_META[r.team] || {};
-            const conf = meta.conf || 'AFC';
+            const conf = meta.conf || 'Unknown';
             if (!byConf[conf]) byConf[conf] = [];
             byConf[conf].push(r);
         });
@@ -292,25 +308,26 @@ hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
         const sortFn = (a,b) =>
             (b.wins - a.wins) ||
             ((b.pf - b.pa) - (a.pf - a.pa)) ||
+            (b.pf - a.pf) ||
             a.team.localeCompare(b.team);
 
         byConf.AFC.sort(sortFn);
         byConf.NFC.sort(sortFn);
 
-        return `
+        elStandings.innerHTML = `
             <div class="standings-grid two-cols">
             <section class="section">
                 <h3>AFC</h3>
                 ${tableStandingsHTML(byConf.AFC)}
             </section>
-
             <section class="section">
                 <h3>NFC</h3>
                 ${tableStandingsHTML(byConf.NFC)}
             </section>
             </div>
         `;
-    }
+        }
+
 
 
     function renderDivisionView(allRows){
@@ -319,54 +336,57 @@ hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
             'AFC East': [], 'AFC North': [], 'AFC South': [], 'AFC West': [],
             'NFC East': [], 'NFC North': [], 'NFC South': [], 'NFC West': []
         };
-
         allRows.forEach(r => {
             const meta = TEAM_META[r.team];
             if (!meta) return;
-            const key = `${meta.conf} ${meta.div}`;
-            if (!buckets[key]) return;
-            buckets[key].push(r);
+            const key = meta.division; // already "AFC East", etc.
+            if (buckets[key]) buckets[key].push(r);
         });
 
         const sortFn = (a,b) =>
             (b.wins - a.wins) ||
             ((b.pf - b.pa) - (a.pf - a.pa)) ||
+            (b.pf - a.pf) ||
             a.team.localeCompare(b.team);
+        
+        Object.keys(buckets).forEach(k => buckets[k].sort(sortFn));
 
-        const makeSection = (label) => {
-            const rows = buckets[label];
-            if (!rows || !rows.length) return '';
-            rows.sort(sortFn);
-            return `
-            <section class="section">
-                <h3>${label}</h3>
-                ${tableStandingsHTML(rows)}
-            </section>
-            `;
-        };
+        const makeColumn = (labels) => `
+            <div>
+            ${labels.map(label => {
+                const rows = buckets[label];
+                if (!rows || !rows.length) return '';
+                return `
+                <section class="section">
+                    <h3>${label}</h3>
+                    ${tableStandingsHTML(rows)}
+                </section>
+                `;
+            }).join('')}
+            </div>
+        `;
 
-    // 4 AFC divisions on the left column, 4 NFC on the right
-    return `
-        <div class="standings-grid two-cols">
-        <div>
-            ${DIV_ORDER.map(div => makeSection(`AFC ${div}`)).join('')}
-        </div>
-        <div>
-            ${DIV_ORDER.map(div => makeSection(`NFC ${div}`)).join('')}
-        </div>
-        </div>
-    `;
-    }
+        elStandings.innerHTML = `
+            <div class="standings-grid two-cols">
+            ${makeColumn(['AFC East','AFC North','AFC South','AFC West'])}
+            ${makeColumn(['NFC East','NFC North','NFC South','NFC West'])}
+            </div>
+        `;
+        }
 
     
     function renderCurrentView(){
-      if (!CURRENT_ROWS.length){
-        elStandings.innerHTML = '<div class="small">No teams found.</div>';
-        return;
-      }
-      if (VIEW_MODE === 'conference') renderConferenceView();
-      else if (VIEW_MODE === 'division') renderDivisionView();
-      else renderLeagueView();
+        if (!CURRENT_ROWS.length){
+            elStandings.innerHTML = '<div class="small">No teams found.</div>';
+            return;
+        }
+        if (VIEW_MODE === 'conference') {
+            renderConferenceView(CURRENT_ROWS);
+        } else if (VIEW_MODE === 'division') {
+            renderDivisionView(CURRENT_ROWS);
+        } else {
+            renderLeagueView();
+        }
     }
     
     /* ===== Week pill ===== */
