@@ -84,7 +84,7 @@ kbd{
   <div class="row" style="justify-content:space-between;align-items:center">
     <h1>Schedule</h1>
     <div class="row">
-      <a id="toStandings" class="btn ghost">← Standings</a>
+      <a id="toStandings" class="btn ghost">← StandingsAAAAA</a>
       <button id="simNextWeekBtn" class="btn">▶ Sim Next Week</button>
       <button id="resetSeasonBtn" class="btn ghost">⟲ Reset Season</button>
     </div>
@@ -116,21 +116,23 @@ kbd{
 </main>
 
 <script>
-    // === Optional headless engine loader (safe) ===
+// === Required headless engine loader (no fallbacks) ===
 (function loadHeadlessEngine(){
   // tell engine.js to run headless if it respects this flag
-  window.HEADLESS_MODE = true;      // or false if you need to test UI mode
+  window.HEADLESS_MODE = true;
 
   const s = document.createElement('script');
   s.src = 'engine.js';
   s.onload = () => {
-    console.log('engine.js loaded, headless sim ready (if runGameHeadless is defined).');
+    console.log('engine.js loaded, headless sim ready (runGameHeadless required).');
   };
   s.onerror = (err) => {
-    console.warn('engine.js failed to load; falling back to quickSim only.', err);
+    console.error('engine.js failed to load; sims cannot run.', err);
+    alert('engine.js failed to load. Simulation is disabled. Check console for details.');
   };
   document.head.appendChild(s);
 })();
+
 
 /* ===== Params & link forwarding ===== */
 const PARAMS = new URLSearchParams(location.search);
@@ -248,7 +250,7 @@ function applyExistingResults(){
     const key = `${home}|${away}`;
     const g = results[key];
     if (!g) return;
-    
+
     const simCell = row.querySelector('.sim-cell');
     if (!simCell) return;
 
