@@ -47,7 +47,11 @@ hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
       <div id="standings"></div>
     </div>
 
-    <div class="small">If a sim is running in another tab, this page updates in real time. Otherwise it shows rating-based order.</div>
+    <div class="small">
+      If a sim is running in another tab, this page updates in real time.
+      If you only sim individual games in the Schedule view, those results
+      are stored locally and also shown here as standings.
+    </div>
   </main>
 
 <script>
@@ -76,6 +80,115 @@ const csvPill = document.getElementById('csvPill');
 const teamCount = document.getElementById('teamCount');
 const livePill = document.getElementById('livePill');
 const elStandings = document.getElementById('standings');
+
+/* ========= Keys & Live wiring ========= */
+const LIVE_KEY_STANDINGS = 'simSeason:2020:standings';
+const LOCAL_RESULTS_KEY  = 'headlessResults';
+
+let KNOWN_TEAM_NAMES = [];
+let HAS_LIVE_SEASON  = false;
+
+const chan = new BroadcastChannel('nfl-sim-2020');
+chan.onmessage = (evt)=>{
+  const { type, standings, progress, results } = evt.data || {};
+
+  if(type === 'reset'){
+    livePill.textContent='Live: starting…';
+    return;
+  }
+
+  if(type === 'standings' && standings){
+    // full-season sim broadcast (engine)
+    HAS_LIVE_SEASON = true;
+    livePill.textContent = progress ? `Live: ${progress.done}/${progress.total}` : 'Live: update';
+    applyHeadlessResults(standings); // overlay any stored single-game results
+    const rows = Object.values(standings).sort((a,b)=>
+      (b.wins-a.wins) ||
+      ((b.pf-b.pa)-(a.pf-a.pa)) ||
+      a.team.localeCompare(b.team)
+    );
+    elStandings.innerHTML = tableStandingsHTML(rows);
+    try{
+      localStorage.setItem(LIVE_KEY_STANDINGS, JSON.stringify(standings));
+    }catch(e){}
+    return;
+  }
+
+  if(type === 'complete'){
+    livePill.textContent='Live: complete';
+    return;
+  }
+
+  if(type === 'headlessResultsUpdated'){
+    // schedule.html is telling us local game results changed
+    if (results) {
+      try{
+        localStorage.setItem(LOCAL_RESULTS_KEY, JSON.stringify(results));
+      }catch(e){}
+    }
+    // if a full-season sim is running, don't override it
+    if (!HAS_LIVE_SEASON){
+      renderLocalStandingsIfAny();
+      livePill.textContent = 'Live: local games';
+    }
+  }
+};
+
+/* ========= Local results helpers ========= */
+function loadLocalResults(){
+  try{
+    return JSON.parse(localStorage.getItem(LOCAL_RESULTS_KEY) || '{}');
+  }catch(e){
+    return {};
+  }
+}
+
+function computeStandingsFromResults(teamNames, results){
+  const standings = {};
+  // initialize every known team
+  (teamNames || []).forEach(t=>{
+    standings[t] = { team:t, wins:0, losses:0, pf:0, pa:0 };
+  });
+
+  for (const k in results){
+    const g = results[k];
+    if (!g) continue;
+    const home = g.home;
+    const away = g.away;
+    const hp = Number(g.homePts);
+    const ap = Number(g.awayPts);
+    if (!home || !away) continue;
+    if (!Number.isFinite(hp) || !Number.isFinite(ap)) continue;
+
+    if (!standings[home]) standings[home] = { team:home, wins:0, losses:0, pf:0, pa:0 };
+    if (!standings[away]) standings[away] = { team:away, wins:0, losses:0, pf:0, pa:0 };
+
+    standings[home].pf += hp; standings[home].pa += ap;
+    standings[away].pf += ap; standings[away].pa += hp;
+
+    if (hp > ap){
+      standings[home].wins++; standings[away].losses++;
+    }else if (ap > hp){
+      standings[away].wins++; standings[home].losses++;
+    }
+  }
+  return standings;
+}
+
+function renderLocalStandingsIfAny(){
+  if (!KNOWN_TEAM_NAMES.length) return;
+  const results = loadLocalResults();
+  const keys = Object.keys(results);
+  if (!keys.length) return;
+
+  const standings = computeStandingsFromResults(KNOWN_TEAM_NAMES, results);
+  const rows = Object.values(standings).sort((a,b)=>
+    (b.wins-a.wins) ||
+    ((b.pf-b.pa)-(a.pf-a.pa)) ||
+    a.team.localeCompare(b.team)
+  );
+  elStandings.innerHTML = tableStandingsHTML(rows);
+}
 
 /* ========= CSV helpers ========= */
 async function fetchCsvText(){
@@ -132,7 +245,12 @@ function playerOVR(p){
 }
 function rateTeams(objs){
   const byTeam = new Map();
-  objs.forEach(r => { const t=String(r.Team||'').trim(); if(!t) return; (byTeam.get(t)||byTeam.set(t,[]).get(t)).push(r); });
+  objs.forEach(r => {
+    const t=String(r.Team||'').trim();
+    if(!t) return;
+    if(!byTeam.has(t)) byTeam.set(t,[]);
+    byTeam.get(t).push(r);
+  });
   return Array.from(byTeam.entries()).map(([team,rows])=>{
     const vals = rows.map(playerOVR);
     const rating = Math.round(vals.reduce((a,b)=>a+b,0)/vals.length);
@@ -144,13 +262,23 @@ function rateTeams(objs){
 function tableStandingsHTML(rows){
   return `
     <table class="table">
-      <thead><tr><th>#</th><th>Team</th><th class="right">W</th><th class="right">L</th><th class="right">PF</th><th class="right">PA</th><th class="right">Diff</th></tr></thead>
+      <thead>
+        <tr>
+          <th>#</th><th>Team</th>
+          <th class="right">W</th><th class="right">L</th>
+          <th class="right">PF</th><th class="right">PA</th>
+          <th class="right">Diff</th>
+        </tr>
+      </thead>
       <tbody>
         ${rows.map((r,i)=>`
           <tr>
-            <td class="right">${i+1}</td><td>${r.team}</td>
-            <td class="right">${r.wins}</td><td class="right">${r.losses}</td>
-            <td class="right">${r.pf}</td><td class="right">${r.pa}</td>
+            <td class="right">${i+1}</td>
+            <td>${r.team}</td>
+            <td class="right">${r.wins}</td>
+            <td class="right">${r.losses}</td>
+            <td class="right">${r.pf}</td>
+            <td class="right">${r.pa}</td>
             <td class="right">${r.pf - r.pa}</td>
           </tr>`).join('')}
       </tbody>
@@ -162,60 +290,53 @@ function tableRatingsHTML(rows){
       <thead><tr><th>#</th><th>Team</th><th class="right">Rating</th></tr></thead>
       <tbody>
         ${rows.map((t,i)=>`
-          <tr><td class="right">${i+1}</td><td>${t.team}</td><td class="right">${t.rating}</td></tr>
+          <tr>
+            <td class="right">${i+1}</td>
+            <td>${t.team}</td>
+            <td class="right">${t.rating}</td>
+          </tr>
         `).join('')}
       </tbody>
     </table>`;
 }
 
-/* ========= Live hook ========= */
-const LIVE_KEY_STANDINGS = 'simSeason:2020:standings';
-const chan = new BroadcastChannel('nfl-sim-2020');
-chan.onmessage = (evt)=>{
-  const { type, standings, progress } = evt.data || {};
-  if(type==='reset'){ livePill.textContent='Live: starting…'; return; }
-  if(type==='standings' && standings){
-    livePill.textContent = progress ? `Live: ${progress.done}/${progress.total}` : 'Live: update';
-    applyHeadlessResults(standings);
-    const rows = Object.values(standings).sort((a,b)=> (b.wins-a.wins) || ((b.pf-b.pa)-(a.pf-a.pa)) || a.team.localeCompare(b.team));
-    elStandings.innerHTML = tableStandingsHTML(rows);
-  }
-  if(type==='complete'){ livePill.textContent='Live: complete'; }
-};
-
-/* ========= Apply local headless results (from schedule.html) ========= */
+/* ========= Apply local headless results on top of season standings ========= */
 function applyHeadlessResults(standings){
-  const data = JSON.parse(localStorage.getItem('headlessResults') || '{}');
+  const data = loadLocalResults();
   for (const k in data){
     const g = data[k];
     const home = g.home, away = g.away;
     const hp = +g.homePts, ap = +g.awayPts;
+    if (!home || !away) continue;
     if (!standings[home]) standings[home] = { team: home, wins:0, losses:0, pf:0, pa:0 };
     if (!standings[away]) standings[away] = { team: away, wins:0, losses:0, pf:0, pa:0 };
     standings[home].pf += hp; standings[home].pa += ap;
     standings[away].pf += ap; standings[away].pa += hp;
     if (hp > ap){ standings[home].wins++; standings[away].losses++; }
-    else { standings[away].wins++; standings[home].losses++; }
+    else if (ap > hp){ standings[away].wins++; standings[home].losses++; }
   }
 }
 
-
-
 /* ========= Boot ========= */
 (async function init(){
-  // try to show last known live standings if any
+  // 1) Try to show last known full-season standings from sim_season
   try{
     const cached = localStorage.getItem(LIVE_KEY_STANDINGS);
     if(cached){
       const stand = JSON.parse(cached);
+      HAS_LIVE_SEASON = true;
       applyHeadlessResults(stand);
-      const rows = Object.values(stand).sort((a,b)=> (b.wins-a.wins) || ((b.pf-b.pa)-(a.pf-a.pa)) || a.team.localeCompare(b.team));
+      const rows = Object.values(stand).sort((a,b)=>
+        (b.wins-a.wins) ||
+        ((b.pf-b.pa)-(a.pf-a.pa)) ||
+        a.team.localeCompare(b.team)
+      );
       elStandings.innerHTML = tableStandingsHTML(rows);
       livePill.textContent = 'Live: cached';
     }
   }catch(e){}
 
-  // also load players.csv to show baseline if no live data
+  // 2) Load players.csv → know teams, show rating-based baseline if nothing else
   try{
     const { txt, url } = await fetchCsvText();
     csvPill.textContent = `Players CSV: ${url.includes('githubusercontent')?'remote':'local'}`;
@@ -226,16 +347,27 @@ function applyHeadlessResults(standings){
 
     const teams = rateTeams(objs);
     teamCount.textContent = `${teams.length} teams`;
+    KNOWN_TEAM_NAMES = teams.map(t => t.team);
 
-    if(!elStandings.innerHTML) {
+    // if we *don't* already have standings from a live / cached season,
+    // try to render standings from local single-game results
+    if (!HAS_LIVE_SEASON){
+      renderLocalStandingsIfAny();
+    }
+
+    // If we still have nothing rendered, fall back to rating order.
+    if(!elStandings.innerHTML){
       const ordered = teams.sort((a,b)=> b.rating - a.rating || a.team.localeCompare(b.team));
       elStandings.innerHTML = tableRatingsHTML(ordered);
+      livePill.textContent = 'Live: idle';
     }
   }catch(e){
     console.error(e);
     csvPill.textContent = 'Players CSV: error';
     if(!elStandings.innerHTML){
-      elStandings.innerHTML = `<div class="small" style="color:#fca5a5">Could not load <code>players.csv</code>. Waiting for live sim…</div>`;
+      elStandings.innerHTML = `<div class="small" style="color:#fca5a5">
+        Could not load <code>players.csv</code>. Waiting for live sim or local results…
+      </div>`;
     }
   }
 })();

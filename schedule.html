@@ -173,6 +173,59 @@ const teamsPill  = document.getElementById('teamsPill');
 const seasonPill = document.getElementById('seasonPill');
 const root       = document.getElementById('scheduleRoot');
 
+/* ===== Shared results / live channel ===== */
+const LOCAL_RESULTS_KEY = 'headlessResults';
+const liveChan = (typeof BroadcastChannel !== 'undefined')
+  ? new BroadcastChannel('nfl-sim-2020')
+  : null;
+
+function loadLocalResults(){
+  try{
+    return JSON.parse(localStorage.getItem(LOCAL_RESULTS_KEY) || '{}');
+  }catch(e){
+    return {};
+  }
+}
+
+function storeGameResult(home, away, homePts, awayPts, week){
+  const key = `${home}|${away}`;
+  const data = loadLocalResults();
+  data[key] = { home, away, homePts, awayPts, week };
+  try{
+    localStorage.setItem(LOCAL_RESULTS_KEY, JSON.stringify(data));
+  }catch(e){
+    console.warn('Could not store game result', e);
+  }
+  if (liveChan){
+    try{
+      liveChan.postMessage({
+        type: 'headlessResultsUpdated',
+        results: data
+      });
+    }catch(e){}
+  }
+}
+
+/* apply existing stored results so scores persist in the UI */
+function applyExistingResults(){
+  const results = loadLocalResults();
+  const rows = root.querySelectorAll('tr.game-row');
+  rows.forEach(row=>{
+    const home = row.dataset.home;
+    const away = row.dataset.away;
+    const key = `${home}|${away}`;
+    const g = results[key];
+    if (!g) return;
+    const simCell = row.querySelector('.sim-cell');
+    if (!simCell) return;
+    const hp = g.homePts;
+    const ap = g.awayPts;
+    if (hp == null || ap == null) return;
+    simCell.textContent = `${ap}–${hp}`;
+  });
+}
+
+
 /* ===== Headless sim helpers ===== */
 
 /* simple fallback if engine.js hasn't exposed window.runGameHeadless */
@@ -229,12 +282,15 @@ async function runSingleGame(home, away, rowEl){
       simCell.textContent = 'Err';
     } else {
       simCell.textContent = `${awayPts}–${homePts}`;
+      const week = parseInt(rowEl.dataset.week || '0', 10) || null;
+      storeGameResult(home, away, homePts, awayPts, week);
     }
   }catch(err){
     console.error('Headless sim failed', err);
     simCell.textContent = 'Err';
   }
 }
+
 
 
 /* bind sim buttons after each render */
@@ -468,7 +524,7 @@ function gameRowHTML(g){
   const meta = [g.date, g.time, g.venue].filter(Boolean).join(' • ');
   const href = gameLink(g.home, g.away);
   const onClick = `location.href='${href}'`;
-  return `<tr class="game-row" data-home="${g.home}" data-away="${g.away}" onclick="${onClick}" style="cursor:pointer">
+  return `<tr class="game-row" data-home="${g.home}" data-away="${g.away}" data-week="${g.week}" onclick="${onClick}" style="cursor:pointer">
     <td class="right nowrap">W${g.week}</td>
     <td><span class="team away">${g.away}</span> @ <span class="team home">${g.home}</span></td>
     <td class="small">${meta}</td>
@@ -502,7 +558,7 @@ function teamTable(team, list){
             const meta = [g.date, g.time, g.venue].filter(Boolean).join(' • ');
             const href = gameLink(g.home, g.away);
             const onClick = `location.href='${href}'`;
-            return `<tr class="game-row" data-home="${g.home}" data-away="${g.away}" onclick="${onClick}" style="cursor:pointer">
+            return `<tr class="game-row" data-home="${g.home}" data-away="${g.away}" data-week="${g.week}" onclick="${onClick}" style="cursor:pointer">
               <td class="right nowrap">W${g.week}</td>
               <td>${isHome ? 'vs' : '@'} <span class="team ${isHome?'home':'away'}">${opp}</span></td>
               <td class="small">${meta}</td>
@@ -566,6 +622,7 @@ function render(){
 
   // wire up Sim buttons for the freshly-rendered DOM
   attachSimHandlers();
+  applyExistingResults();
 }
 
 /* ===== Boot ===== */
