@@ -1,0 +1,396 @@
+// ===== Season / query params =====
+const PARAMS = new URLSearchParams(location.search);
+const DEFAULT_SEASON = 2020;
+const seasonParamRaw = PARAMS.get('season');
+let SEASON_FILTER = DEFAULT_SEASON;
+
+if (seasonParamRaw) {
+  if (seasonParamRaw.toLowerCase() === 'all') {
+    SEASON_FILTER = null; // show all seasons
+  } else {
+    const sn = parseInt(seasonParamRaw, 10);
+    if (Number.isFinite(sn)) SEASON_FILTER = sn;
+  }
+}
+
+/* ===== Keys & constants ===== */
+const SEASON_KEY = (SEASON_FILTER == null ? 'all' : SEASON_FILTER);
+const LIVE_KEY_STANDINGS = `simSeason:${SEASON_KEY}:standings`;
+const LOCAL_RESULTS_KEY  = `headlessResults:${SEASON_KEY}`;
+const TOTAL_WEEKS        = 17;
+
+// ===== Header links (preserve ?players / ?schedule) =====
+(function wireHeaderLinks(){
+  const params = new URLSearchParams(location.search);
+  const rawPlayers  = (params.get('players')  || '').replace('/refs/heads/','/');
+  const rawSchedule = (params.get('schedule') || '').replace('/refs/heads/','/');
+
+  const parts = [];
+  if (rawPlayers)  parts.push(`players=${encodeURIComponent(rawPlayers)}`);
+  if (rawSchedule) parts.push(`schedule=${encodeURIComponent(rawSchedule)}`);
+  const qs = parts.length ? `?${parts.join('&')}` : '';
+
+  const toSchedule = document.getElementById('toSchedule');
+  if (toSchedule) toSchedule.href = `schedule.html${qs}`;
+})();
+
+const TEAM_META = {
+  "Arizona Cardinals":      { conf:"NFC", division:"NFC West" },
+  "Atlanta Falcons":        { conf:"NFC", division:"NFC South" },
+  "Baltimore Ravens":       { conf:"AFC", division:"AFC North" },
+  "Buffalo Bills":          { conf:"AFC", division:"AFC East" },
+  "Carolina Panthers":      { conf:"NFC", division:"NFC South" },
+  "Chicago Bears":          { conf:"NFC", division:"NFC North" },
+  "Cincinnati Bengals":     { conf:"AFC", division:"AFC North" },
+  "Cleveland Browns":       { conf:"AFC", division:"AFC North" },
+  "Dallas Cowboys":         { conf:"NFC", division:"NFC East" },
+  "Denver Broncos":         { conf:"AFC", division:"AFC West" },
+  "Detroit Lions":          { conf:"NFC", division:"NFC North" },
+  "Green Bay Packers":      { conf:"NFC", division:"NFC North" },
+  "Houston Texans":         { conf:"AFC", division:"AFC South" },
+  "Indianapolis Colts":     { conf:"AFC", division:"AFC South" },
+  "Jacksonville Jaguars":   { conf:"AFC", division:"AFC South" },
+  "Kansas City Chiefs":     { conf:"AFC", division:"AFC West" },
+  "Las Vegas Raiders":      { conf:"AFC", division:"AFC West" },
+  "Los Angeles Chargers":   { conf:"AFC", division:"AFC West" },
+  "Los Angeles Rams":       { conf:"NFC", division:"NFC West" },
+  "Miami Dolphins":         { conf:"AFC", division:"AFC East" },
+  "Minnesota Vikings":      { conf:"NFC", division:"NFC North" },
+  "New England Patriots":   { conf:"AFC", division:"AFC East" },
+  "New Orleans Saints":     { conf:"NFC", division:"NFC South" },
+  "New York Giants":        { conf:"NFC", division:"NFC East" },
+  "New York Jets":          { conf:"AFC", division:"AFC East" },
+  "Philadelphia Eagles":    { conf:"NFC", division:"NFC East" },
+  "Pittsburgh Steelers":    { conf:"AFC", division:"AFC North" },
+  "San Francisco 49ers":    { conf:"NFC", division:"NFC West" },
+  "Seattle Seahawks":       { conf:"NFC", division:"NFC West" },
+  "Tampa Bay Buccaneers":   { conf:"NFC", division:"NFC South" },
+  "Tennessee Titans":       { conf:"AFC", division:"AFC South" },
+  "Washington Commanders":  { conf:"NFC", division:"NFC East" }
+};
+
+const DIV_ORDER  = [
+  "AFC East","AFC North","AFC South","AFC West",
+  "NFC East","NFC North","NFC South","NFC West"
+];
+const CONF_ORDER = ["AFC","NFC"];
+
+/* ===== DOM ===== */
+const elStandings = document.getElementById('standings');
+const teamCount   = document.getElementById('teamCount');
+const weekPill    = document.getElementById('weekPill');
+const resetBtn    = document.getElementById('resetSeasonBtn');
+const viewTabs    = Array.from(document.querySelectorAll('.viewtab'));
+
+/* ===== State ===== */
+let VIEW_MODE = 'league';
+let CURRENT_STANDINGS = {};
+let CURRENT_ROWS      = [];
+
+const chan = (typeof BroadcastChannel !== 'undefined')
+  ? new BroadcastChannel('nfl-sim-2020')
+  : null;
+
+/* ===== Storage helpers ===== */
+function loadLocalResults(){
+  try{
+    return JSON.parse(localStorage.getItem(LOCAL_RESULTS_KEY) || '{}');
+  }catch(e){
+    return {};
+  }
+}
+
+function buildBaselineStandings(){
+  const base = {};
+  Object.keys(TEAM_META).forEach(name=>{
+    base[name] = { team:name, wins:0, losses:0, pf:0, pa:0 };
+  });
+  return base;
+}
+
+// Always recompute standings from scratch based on headlessResults.
+function applyHeadlessResults(){
+  const res = loadLocalResults();
+  const standings = buildBaselineStandings();  // fresh 0–0 for all teams
+
+  for (const k in res){
+    const g = res[k];
+    const home = g.home, away = g.away;
+    const hp = +g.homePts, ap = +g.awayPts;
+    if (!home || !away || !Number.isFinite(hp) || !Number.isFinite(ap)) continue;
+
+    if (!standings[home]) standings[home] = { team:home, wins:0, losses:0, pf:0, pa:0 };
+    if (!standings[away]) standings[away] = { team:away, wins:0, losses:0, pf:0, pa:0 };
+
+    standings[home].pf += hp;
+    standings[home].pa += ap;
+    standings[away].pf += ap;
+    standings[away].pa += hp;
+
+    if (hp > ap){ standings[home].wins++; standings[away].losses++; }
+    else        { standings[away].wins++; standings[home].losses++; }
+  }
+  return standings;
+}
+
+/* ===== Transform + sort ===== */
+function rowsFromStandingsObj(obj){
+  return Object.values(obj).map(r=>{
+    const meta = TEAM_META[r.team] || {};
+    const pf   = r.pf   ?? 0;
+    const pa   = r.pa   ?? 0;
+    const wins = r.wins ?? 0;
+    const losses = r.losses ?? 0;
+    return {
+      team: r.team,
+      wins,
+      losses,
+      pf,
+      pa,
+      diff: pf - pa,
+      conf: meta.conf || 'Unknown',
+      division: meta.division || meta.conf || 'Unknown'
+    };
+  });
+}
+
+function sortRows(rows){
+  return rows.slice().sort((a,b)=>
+    (b.wins - a.wins) ||
+    ((b.diff) - (a.diff)) ||
+    (b.pf - a.pf) ||
+    a.team.localeCompare(b.team)
+  );
+}
+
+/* ===== Rendering ===== */
+function tableStandingsHTML(rows, startRank = 1){
+  return `
+    <table class="table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Team</th>
+          <th class="right">W</th>
+          <th class="right">L</th>
+          <th class="right">PF</th>
+          <th class="right">PA</th>
+          <th class="right">Diff</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map((r,i)=>`
+          <tr>
+            <td class="right">${startRank + i}</td>
+            <td>${r.team}</td>
+            <td class="right">${r.wins}</td>
+            <td class="right">${r.losses}</td>
+            <td class="right">${r.pf}</td>
+            <td class="right">${r.pa}</td>
+            <td class="right">${r.diff}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+function renderLeagueView(){
+  const ordered = sortRows(CURRENT_ROWS);
+  elStandings.innerHTML = tableStandingsHTML(ordered);
+}
+
+function renderConferenceView(allRows){
+  const byConf = { AFC: [], NFC: [] };
+
+  allRows.forEach(r => {
+    const meta = TEAM_META[r.team] || {};
+    const conf = meta.conf || 'Unknown';
+    if (!byConf[conf]) byConf[conf] = [];
+    byConf[conf].push(r);
+  });
+
+  const sortFn = (a,b) =>
+    (b.wins - a.wins) ||
+    ((b.pf - b.pa) - (a.pf - a.pa)) ||
+    (b.pf - a.pf) ||
+    a.team.localeCompare(b.team);
+
+  byConf.AFC.sort(sortFn);
+  byConf.NFC.sort(sortFn);
+
+  elStandings.innerHTML = `
+    <div class="standings-grid two-cols">
+      <section class="section">
+        <h3>AFC</h3>
+        ${tableStandingsHTML(byConf.AFC)}
+      </section>
+      <section class="section">
+        <h3>NFC</h3>
+        ${tableStandingsHTML(byConf.NFC)}
+      </section>
+    </div>
+  `;
+}
+
+function renderDivisionView(allRows){
+  const buckets = {
+    'AFC East': [], 'AFC North': [], 'AFC South': [], 'AFC West': [],
+    'NFC East': [], 'NFC North': [], 'NFC South': [], 'NFC West': []
+  };
+
+  allRows.forEach(r => {
+    const meta = TEAM_META[r.team];
+    if (!meta) return;
+    const key = meta.division;
+    if (buckets[key]) buckets[key].push(r);
+  });
+
+  const sortFn = (a,b) =>
+    (b.wins - a.wins) ||
+    ((b.pf - b.pa) - (a.pf - a.pa)) ||
+    (b.pf - a.pf) ||
+    a.team.localeCompare(b.team);
+
+  Object.keys(buckets).forEach(k => buckets[k].sort(sortFn));
+
+  const makeColumn = (labels) => `
+    <div>
+      ${labels.map(label => {
+        const rows = buckets[label];
+        if (!rows || !rows.length) return '';
+        return `
+          <section class="section">
+            <h3>${label}</h3>
+            ${tableStandingsHTML(rows)}
+          </section>
+        `;
+      }).join('')}
+    </div>
+  `;
+
+  elStandings.innerHTML = `
+    <div class="standings-grid two-cols">
+      ${makeColumn(['AFC East','AFC North','AFC South','AFC West'])}
+      ${makeColumn(['NFC East','NFC North','NFC South','NFC West'])}
+    </div>
+  `;
+}
+
+function renderCurrentView(){
+  if (!CURRENT_ROWS.length){
+    elStandings.innerHTML = '<div class="small">No teams found.</div>';
+    return;
+  }
+  if (VIEW_MODE === 'conference') {
+    renderConferenceView(CURRENT_ROWS);
+  } else if (VIEW_MODE === 'division') {
+    renderDivisionView(CURRENT_ROWS);
+  } else {
+    renderLeagueView();
+  }
+}
+
+/* ===== Week pill ===== */
+function updateWeekPill(){
+  if (!weekPill) return;
+  const res = loadLocalResults();
+  const weeksSet = new Set();
+  for (const k in res){
+    const w = parseInt(res[k].week,10);
+    if (Number.isFinite(w) && w > 0) weeksSet.add(w);
+  }
+  if (!weeksSet.size){
+    weekPill.textContent = `Week: 1 of ${TOTAL_WEEKS}`;
+    return;
+  }
+  const arr = Array.from(weeksSet).sort((a,b)=>a-b);
+  const maxW = arr[arr.length-1];
+  let next = null;
+  for (let w=1; w<=maxW; w++){
+    if (!weeksSet.has(w)){
+      next = w; break;
+    }
+  }
+  if (next == null) next = maxW + 1;
+
+  if (next > TOTAL_WEEKS){
+    weekPill.textContent = 'Season complete';
+  }else{
+    weekPill.textContent = `Week: ${next} of ${TOTAL_WEEKS}`;
+  }
+}
+
+/* ===== Recalculate + render ===== */
+function recalcAndRender(){
+  CURRENT_ROWS = rowsFromStandingsObj(CURRENT_STANDINGS);
+  teamCount.textContent = `${CURRENT_ROWS.length} teams`;
+  renderCurrentView();
+  updateWeekPill();
+}
+
+/* ===== Reset from this page ===== */
+function resetSeasonStandings(){
+  try{
+    localStorage.setItem(LOCAL_RESULTS_KEY, JSON.stringify({}));
+    const base = buildBaselineStandings();
+    CURRENT_STANDINGS = base;
+    localStorage.setItem(LIVE_KEY_STANDINGS, JSON.stringify(base));
+  }catch(e){}
+  recalcAndRender();
+
+  if (chan){
+    try{
+      chan.postMessage({
+        type:'standings',
+        standings: CURRENT_STANDINGS,
+        progress:{done:0,total:0}
+      });
+    }catch(e){}
+  }
+}
+
+/* ===== Wire UI ===== */
+viewTabs.forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    viewTabs.forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    VIEW_MODE = btn.dataset.view || 'league';
+    renderCurrentView();
+  });
+});
+
+if (resetBtn){
+  resetBtn.addEventListener('click', ()=>{
+    if (confirm('Reset all simulated results and standings?')){
+      resetSeasonStandings();
+    }
+  });
+}
+
+/* ===== Broadcast updates from schedule/engine ===== */
+if (chan){
+  chan.onmessage = (evt)=>{
+    const { type, standings } = evt.data || {};
+    if (type === 'standings' && standings){
+      CURRENT_STANDINGS = standings;
+      try{
+        localStorage.setItem(LIVE_KEY_STANDINGS, JSON.stringify(standings));
+      }catch(e){}
+      recalcAndRender();
+    }else if (type === 'headlessResultsUpdated'){
+      CURRENT_STANDINGS = applyHeadlessResults();
+      try{
+        localStorage.setItem(LIVE_KEY_STANDINGS, JSON.stringify(CURRENT_STANDINGS));
+      }catch(e){}
+      recalcAndRender();
+    }
+  };
+}
+
+/* ===== Boot ===== */
+(function init(){
+  CURRENT_STANDINGS = applyHeadlessResults();   // recompute from headlessResults only
+  try{
+    localStorage.setItem(LIVE_KEY_STANDINGS, JSON.stringify(CURRENT_STANDINGS));
+  }catch(e){}
+  recalcAndRender();
+})();
