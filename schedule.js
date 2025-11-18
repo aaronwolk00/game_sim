@@ -234,11 +234,7 @@
     try{
       const PLAYERS_URL = RAW_PLAYERS_PARAM || 'players.csv';
       let result;
-      if (typeof window.runGameHeadless === 'function'){
-        result = await window.runGameHeadless(home, away, PLAYERS_URL);
-      } else {
-        result = quickSimGame(home, away);
-      }
+      result = await window.runGameHeadless(home, away, PLAYERS_URL);
       const homePts = result.homePts ?? result.homeScore ?? result.home;
       const awayPts = result.awayPts ?? result.awayScore ?? result.away;
       if (homePts == null || awayPts == null){
@@ -656,90 +652,55 @@
     applyExistingResults();
   }
   
-  /* ===== Boot ===== */
-  (async function init(){
+/* ===== Boot (engine-only) ===== */
+async function init(){
     try{
-      const { text, url } = await fetchCsvFrom(SCHEDULE_URLS);
-      csvPill.textContent = `CSV: ${url.includes('githubusercontent') ? 'remote' : 'local'}`;
-  
-      const rows = parseSmart(text);
-      if (!rows.length) throw new Error('Empty schedule.csv');
-      const hi = findHeaderIndex(rows);
-      const headerLower = rows[hi].map(h=>String(h||'').trim().toLowerCase());
-      const objs = rowsToObjects(rows, hi);
-  
-      const hasTeamOpp = headerLower.includes('team') && headerLower.includes('opp');
-      const hasHomeAwayCols =
-        (headerLower.includes('home') && headerLower.includes('away')) ||
-        (headerLower.includes('home_team') && headerLower.includes('away_team')) ||
-        (headerLower.includes('team_home') && headerLower.includes('team_away')) ||
-        (headerLower.includes('home_team_abbr') && headerLower.includes('away_team_abbr'));
-  
-      if (hasTeamOpp){
-        SCHEDULE = buildFromTeamOpp(objs);
-      } else if (hasHomeAwayCols){
-        SCHEDULE = objs.map(mapDirectRow).filter(g => g.home && g.away);
-      } else {
-        SCHEDULE = [];
+      if (typeof window.getSchedule !== 'function') {
+        throw new Error('engine.js must expose getSchedule(seasonOrNull)');
       }
   
-      if (!SCHEDULE.length){
-        const hdrHtml = rows[hi].map(h=>`<li><kbd>${h}</kbd></li>`).join('');
-        root.innerHTML = `
-          <div class="section warn">
-            <h3>Couldn’t build games from schedule.csv</h3>
-            <div>Detected header:</div>
-            <ul style="columns:3; margin:6px 0">${hdrHtml}</ul>
-            <div class="small">
-              Expected either <kbd>Home</kbd>/<kbd>Away</kbd> or
-              <kbd>team</kbd>/<kbd>opp</kbd> (+ <kbd>home_away</kbd> or <kbd>game_id</kbd>).
-            </div>
-          </div>`;
-        gamesPill.textContent = '0 games';
-        teamsPill.textContent = '0 teams';
-        seasonPill.textContent = 'Season: —';
-        return;
+      // ask engine for the schedule (already filtered if the engine supports it)
+      const seasonArg = (SEASON_FILTER == null) ? null : SEASON_FILTER;
+      let schedule = await window.getSchedule(seasonArg);
+      if (!Array.isArray(schedule)) {
+        throw new Error('getSchedule() must return an array of games');
       }
   
-      /* de-dupe */
-      const keySet = new Set();
-      const unique = [];
-      for (const g of SCHEDULE){
-        const k = `${g.season}|${g.week}|${g.home}|${g.away}|${g.date}`;
-        if (!keySet.has(k)){
-          keySet.add(k);
-          unique.push(g);
-        }
-      }
-      SCHEDULE = unique;
+      // optional dedupe (safe; no CSV assumptions)
+      const seen = new Set();
+      schedule = schedule.filter(g => {
+        const k = `${g.season}|${g.week}|${g.home}|${g.away}|${g.date || ''}`;
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
   
-      /* season filter */
-      if (SEASON_FILTER != null){
-        SCHEDULE = SCHEDULE.filter(g=>{
-          const n = parseInt(g.season,10);
-          if (Number.isFinite(n)) return n === SEASON_FILTER;
-          const inf = inferSeasonFromDateStr(g.date);
-          return inf === SEASON_FILTER;
-        });
-        seasonPill.textContent = `Season: ${SEASON_FILTER}`;
-      } else {
-        seasonPill.textContent = 'Season: all';
-      }
+      SCHEDULE = schedule;
   
-      const teams = Array.from(new Set(SCHEDULE.flatMap(g=>[g.home,g.away]))).sort();
+      // UI pills
+      csvPill.textContent = 'src: engine.js';
+      seasonPill.textContent = (SEASON_FILTER == null) ? 'Season: all' : `Season: ${SEASON_FILTER}`;
+  
+      // discover teams from schedule
+      const teams = Array.from(new Set(SCHEDULE.flatMap(g => [g.home, g.away]))).sort();
       TEAMS_LONG = teams;
       gamesPill.textContent = `${SCHEDULE.length} games`;
       teamsPill.textContent = `${teams.length} teams`;
   
+      if (!SCHEDULE.length){
+        root.innerHTML = '<div class="small">No games found.</div>';
+        return;
+      }
+  
       render();
-    }catch(e){
+    } catch (e) {
       console.error(e);
-      csvPill.textContent = 'CSV: error';
+      csvPill.textContent = 'src: engine (error)';
       root.innerHTML = `<div class="small warn">
-        Could not load <code>schedule.csv</code>.
-        Place it next to this file or pass <code>?schedule=&lt;raw csv url&gt;</code>.
+        Could not load schedule from engine.js (getSchedule).
       </div>`;
       seasonPill.textContent = 'Season: —';
     }
-  })();
+  }
+
   
