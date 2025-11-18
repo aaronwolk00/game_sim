@@ -148,44 +148,33 @@ hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
       return base;
     }
     
-    function loadStandingsFromStorage(){
-      let obj = null;
-      try{
-        const raw = localStorage.getItem(LIVE_KEY_STANDINGS);
-        if (raw) obj = JSON.parse(raw);
-      }catch(e){}
-      if (!obj || typeof obj !== 'object' || !Object.keys(obj).length){
-        obj = buildBaselineStandings();
-        try{
-          localStorage.setItem(LIVE_KEY_STANDINGS, JSON.stringify(obj));
-        }catch(e){}
-      }
-      return obj;
-    }
     
-    function applyHeadlessResults(base){
-      const res = loadLocalResults();
-      const standings = JSON.parse(JSON.stringify(base));
-    
-      for (const k in res){
+    // Always recompute standings from scratch based on headlessResults.
+    // This prevents double-counting if the page is opened multiple times.
+    function applyHeadlessResults(){
+    const res = loadLocalResults();
+    const standings = buildBaselineStandings();  // fresh 0–0 for all teams
+
+    for (const k in res){
         const g = res[k];
         const home = g.home, away = g.away;
         const hp = +g.homePts, ap = +g.awayPts;
         if (!home || !away || !Number.isFinite(hp) || !Number.isFinite(ap)) continue;
-    
+
         if (!standings[home]) standings[home] = { team:home, wins:0, losses:0, pf:0, pa:0 };
         if (!standings[away]) standings[away] = { team:away, wins:0, losses:0, pf:0, pa:0 };
-    
+
         standings[home].pf += hp;
         standings[home].pa += ap;
         standings[away].pf += ap;
         standings[away].pa += hp;
-    
+
         if (hp > ap){ standings[home].wins++; standings[away].losses++; }
         else        { standings[away].wins++; standings[home].losses++; }
-      }
-      return standings;
     }
+    return standings;
+    }
+
     
     /* ===== Transform + sort ===== */
     function rowsFromStandingsObj(obj){
@@ -393,22 +382,25 @@ hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
           }catch(e){}
           recalcAndRender();
         }else if (type === 'headlessResultsUpdated'){
-          const base = loadStandingsFromStorage();
-          CURRENT_STANDINGS = applyHeadlessResults(base);
-          try{
-            localStorage.setItem(LIVE_KEY_STANDINGS, JSON.stringify(CURRENT_STANDINGS));
-          }catch(e){}
-          recalcAndRender();
+            CURRENT_STANDINGS = applyHeadlessResults();
+            try{
+                localStorage.setItem(LIVE_KEY_STANDINGS, JSON.stringify(CURRENT_STANDINGS));
+            }catch(e){}
+            recalcAndRender();
         }
+
       };
     }
     
     /* ===== Boot ===== */
     (function init(){
-      const base = loadStandingsFromStorage();
-      CURRENT_STANDINGS = applyHeadlessResults(base);
-      recalcAndRender();
+        CURRENT_STANDINGS = applyHeadlessResults();   // recompute from headlessResults only
+        try{
+            localStorage.setItem(LIVE_KEY_STANDINGS, JSON.stringify(CURRENT_STANDINGS));
+        }catch(e){}
+        recalcAndRender();
     })();
+
 </script>
 </body>
 </html>
