@@ -24,6 +24,12 @@ hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
 .section{background:rgba(255,255,255,.02);border:1px solid #1c2440;border-radius:12px;padding:8px;margin-top:8px}
 .section h3{margin:0 0 6px;font-size:14px}
 .pill{display:inline-block;padding:4px 8px;border-radius:999px;background:var(--card);border:1px solid #233055;font-size:12px;color:var(--muted)}
+.viewtabs{display:flex;gap:6px}
+.viewtab{
+  padding:6px 10px;border-radius:999px;border:1px solid #2a355a;
+  background:#0e1630;color:#cbd5e1;cursor:pointer;font-size:12px;
+}
+.viewtab.active{background:#1e293b;color:#e5e7eb}
 </style>
 </head>
 <body>
@@ -38,13 +44,22 @@ hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
     </div>
 
     <div class="panel">
-      <div class="row" style="justify-content:space-between;align-items:center">
-        <span class="pill" id="teamCount">— teams</span>
-        <span class="pill" id="csvPill">Players CSV: loading…</span>
-      </div>
-      <hr>
-      <div id="standings"></div>
+        <div class="row" style="justify-content:space-between;align-items:center">
+            <div class="row viewtabs">
+            <button class="viewtab active" data-view="league">League</button>
+            <button class="viewtab" data-view="conference">Conference</button>
+            <button class="viewtab" data-view="division">Division</button>
+            </div>
+            <div class="row">
+            <span class="pill" id="teamCount">32 teams</span>
+            <span class="pill" id="weekPill">Week: 1 of 17</span>
+            <button id="resetSeasonBtn" class="btn ghost">⟲ Reset Season</button>
+            </div>
+        </div>
+        <hr>
+        <div id="standings"></div>
     </div>
+      
 
     <div class="small">
       If a sim is running in another tab, this page updates in real time.
@@ -53,363 +68,347 @@ hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
     </div>
   </main>
 
-<script>
-/* ========= Params ========= */
-const PARAMS = new URLSearchParams(location.search);
-const RAW_PLAYERS_PARAM  = (PARAMS.get('players')  || '').replace('/refs/heads/', '/');
-const RAW_SCHEDULE_PARAM = (PARAMS.get('schedule') || '').replace('/refs/heads/', '/');
-
-const playersParamStr = RAW_PLAYERS_PARAM ? `players=${encodeURIComponent(RAW_PLAYERS_PARAM)}` : '';
-const schedParamStr   = RAW_SCHEDULE_PARAM ? `schedule=${encodeURIComponent(RAW_SCHEDULE_PARAM)}` : '';
-const join = (...parts)=> parts.filter(Boolean).join('&');
-const both = join(playersParamStr, schedParamStr);
-const qs = both ? `?${both}` : (playersParamStr ? `?${playersParamStr}` : '');
-
-document.getElementById('toSchedule').href = `schedule.html${qs}`;
-document.getElementById('backLink').href = `index.html${playersParamStr ? `?${playersParamStr}` : ''}`;
-
-/* ========= Sources ========= */
-const CSV_URLS = RAW_PLAYERS_PARAM
-  ? [RAW_PLAYERS_PARAM, new URL('players.csv', location.href).href, 'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/players.csv']
-  : [new URL('players.csv', location.href).href, 'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/players.csv'];
-
-/* ========= DOM ========= */
-const csvPill = document.getElementById('csvPill');
-const teamCount = document.getElementById('teamCount');
-const livePill = document.getElementById('livePill');
-const elStandings = document.getElementById('standings');
-
-// === Baseline long-name team list (used for 0–0 default standings) ===
-const LONG_TEAM_NAMES = [
-  'Arizona Cardinals',
-  'Atlanta Falcons',
-  'Baltimore Ravens',
-  'Buffalo Bills',
-  'Carolina Panthers',
-  'Chicago Bears',
-  'Cincinnati Bengals',
-  'Cleveland Browns',
-  'Dallas Cowboys',
-  'Denver Broncos',
-  'Detroit Lions',
-  'Green Bay Packers',
-  'Houston Texans',
-  'Indianapolis Colts',
-  'Jacksonville Jaguars',
-  'Kansas City Chiefs',
-  'Las Vegas Raiders',
-  'Los Angeles Chargers',
-  'Los Angeles Rams',
-  'Miami Dolphins',
-  'Minnesota Vikings',
-  'New England Patriots',
-  'New Orleans Saints',
-  'New York Giants',
-  'New York Jets',
-  'Philadelphia Eagles',
-  'Pittsburgh Steelers',
-  'San Francisco 49ers',
-  'Seattle Seahawks',
-  'Tampa Bay Buccaneers',
-  'Tennessee Titans',
-  'Washington Commanders'
-];
-
-function createBaselineStandings(){
-  const obj = {};
-  LONG_TEAM_NAMES.forEach(name => {
-    obj[name] = {
-      team:   name,
-      wins:   0,
-      losses: 0,
-      pf:     0,
-      pa:     0
+  <script>
+    /* ===== Keys & constants ===== */
+    const LIVE_KEY_STANDINGS = 'simSeason:2020:standings';
+    const LOCAL_RESULTS_KEY  = 'headlessResults';
+    const TOTAL_WEEKS        = 17;
+    
+    const TEAM_META = {
+      "Arizona Cardinals":      { conf:"NFC", division:"NFC West" },
+      "Atlanta Falcons":        { conf:"NFC", division:"NFC South" },
+      "Baltimore Ravens":       { conf:"AFC", division:"AFC North" },
+      "Buffalo Bills":          { conf:"AFC", division:"AFC East" },
+      "Carolina Panthers":      { conf:"NFC", division:"NFC South" },
+      "Chicago Bears":          { conf:"NFC", division:"NFC North" },
+      "Cincinnati Bengals":     { conf:"AFC", division:"AFC North" },
+      "Cleveland Browns":       { conf:"AFC", division:"AFC North" },
+      "Dallas Cowboys":         { conf:"NFC", division:"NFC East" },
+      "Denver Broncos":         { conf:"AFC", division:"AFC West" },
+      "Detroit Lions":          { conf:"NFC", division:"NFC North" },
+      "Green Bay Packers":      { conf:"NFC", division:"NFC North" },
+      "Houston Texans":         { conf:"AFC", division:"AFC South" },
+      "Indianapolis Colts":     { conf:"AFC", division:"AFC South" },
+      "Jacksonville Jaguars":   { conf:"AFC", division:"AFC South" },
+      "Kansas City Chiefs":     { conf:"AFC", division:"AFC West" },
+      "Las Vegas Raiders":      { conf:"AFC", division:"AFC West" },
+      "Los Angeles Chargers":   { conf:"AFC", division:"AFC West" },
+      "Los Angeles Rams":       { conf:"NFC", division:"NFC West" },
+      "Miami Dolphins":         { conf:"AFC", division:"AFC East" },
+      "Minnesota Vikings":      { conf:"NFC", division:"NFC North" },
+      "New England Patriots":   { conf:"AFC", division:"AFC East" },
+      "New Orleans Saints":     { conf:"NFC", division:"NFC South" },
+      "New York Giants":        { conf:"NFC", division:"NFC East" },
+      "New York Jets":          { conf:"AFC", division:"AFC East" },
+      "Philadelphia Eagles":    { conf:"NFC", division:"NFC East" },
+      "Pittsburgh Steelers":    { conf:"AFC", division:"AFC North" },
+      "San Francisco 49ers":    { conf:"NFC", division:"NFC West" },
+      "Seattle Seahawks":       { conf:"NFC", division:"NFC West" },
+      "Tampa Bay Buccaneers":   { conf:"NFC", division:"NFC South" },
+      "Tennessee Titans":       { conf:"AFC", division:"AFC South" },
+      "Washington Commanders":  { conf:"NFC", division:"NFC East" }
     };
-  });
-  return obj;
-}
-
-
-/* ========= Keys & Live wiring ========= */
-const LIVE_KEY_STANDINGS = 'simSeason:2020:standings';
-const LOCAL_RESULTS_KEY  = 'headlessResults';
-
-let KNOWN_TEAM_NAMES = [];
-let HAS_LIVE_SEASON  = false;
-
-const chan = new BroadcastChannel('nfl-sim-2020');
-chan.onmessage = (evt)=>{
-  const { type, standings, progress, results } = evt.data || {};
-
-  if(type === 'reset'){
-    livePill.textContent='Live: starting…';
-    return;
-  }
-
-  if(type === 'standings' && standings){
-    // full-season sim broadcast (engine)
-    HAS_LIVE_SEASON = true;
-    livePill.textContent = progress ? `Live: ${progress.done}/${progress.total}` : 'Live: update';
-    applyHeadlessResults(standings); // overlay any stored single-game results
-    const rows = Object.values(standings).sort((a,b)=>
-      (b.wins-a.wins) ||
-      ((b.pf-b.pa)-(a.pf-a.pa)) ||
-      a.team.localeCompare(b.team)
-    );
-    elStandings.innerHTML = tableStandingsHTML(rows);
-    try{
-      localStorage.setItem(LIVE_KEY_STANDINGS, JSON.stringify(standings));
-    }catch(e){}
-    return;
-  }
-
-  if(type === 'complete'){
-    livePill.textContent='Live: complete';
-    return;
-  }
-
-  if(type === 'headlessResultsUpdated'){
-    // schedule.html is telling us local game results changed
-    if (results) {
+    
+    const DIV_ORDER  = [
+      "AFC East","AFC North","AFC South","AFC West",
+      "NFC East","NFC North","NFC South","NFC West"
+    ];
+    const CONF_ORDER = ["AFC","NFC"];
+    
+    /* ===== DOM ===== */
+    const elStandings = document.getElementById('standings');
+    const teamCount   = document.getElementById('teamCount');
+    const weekPill    = document.getElementById('weekPill');
+    const resetBtn    = document.getElementById('resetSeasonBtn');
+    const viewTabs    = Array.from(document.querySelectorAll('.viewtab'));
+    
+    /* ===== State ===== */
+    let VIEW_MODE = 'league';
+    let CURRENT_STANDINGS = {};
+    let CURRENT_ROWS      = [];
+    
+    const chan = (typeof BroadcastChannel !== 'undefined')
+      ? new BroadcastChannel('nfl-sim-2020')
+      : null;
+    
+    /* ===== Storage helpers ===== */
+    function loadLocalResults(){
       try{
-        localStorage.setItem(LOCAL_RESULTS_KEY, JSON.stringify(results));
+        return JSON.parse(localStorage.getItem(LOCAL_RESULTS_KEY) || '{}');
+      }catch(e){
+        return {};
+      }
+    }
+    
+    function buildBaselineStandings(){
+      const base = {};
+      Object.keys(TEAM_META).forEach(name=>{
+        base[name] = { team:name, wins:0, losses:0, pf:0, pa:0 };
+      });
+      return base;
+    }
+    
+    function loadStandingsFromStorage(){
+      let obj = null;
+      try{
+        const raw = localStorage.getItem(LIVE_KEY_STANDINGS);
+        if (raw) obj = JSON.parse(raw);
       }catch(e){}
+      if (!obj || typeof obj !== 'object' || !Object.keys(obj).length){
+        obj = buildBaselineStandings();
+        try{
+          localStorage.setItem(LIVE_KEY_STANDINGS, JSON.stringify(obj));
+        }catch(e){}
+      }
+      return obj;
     }
-    // if a full-season sim is running, don't override it
-    if (!HAS_LIVE_SEASON){
-      renderLocalStandingsIfAny();
-      livePill.textContent = 'Live: local games';
+    
+    function applyHeadlessResults(base){
+      const res = loadLocalResults();
+      const standings = JSON.parse(JSON.stringify(base));
+    
+      for (const k in res){
+        const g = res[k];
+        const home = g.home, away = g.away;
+        const hp = +g.homePts, ap = +g.awayPts;
+        if (!home || !away || !Number.isFinite(hp) || !Number.isFinite(ap)) continue;
+    
+        if (!standings[home]) standings[home] = { team:home, wins:0, losses:0, pf:0, pa:0 };
+        if (!standings[away]) standings[away] = { team:away, wins:0, losses:0, pf:0, pa:0 };
+    
+        standings[home].pf += hp;
+        standings[home].pa += ap;
+        standings[away].pf += ap;
+        standings[away].pa += hp;
+    
+        if (hp > ap){ standings[home].wins++; standings[away].losses++; }
+        else        { standings[away].wins++; standings[home].losses++; }
+      }
+      return standings;
     }
-  }
-};
-
-/* ========= Local results helpers ========= */
-function loadLocalResults(){
-  try{
-    return JSON.parse(localStorage.getItem(LOCAL_RESULTS_KEY) || '{}');
-  }catch(e){
-    return {};
-  }
-}
-
-function computeStandingsFromResults(teamNames, results){
-  const standings = {};
-  // initialize every known team
-  (teamNames || []).forEach(t=>{
-    standings[t] = { team:t, wins:0, losses:0, pf:0, pa:0 };
-  });
-
-  for (const k in results){
-    const g = results[k];
-    if (!g) continue;
-    const home = g.home;
-    const away = g.away;
-    const hp = Number(g.homePts);
-    const ap = Number(g.awayPts);
-    if (!home || !away) continue;
-    if (!Number.isFinite(hp) || !Number.isFinite(ap)) continue;
-
-    if (!standings[home]) standings[home] = { team:home, wins:0, losses:0, pf:0, pa:0 };
-    if (!standings[away]) standings[away] = { team:away, wins:0, losses:0, pf:0, pa:0 };
-
-    standings[home].pf += hp; standings[home].pa += ap;
-    standings[away].pf += ap; standings[away].pa += hp;
-
-    if (hp > ap){
-      standings[home].wins++; standings[away].losses++;
-    }else if (ap > hp){
-      standings[away].wins++; standings[home].losses++;
+    
+    /* ===== Transform + sort ===== */
+    function rowsFromStandingsObj(obj){
+      return Object.values(obj).map(r=>{
+        const meta = TEAM_META[r.team] || {};
+        const pf   = r.pf   ?? 0;
+        const pa   = r.pa   ?? 0;
+        const wins = r.wins ?? 0;
+        const losses = r.losses ?? 0;
+        return {
+          team: r.team,
+          wins,
+          losses,
+          pf,
+          pa,
+          diff: pf - pa,
+          conf: meta.conf || 'Unknown',
+          division: meta.division || meta.conf || 'Unknown'
+        };
+      });
     }
-  }
-  return standings;
-}
-
-function renderLocalStandingsIfAny(){
-  if (!KNOWN_TEAM_NAMES.length) return;
-  const results = loadLocalResults();
-  const keys = Object.keys(results);
-  if (!keys.length) return;
-
-  const standings = computeStandingsFromResults(KNOWN_TEAM_NAMES, results);
-  const rows = Object.values(standings).sort((a,b)=>
-    (b.wins-a.wins) ||
-    ((b.pf-b.pa)-(a.pf-a.pa)) ||
-    a.team.localeCompare(b.team)
-  );
-  elStandings.innerHTML = tableStandingsHTML(rows);
-}
-
-/* ========= CSV helpers ========= */
-async function fetchCsvText(){
-  let lastErr = null;
-  for (const url of CSV_URLS){
-    try{
-      const res = await fetch(url, { cache: 'no-store', mode: 'cors' });
-      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-      const txt = await res.text();
-      return { txt, url };
-    }catch(e){ lastErr = e; }
-  }
-  throw lastErr || new Error('CSV not reachable');
-}
-function parseCsvToRows(text){
-  text = String(text || '').replace(/^\uFEFF/, '');
-  const rows=[]; let row=[], field='', inQ=false;
-  for(let i=0;i<text.length;i++){
-    const c=text[i];
-    if(inQ){
-      if(c==='"'){ if(text[i+1]==='"'){ field+='"'; i++; } else inQ=false; }
-      else field+=c;
-    }else{
-      if(c==='"') inQ=true;
-      else if(c===','){ row.push(field); field=''; }
-      else if(c==='\n'){ row.push(field); rows.push(row); row=[]; field=''; }
-      else if(c!=='\r'){ field+=c; }
+    
+    function sortRows(rows){
+      return rows.slice().sort((a,b)=>
+        (b.wins - a.wins) ||
+        ((b.diff) - (a.diff)) ||
+        (b.pf - a.pf) ||
+        a.team.localeCompare(b.team)
+      );
     }
-  }
-  row.push(field); rows.push(row);
-  while(rows.length && rows[rows.length-1].every(x => String(x||'').trim()==='')) rows.pop();
-  return rows.filter(r=>r.length && r.some(x=>x!==''));;
-}
-function findHeaderIndex(rows){
-  const norm = s => String(s||'').trim().toLowerCase();
-  for(let i=0;i<Math.min(rows.length,8);i++){
-    if(rows[i].some(c => norm(c)==='team')) return i;
-  }
-  return 0;
-}
-function rowsToObjects(rows, headerIdx){
-  const header = rows[headerIdx].map(h => String(h||'').trim());
-  return rows.slice(headerIdx+1).map(r => { const o={}; header.forEach((h,j)=> o[h]= r[j]===undefined ? '' : r[j]); return o; });
-}
-
-/* ========= Ratings ========= */
-function toNum(x, d=70){ const v=Number(x); return Number.isFinite(v) ? v : d; }
-function playerOVR(p){
-  if (p.OVR !== undefined && p.OVR !== '') return toNum(p.OVR, 70);
-  const keys = ['SPD','STR','AGI','INT','TEC','HANDS','TACK','BLOCK','COVER','PASS_ACC','PASS_PWR'];
-  let sum=0, n=0;
-  keys.forEach(k => { const v = toNum(p[k], NaN); if (Number.isFinite(v)){ sum+=v; n++; } });
-  return n? (sum/n) : 70;
-}
-function rateTeams(objs){
-  const byTeam = new Map();
-  objs.forEach(r => {
-    const t=String(r.Team||'').trim();
-    if(!t) return;
-    if(!byTeam.has(t)) byTeam.set(t,[]);
-    byTeam.get(t).push(r);
-  });
-  return Array.from(byTeam.entries()).map(([team,rows])=>{
-    const vals = rows.map(playerOVR);
-    const rating = Math.round(vals.reduce((a,b)=>a+b,0)/vals.length);
-    return { team, rating };
-  });
-}
-
-/* ========= Rendering ========= */
-function tableStandingsHTML(rows){
-  return `
-    <table class="table">
-      <thead>
-        <tr>
-          <th>#</th><th>Team</th>
-          <th class="right">W</th><th class="right">L</th>
-          <th class="right">PF</th><th class="right">PA</th>
-          <th class="right">Diff</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rows.map((r,i)=>`
-          <tr>
-            <td class="right">${i+1}</td>
-            <td>${r.team}</td>
-            <td class="right">${r.wins}</td>
-            <td class="right">${r.losses}</td>
-            <td class="right">${r.pf}</td>
-            <td class="right">${r.pa}</td>
-            <td class="right">${r.pf - r.pa}</td>
-          </tr>`).join('')}
-      </tbody>
-    </table>`;
-}
-function tableRatingsHTML(rows){
-  return `
-    <table class="table">
-      <thead><tr><th>#</th><th>Team</th><th class="right">Rating</th></tr></thead>
-      <tbody>
-        ${rows.map((t,i)=>`
-          <tr>
-            <td class="right">${i+1}</td>
-            <td>${t.team}</td>
-            <td class="right">${t.rating}</td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>`;
-}
-
-/* ========= Apply local headless results on top of season standings ========= */
-function applyHeadlessResults(standings){
-  const data = loadLocalResults();
-  for (const k in data){
-    const g = data[k];
-    const home = g.home, away = g.away;
-    const hp = +g.homePts, ap = +g.awayPts;
-    if (!home || !away) continue;
-    if (!standings[home]) standings[home] = { team: home, wins:0, losses:0, pf:0, pa:0 };
-    if (!standings[away]) standings[away] = { team: away, wins:0, losses:0, pf:0, pa:0 };
-    standings[home].pf += hp; standings[home].pa += ap;
-    standings[away].pf += ap; standings[away].pa += hp;
-    if (hp > ap){ standings[home].wins++; standings[away].losses++; }
-    else if (ap > hp){ standings[away].wins++; standings[home].losses++; }
-  }
-}
-
-/* ========= Boot ========= */
-/* ========= Boot ========= */
-(async function init(){
-  let stand;
-
-  // 1) Load saved season standings if present; otherwise create 0–0 baseline
-  try{
-    const cached = localStorage.getItem(LIVE_KEY_STANDINGS);
-    if (cached){
-      stand = JSON.parse(cached);
-      livePill.textContent = 'Live: cached';
-    } else {
-      stand = createBaselineStandings();
-      livePill.textContent = 'Live: baseline';
+    
+    /* ===== Rendering ===== */
+    function tableHTML(rows){
+      return `
+        <table class="table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Team</th>
+              <th class="right">W</th>
+              <th class="right">L</th>
+              <th class="right">PF</th>
+              <th class="right">PA</th>
+              <th class="right">Diff</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map((r,i)=>`
+              <tr>
+                <td class="right">${i+1}</td>
+                <td>${r.team}</td>
+                <td class="right">${r.wins}</td>
+                <td class="right">${r.losses}</td>
+                <td class="right">${r.pf}</td>
+                <td class="right">${r.pa}</td>
+                <td class="right">${r.diff}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>`;
     }
-  }catch(e){
-    console.error(e);
-    stand = createBaselineStandings();
-    livePill.textContent = 'Live: baseline';
-  }
-
-  // 2) Apply any per-game results from schedule.html (headlessResults)
-  try{
-    applyHeadlessResults(stand);
-  }catch(e){
-    console.error(e);
-  }
-
-  // 3) Sort + render standings
-  const rows = Object.values(stand).sort((a,b)=>
-    (b.wins - a.wins) ||
-    ((b.pf - b.pa) - (a.pf - a.pa)) ||
-    a.team.localeCompare(b.team)
-  );
-  elStandings.innerHTML = tableStandingsHTML(rows);
-  teamCount.textContent = `${rows.length} teams`;
-  csvPill.textContent = 'Standings: local';
-
-  // 4) Save the updated standings back to localStorage
-  try{
-    localStorage.setItem(LIVE_KEY_STANDINGS, JSON.stringify(stand));
-  }catch(e){}
-})();
-
+    
+    function renderLeagueView(){
+      elStandings.innerHTML = tableHTML(sortRows(CURRENT_ROWS));
+    }
+    
+    function renderConferenceView(){
+      const byConf = new Map();
+      CURRENT_ROWS.forEach(r=>{
+        const key = r.conf || 'Unknown';
+        if (!byConf.has(key)) byConf.set(key, []);
+        byConf.get(key).push(r);
+      });
+      const allKeys = Array.from(byConf.keys());
+      const ordered = CONF_ORDER.concat(allKeys.filter(k=>!CONF_ORDER.includes(k)).sort());
+    
+      elStandings.innerHTML = ordered
+        .filter(k=>byConf.has(k))
+        .map(conf=>{
+          const list = sortRows(byConf.get(conf));
+          return `
+            <div class="section">
+              <h3>${conf}</h3>
+              ${tableHTML(list)}
+            </div>`;
+        }).join('');
+    }
+    
+    function renderDivisionView(){
+      const byDiv = new Map();
+      CURRENT_ROWS.forEach(r=>{
+        const key = r.division || 'Unknown';
+        if (!byDiv.has(key)) byDiv.set(key, []);
+        byDiv.get(key).push(r);
+      });
+      const allKeys = Array.from(byDiv.keys());
+      const ordered = DIV_ORDER.concat(allKeys.filter(k=>!DIV_ORDER.includes(k)).sort());
+    
+      elStandings.innerHTML = ordered
+        .filter(k=>byDiv.has(k))
+        .map(div=>{
+          const list = sortRows(byDiv.get(div));
+          return `
+            <div class="section">
+              <h3>${div}</h3>
+              ${tableHTML(list)}
+            </div>`;
+        }).join('');
+    }
+    
+    function renderCurrentView(){
+      if (!CURRENT_ROWS.length){
+        elStandings.innerHTML = '<div class="small">No teams found.</div>';
+        return;
+      }
+      if (VIEW_MODE === 'conference') renderConferenceView();
+      else if (VIEW_MODE === 'division') renderDivisionView();
+      else renderLeagueView();
+    }
+    
+    /* ===== Week pill ===== */
+    function updateWeekPill(){
+      if (!weekPill) return;
+      const res = loadLocalResults();
+      const weeksSet = new Set();
+      for (const k in res){
+        const w = parseInt(res[k].week,10);
+        if (Number.isFinite(w) && w > 0) weeksSet.add(w);
+      }
+      if (!weeksSet.size){
+        weekPill.textContent = `Week: 1 of ${TOTAL_WEEKS}`;
+        return;
+      }
+      const arr = Array.from(weeksSet).sort((a,b)=>a-b);
+      const maxW = arr[arr.length-1];
+      let next = null;
+      for (let w=1; w<=maxW; w++){
+        if (!weeksSet.has(w)){
+          next = w; break;
+        }
+      }
+      if (next == null) next = maxW + 1;
+    
+      if (next > TOTAL_WEEKS){
+        weekPill.textContent = 'Season complete';
+      }else{
+        weekPill.textContent = `Week: ${next} of ${TOTAL_WEEKS}`;
+      }
+    }
+    
+    /* ===== Recalculate + render ===== */
+    function recalcAndRender(){
+      CURRENT_ROWS = rowsFromStandingsObj(CURRENT_STANDINGS);
+      teamCount.textContent = `${CURRENT_ROWS.length} teams`;
+      renderCurrentView();
+      updateWeekPill();
+    }
+    
+    /* ===== Reset from this page ===== */
+    function resetSeasonStandings(){
+      try{
+        localStorage.setItem(LOCAL_RESULTS_KEY, JSON.stringify({}));
+        const base = buildBaselineStandings();
+        CURRENT_STANDINGS = base;
+        localStorage.setItem(LIVE_KEY_STANDINGS, JSON.stringify(base));
+      }catch(e){}
+      recalcAndRender();
+    
+      if (chan){
+        try{
+          chan.postMessage({
+            type:'standings',
+            standings: CURRENT_STANDINGS,
+            progress:{done:0,total:0}
+          });
+        }catch(e){}
+      }
+    }
+    
+    /* ===== Wire UI ===== */
+    viewTabs.forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        viewTabs.forEach(b=>b.classList.remove('active'));
+        btn.classList.add('active');
+        VIEW_MODE = btn.dataset.view || 'league';
+        renderCurrentView();
+      });
+    });
+    
+    if (resetBtn){
+      resetBtn.addEventListener('click', ()=>{
+        if (confirm('Reset all simulated results and standings?')){
+          resetSeasonStandings();
+        }
+      });
+    }
+    
+    /* ===== Broadcast updates from schedule/engine ===== */
+    if (chan){
+      chan.onmessage = (evt)=>{
+        const { type, standings } = evt.data || {};
+        if (type === 'standings' && standings){
+          CURRENT_STANDINGS = standings;
+          try{
+            localStorage.setItem(LIVE_KEY_STANDINGS, JSON.stringify(standings));
+          }catch(e){}
+          recalcAndRender();
+        }else if (type === 'headlessResultsUpdated'){
+          const base = loadStandingsFromStorage();
+          CURRENT_STANDINGS = applyHeadlessResults(base);
+          try{
+            localStorage.setItem(LIVE_KEY_STANDINGS, JSON.stringify(CURRENT_STANDINGS));
+          }catch(e){}
+          recalcAndRender();
+        }
+      };
+    }
+    
+    /* ===== Boot ===== */
+    (function init(){
+      const base = loadStandingsFromStorage();
+      CURRENT_STANDINGS = applyHeadlessResults(base);
+      recalcAndRender();
+    })();
 </script>
 </body>
 </html>
