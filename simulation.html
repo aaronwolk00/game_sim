@@ -925,30 +925,690 @@
   <!-- Top-level module: imports other modules and wires up the UI. -->
   <script type="module">
     import { loadLeague } from './data_models.js';
-    import { simulateGame, formatGameSummary } from './game_engine.js';
-  
-    const runBtn = document.getElementById('runSim');
-    const outputEl = document.getElementById('output');
-  
+    import { simulateGame } from './game_engine.js';
+
+    // ----- DOM LOOKUPS -------------------------------------------------------
+    const dom = {
+      engineStatus: document.getElementById('sim-engine-status'),
+      statusText: document.getElementById('sim-status-text'),
+      btnRandom: document.getElementById('btn-random-matchup'),
+      btnRun: document.getElementById('btn-run-sim'),
+      btnStepDrive: document.getElementById('btn-step-drive'),
+      btnStepPlay: document.getElementById('btn-step-play'),
+      btnReset: document.getElementById('btn-reset'),
+
+      selectHome: document.getElementById('select-home-team'),
+      selectAway: document.getElementById('select-away-team'),
+      inputSeed: document.getElementById('input-seed'),
+
+      simModeGroup: document.getElementById('sim-mode-group'),
+
+      homeName: document.getElementById('home-team-name'),
+      homeMeta: document.getElementById('home-team-meta'),
+      awayName: document.getElementById('away-team-name'),
+      awayMeta: document.getElementById('away-team-meta'),
+      scoreHome: document.getElementById('score-home'),
+      scoreAway: document.getElementById('score-away'),
+      scoreMeta: document.getElementById('score-meta'),
+
+      stateDownDist: document.getElementById('state-down-distance'),
+      stateFieldPos: document.getElementById('state-field-pos'),
+      statePossession: document.getElementById('state-possession'),
+      stateTimeouts: document.getElementById('state-timeouts'),
+      stateMomentum: document.getElementById('state-momentum'),
+
+      chipSimMode: document.getElementById('chip-sim-mode-meta'),
+      debugEngineLine: document.getElementById('debug-engine-line'),
+      debugMicroText: document.getElementById('debug-micro-text'),
+
+      driveTableBody: document.querySelector('#drive-summary-table tbody'),
+      teamStatsBody: document.querySelector('#team-stats-table tbody'),
+      playLog: document.getElementById('play-log-container'),
+    };
+
+    // ----- STATE -------------------------------------------------------------
     let league = null;
-  
-    (async () => {
-      league = await loadLeague('./layer3_rosters.csv');
-    })();
-  
-    runBtn.addEventListener('click', () => {
-      if (!league) {
-        outputEl.textContent = 'League not loaded yet.';
+    let currentHomeTeam = null;
+    let currentAwayTeam = null;
+
+    let currentResult = null;   // last simulateGame(...) result
+    let simMode = 'full-game';  // 'full-game' | 'drive-step' | 'play-step'
+
+    // For incremental reveal (UI stepping only – underlying sim is full-game).
+    let stepState = {
+      driveIndex: -1,
+      playIndex: -1,
+    };
+
+    // ----- SMALL HELPERS -----------------------------------------------------
+    function setEngineStatus(state, message) {
+      // state: 'pending' | 'ready' | 'error'
+      const pill = dom.engineStatus;
+      if (!pill) return;
+
+      pill.classList.remove('pending', 'error');
+      const dot = pill.querySelector('.dot');
+      const textSpan = pill.querySelector('span:nth-child(2)');
+
+      if (state === 'pending') {
+        pill.classList.add('pending');
+        if (dot) dot.style.background = '#f8b84a';
+        if (textSpan) textSpan.textContent = message ?? 'Loading engine…';
+      } else if (state === 'error') {
+        pill.classList.add('error');
+        if (dot) dot.style.background = 'var(--danger)';
+        if (textSpan) textSpan.textContent = message ?? 'Engine error';
+      } else {
+        // ready
+        if (dot) dot.style.background = 'var(--success)';
+        if (textSpan) textSpan.textContent = message ?? 'Engine ready';
+      }
+    }
+
+    function setSimStatus(text) {
+      if (dom.statusText) dom.statusText.textContent = text;
+    }
+
+    function safeNumber(v, fallback = 0) {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : fallback;
+    }
+
+    function formatClockFromSeconds(seconds) {
+      if (!Number.isFinite(seconds)) return '0:00';
+      const m = Math.floor(seconds / 60);
+      const s = Math.floor(seconds % 60)
+        .toString()
+        .padStart(2, '0');
+      return `${m}:${s}`;
+    }
+
+    function clearElement(el) {
+      if (el) el.innerHTML = '';
+    }
+
+    function getTeamLabel(team) {
+      if (!team) return 'Unknown';
+      return (
+        team.displayName ||
+        team.team_name ||
+        team.teamName ||
+        `${team.teamId ?? team.id ?? '??'}`
+      );
+    }
+
+    function getTeamMetaString(team) {
+      if (!team) return 'Ovr – | Off – | Def – | ST –';
+      const ratings =
+        team.teamRatings ||
+        team.ratings ||
+        team.summary ||
+        {};
+
+      const ovr =
+        ratings.overall ??
+        ratings.ovr ??
+        team.overall ??
+        team.rating_overall ??
+        '–';
+      const off = ratings.offense ?? ratings.off ?? ratings.offenseOverall ?? '–';
+      const def = ratings.defense ?? ratings.def ?? ratings.defenseOverall ?? '–';
+      const st = ratings.specialTeams ?? ratings.st ?? ratings.stOverall ?? '–';
+
+      return `Ovr ${ovr} | Off ${off} | Def ${def} | ST ${st}`;
+    }
+
+    function getDrivesFromResult(result) {
+      if (!result) return [];
+      if (Array.isArray(result.driveSummaries)) return result.driveSummaries;
+      if (Array.isArray(result.drives)) return result.drives;
+      return [];
+    }
+
+    function getPlayLogFromResult(result) {
+      if (!result) return [];
+      if (Array.isArray(result.playLog)) return result.playLog;
+      if (Array.isArray(result.plays)) return result.plays;
+      return [];
+    }
+
+    function getTeamStatsFromResult(result, homeId, awayId) {
+      const out = { home: {}, away: {} };
+      if (!result) return out;
+
+      const stats = result.teamStats || result.stats || {};
+      if (stats.home || stats.away) {
+        out.home = stats.home || {};
+        out.away = stats.away || {};
+      } else if (homeId && awayId) {
+        out.home = stats[homeId] || {};
+        out.away = stats[awayId] || {};
+      }
+      return out;
+    }
+
+    function getScoreFromResult(result) {
+      if (!result) return { home: 0, away: 0 };
+
+      const s = result.score || result.finalScore || {};
+      const meta = result.meta || {};
+      const endState = result.gameStateEnd || {};
+
+      const home =
+        s.home ??
+        s.homeScore ??
+        result.homeScore ??
+        result.scoreHome ??
+        0;
+      const away =
+        s.away ??
+        s.awayScore ??
+        result.awayScore ??
+        result.scoreAway ??
+        0;
+
+      const quarter =
+        endState.quarter ??
+        endState.qtr ??
+        meta.quarter ??
+        meta.qtr ??
+        4;
+      const clock =
+        endState.clock ??
+        endState.gameClock ??
+        meta.clock ??
+        '0:00';
+
+      return { home, away, quarter, clock };
+    }
+
+    // ----- UI WIRING ---------------------------------------------------------
+    function wireSimModeRadios() {
+      if (!dom.simModeGroup) return;
+
+      const updateActive = () => {
+        const inputs = dom.simModeGroup.querySelectorAll('input[name="sim-mode"]');
+        inputs.forEach((input) => {
+          const label = input.closest('.radio-pill');
+          if (!label) return;
+          if (input.checked) {
+            label.classList.add('active');
+            simMode = input.value;
+          } else {
+            label.classList.remove('active');
+          }
+        });
+
+        if (dom.chipSimMode) {
+          const label =
+            simMode === 'full-game'
+              ? 'Mode: Full Game'
+              : simMode === 'drive-step'
+              ? 'Mode: Drive-by-drive'
+              : 'Mode: Play-by-play';
+          dom.chipSimMode.textContent = label;
+        }
+      };
+
+      dom.simModeGroup.addEventListener('change', (e) => {
+        if (e.target && e.target.name === 'sim-mode') {
+          updateActive();
+          setSimStatus(
+            simMode === 'full-game'
+              ? 'Full game: one-click simulation.'
+              : simMode === 'drive-step'
+              ? 'Drive-by-drive: run once, then step through drives.'
+              : 'Play-by-play: run once, then step through plays.'
+          );
+        }
+      });
+
+      updateActive();
+    }
+
+    function wireControls() {
+      dom.btnRandom.addEventListener('click', () => {
+        if (!league || !Array.isArray(league.teams) || league.teams.length < 2) {
+          return;
+        }
+        const teams = league.teams;
+        const idx1 = Math.floor(Math.random() * teams.length);
+        let idx2 = Math.floor(Math.random() * teams.length);
+        if (idx2 === idx1) {
+          idx2 = (idx1 + 1) % teams.length;
+        }
+        dom.selectHome.value = teams[idx1].teamId || teams[idx1].id;
+        dom.selectAway.value = teams[idx2].teamId || teams[idx2].id;
+        syncSelectedTeamsToCards();
+      });
+
+      dom.selectHome.addEventListener('change', syncSelectedTeamsToCards);
+      dom.selectAway.addEventListener('change', syncSelectedTeamsToCards);
+
+      dom.btnRun.addEventListener('click', onRunSimulation);
+      dom.btnStepDrive.addEventListener('click', onStepDrive);
+      dom.btnStepPlay.addEventListener('click', onStepPlay);
+      dom.btnReset.addEventListener('click', resetForNewSimulation);
+    }
+
+    function enableControlsAfterLeagueLoad() {
+      dom.btnRandom.disabled = false;
+      dom.btnRun.disabled = false;
+      dom.btnReset.disabled = false;
+      dom.selectHome.disabled = false;
+      dom.selectAway.disabled = false;
+    }
+
+    function disableStepButtons() {
+      dom.btnStepDrive.disabled = true;
+      dom.btnStepPlay.disabled = true;
+    }
+
+    function syncSelectedTeamsToCards() {
+      if (!league || !Array.isArray(league.teams)) return;
+
+      const findById = (id) =>
+        league.teams.find(
+          (t) => t.teamId === id || t.id === id || t.abbr === id
+        );
+
+      currentHomeTeam = findById(dom.selectHome.value);
+      currentAwayTeam = findById(dom.selectAway.value);
+
+      dom.homeName.textContent = getTeamLabel(currentHomeTeam);
+      dom.awayName.textContent = getTeamLabel(currentAwayTeam);
+
+      dom.homeMeta.textContent = getTeamMetaString(currentHomeTeam);
+      dom.awayMeta.textContent = getTeamMetaString(currentAwayTeam);
+    }
+
+    // ----- RENDERING ---------------------------------------------------------
+    function resetScoreboardOnly() {
+      dom.scoreHome.textContent = '0';
+      dom.scoreAway.textContent = '0';
+      dom.scoreMeta.textContent = 'Q1 • 15:00 • 0–0';
+
+      dom.stateDownDist.innerHTML = '<strong>Down &amp; Distance:</strong> –';
+      dom.stateFieldPos.innerHTML = '<strong>Field:</strong> –';
+      dom.statePossession.innerHTML = '<strong>Ball:</strong> –';
+      dom.stateTimeouts.innerHTML =
+        '<strong>Timeouts:</strong> <span>Home 3</span> | <span>Away 3</span>';
+      dom.stateMomentum.innerHTML =
+        '<strong>Momentum:</strong> Neutral';
+    }
+
+    function resetTablesAndLogs() {
+      clearElement(dom.driveTableBody);
+      clearElement(dom.teamStatsBody);
+      clearElement(dom.playLog);
+
+      // placeholder log
+      const div = document.createElement('div');
+      div.className = 'log-entry';
+      div.innerHTML = `
+        <div class="log-meta">Pre-game</div>
+        <div class="log-text text-muted">
+          Select teams and run a simulation to see detailed play-by-play output here.
+        </div>`;
+      dom.playLog.appendChild(div);
+    }
+
+    function resetForNewSimulation() {
+      currentResult = null;
+      stepState = { driveIndex: -1, playIndex: -1 };
+      resetScoreboardOnly();
+      resetTablesAndLogs();
+      disableStepButtons();
+      setSimStatus('Ready. Configure teams and run a simulation.');
+      if (dom.debugEngineLine) {
+        dom.debugEngineLine.textContent =
+          'Engine logs and sanity checks will appear here.';
+      }
+    }
+
+    function renderScoreboardFromResult(result) {
+      const { home, away, quarter, clock } = getScoreFromResult(result);
+      dom.scoreHome.textContent = String(home);
+      dom.scoreAway.textContent = String(away);
+
+      const qLabel =
+        quarter && quarter !== 'Final' ? `Q${quarter}` : 'Final';
+      const clockLabel = clock || '0:00';
+      dom.scoreMeta.textContent = `${qLabel} • ${clockLabel} • ${away}–${home}`;
+    }
+
+    function renderDriveSummary(result, maxDriveIndex = Infinity) {
+      clearElement(dom.driveTableBody);
+      const drives = getDrivesFromResult(result);
+      if (!drives.length) return;
+
+      drives.forEach((d, idx) => {
+        if (idx > maxDriveIndex) return;
+        const tr = document.createElement('tr');
+
+        const teamId =
+          d.teamId || d.offenseTeamId || d.team || d.offense || '';
+        const teamLabel =
+          teamId === (currentHomeTeam?.teamId || currentHomeTeam?.id)
+            ? getTeamLabel(currentHomeTeam)
+            : teamId === (currentAwayTeam?.teamId || currentAwayTeam?.id)
+            ? getTeamLabel(currentAwayTeam)
+            : teamId || '';
+
+        const resultText = d.result || d.resultType || d.outcome || '';
+        const plays = d.playCount ?? d.plays ?? d.numPlays ?? '';
+        const yards =
+          d.yards ??
+          d.totalYards ??
+          d.netYards ??
+          '';
+        const time =
+          d.timeStr ??
+          d.clock ??
+          (Number.isFinite(d.durationSec)
+            ? formatClockFromSeconds(d.durationSec)
+            : '');
+
+        tr.innerHTML = `
+          <td>${idx + 1}</td>
+          <td>${teamLabel}</td>
+          <td>${resultText}</td>
+          <td>${plays}</td>
+          <td>${yards}</td>
+          <td>${time}</td>
+        `;
+        dom.driveTableBody.appendChild(tr);
+      });
+    }
+
+    function renderTeamStats(result) {
+      clearElement(dom.teamStatsBody);
+      if (!currentHomeTeam || !currentAwayTeam) return;
+
+      const homeId = currentHomeTeam.teamId || currentHomeTeam.id;
+      const awayId = currentAwayTeam.teamId || currentAwayTeam.id;
+
+      const { home, away } = getTeamStatsFromResult(result, homeId, awayId);
+
+      const addRow = (label, s) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${label}</td>
+          <td>${s.yardsTotal ?? s.totalYards ?? s.yards ?? 0}</td>
+          <td>${(s.yardsPerPlay ?? s.ypp ?? 0).toFixed
+            ? (s.yardsPerPlay ?? s.ypp ?? 0).toFixed(2)
+            : s.yardsPerPlay ?? s.ypp ?? 0}</td>
+          <td>${s.rushYards ?? s.rushingYards ?? s.rush ?? 0}</td>
+          <td>${s.passYards ?? s.passingYards ?? s.pass ?? 0}</td>
+          <td>${s.turnovers ?? s.to ?? 0}</td>
+          <td>${s.epa ?? s.totalEPA ?? 0}</td>
+        `;
+        dom.teamStatsBody.appendChild(tr);
+      };
+
+      addRow(getTeamLabel(currentHomeTeam), home);
+      addRow(getTeamLabel(currentAwayTeam), away);
+    }
+
+    function appendPlayEntries(plays, maxIndex = Infinity) {
+      clearElement(dom.playLog);
+      if (!plays.length) return;
+
+      plays.forEach((p, idx) => {
+        if (idx > maxIndex) return;
+
+        const div = document.createElement('div');
+        const tags = (p.tags || []).map((t) => String(t).toUpperCase());
+
+        let extraClasses = '';
+        if (p.isScoring || tags.includes('TD') || tags.includes('FG')) {
+          extraClasses += ' scoring key-play';
+        } else if (p.isTurnover || tags.includes('TURNOVER')) {
+          extraClasses += ' turnover key-play';
+        } else if (p.highImpact) {
+          extraClasses += ' key-play';
+        }
+
+        div.className = `log-entry${extraClasses}`;
+
+        const quarter = p.quarter ?? p.qtr ?? '';
+        const clock =
+          p.clock ??
+          p.gameClock ??
+          (Number.isFinite(p.clockSec) ? formatClockFromSeconds(p.clockSec) : '');
+
+        const metaParts = [];
+        if (quarter) metaParts.push(`Q${quarter}`);
+        if (clock) metaParts.push(clock);
+        if (p.downAndDistance) metaParts.push(p.downAndDistance);
+        const meta = metaParts.join(' • ') || '&nbsp;';
+
+        const text =
+          p.text ||
+          p.description ||
+          p.desc ||
+          '[no description]';
+
+        div.innerHTML = `
+          <div class="log-meta">${meta}</div>
+          <div class="log-text">
+            ${text}
+          </div>
+        `;
+        dom.playLog.appendChild(div);
+      });
+
+      // Auto-scroll to bottom on new entries
+      dom.playLog.scrollTop = dom.playLog.scrollHeight;
+    }
+
+    function renderFullGame(result) {
+      renderScoreboardFromResult(result);
+      renderDriveSummary(result);
+      renderTeamStats(result);
+      const plays = getPlayLogFromResult(result);
+      appendPlayEntries(plays);
+
+      const drives = getDrivesFromResult(result);
+      if (dom.debugEngineLine) {
+        dom.debugEngineLine.textContent = `Sim complete: ${
+          drives.length
+        } drives, ${plays.length} plays. Seed: ${
+          (result.meta && result.meta.seed) || 'n/a'
+        }`;
+      }
+    }
+
+    function renderStepView() {
+      const drives = getDrivesFromResult(currentResult);
+      const plays = getPlayLogFromResult(currentResult);
+
+      if (simMode === 'drive-step') {
+        const idx = Math.max(0, stepState.driveIndex);
+        renderDriveSummary(currentResult, idx);
+        // show all plays up to end of that drive if drives carry play indices
+        if (drives[idx] && Array.isArray(drives[idx].playIndices)) {
+          const maxPlay = Math.max(...drives.slice(0, idx + 1).flatMap((d) => d.playIndices));
+          appendPlayEntries(plays, maxPlay);
+        } else {
+          // fallback: show all plays up to approximate fraction
+          const fraction = (idx + 1) / (drives.length || 1);
+          const maxPlay = Math.floor((plays.length - 1) * fraction);
+          appendPlayEntries(plays, maxPlay);
+        }
+      } else if (simMode === 'play-step') {
+        const maxPlay = Math.max(0, stepState.playIndex);
+        renderDriveSummary(currentResult); // full drive list is fine
+        appendPlayEntries(plays, maxPlay);
+      }
+
+      // For simplicity, scoreboard always shows final score once sim is run.
+      renderScoreboardFromResult(currentResult);
+      renderTeamStats(currentResult);
+    }
+
+    // ----- EVENT HANDLERS ----------------------------------------------------
+    async function onRunSimulation() {
+      if (!league || !Array.isArray(league.teams)) return;
+
+      if (!currentHomeTeam || !currentAwayTeam) {
+        setSimStatus('Select valid home and away teams.');
         return;
       }
-  
-      const home = league.teams.find(t => t.teamId === 'CAR');
-      const away = league.teams.find(t => t.teamId === 'IND');
-  
-      const result = simulateGame(home, away, { seed: 1234 });
-      outputEl.textContent = formatGameSummary(result);
-      console.log(result); // inspect plays/drives in dev tools
-    });
+      const homeId = currentHomeTeam.teamId || currentHomeTeam.id;
+      const awayId = currentAwayTeam.teamId || currentAwayTeam.id;
+      if (homeId === awayId) {
+        setSimStatus('Home and away must be different teams.');
+        return;
+      }
+
+      resetForNewSimulation(); // clear previous results but keep selected teams
+      setSimStatus('Running simulation…');
+
+      const rawSeed = dom.inputSeed.value.trim();
+      const seed = rawSeed === '' ? undefined : safeNumber(rawSeed, undefined);
+
+      try {
+        // simulateGame may be sync or async – normalize via Promise.resolve
+        const result = await Promise.resolve(
+          simulateGame(currentHomeTeam, currentAwayTeam, { seed, mode: simMode })
+        );
+        currentResult = result || {};
+
+        if (simMode === 'full-game') {
+          disableStepButtons();
+          renderFullGame(currentResult);
+          setSimStatus('Simulation complete. Showing full game results.');
+        } else {
+          // For step modes we compute once, then reveal incrementally.
+          stepState = { driveIndex: -1, playIndex: -1 };
+          dom.btnStepDrive.disabled = simMode !== 'drive-step';
+          dom.btnStepPlay.disabled = simMode !== 'play-step';
+          setSimStatus(
+            simMode === 'drive-step'
+              ? 'Simulation complete. Use “Next Drive” to step through drives.'
+              : 'Simulation complete. Use “Next Play” to step through plays.'
+          );
+          // initial render: nothing revealed yet
+          resetTablesAndLogs();
+        }
+      } catch (err) {
+        console.error('simulateGame error', err);
+        setEngineStatus('error', 'Simulation failed');
+        setSimStatus('Simulation failed. Check console for details.');
+        if (dom.debugEngineLine) {
+          dom.debugEngineLine.textContent = `Simulation error: ${err?.message || err}`;
+        }
+      }
+    }
+
+    function onStepDrive() {
+      if (!currentResult || simMode !== 'drive-step') return;
+      const drives = getDrivesFromResult(currentResult);
+      if (!drives.length) return;
+
+      if (stepState.driveIndex < drives.length - 1) {
+        stepState.driveIndex += 1;
+        renderStepView();
+        setSimStatus(
+          stepState.driveIndex < drives.length - 1
+            ? `Drive ${stepState.driveIndex + 1} of ${drives.length}.`
+            : 'Last drive revealed.'
+        );
+      }
+    }
+
+    function onStepPlay() {
+      if (!currentResult || simMode !== 'play-step') return;
+      const plays = getPlayLogFromResult(currentResult);
+      if (!plays.length) return;
+
+      if (stepState.playIndex < plays.length - 1) {
+        stepState.playIndex += 1;
+        renderStepView();
+        setSimStatus(
+          stepState.playIndex < plays.length - 1
+            ? `Play ${stepState.playIndex + 1} of ${plays.length}.`
+            : 'Last play revealed.'
+        );
+      }
+    }
+
+    // ----- INIT LEAGUE LOAD --------------------------------------------------
+    async function initLeague() {
+      setEngineStatus('pending', 'Loading Layer 3 rosters…');
+      setSimStatus('Loading teams from layer3_rosters.csv…');
+
+      try {
+        league = await loadLeague('./layer3_rosters.csv');
+
+        if (!league || !Array.isArray(league.teams) || league.teams.length === 0) {
+          throw new Error('No teams found in league data.');
+        }
+
+        // Populate selects
+        const fragHome = document.createDocumentFragment();
+        const fragAway = document.createDocumentFragment();
+
+        league.teams.forEach((team) => {
+          const id = team.teamId || team.id;
+          const label = getTeamLabel(team);
+
+          const optHome = document.createElement('option');
+          optHome.value = id;
+          optHome.textContent = label;
+          fragHome.appendChild(optHome);
+
+          const optAway = document.createElement('option');
+          optAway.value = id;
+          optAway.textContent = label;
+          fragAway.appendChild(optAway);
+        });
+
+        dom.selectHome.innerHTML = '';
+        dom.selectAway.innerHTML = '';
+        dom.selectHome.appendChild(fragHome);
+        dom.selectAway.appendChild(fragAway);
+
+        // Default teams: first as home, second as away if available
+        if (league.teams[0]) {
+          dom.selectHome.value = league.teams[0].teamId || league.teams[0].id;
+        }
+        if (league.teams[1]) {
+          dom.selectAway.value = league.teams[1].teamId || league.teams[1].id;
+        }
+
+        syncSelectedTeamsToCards();
+        resetForNewSimulation();
+        enableControlsAfterLeagueLoad();
+        setEngineStatus('ready', 'Engine ready (Layer 3)');
+        setSimStatus('Teams loaded. Configure options and run a simulation.');
+
+        if (dom.debugEngineLine) {
+          dom.debugEngineLine.textContent = `League loaded: ${
+            league.teams.length
+          } teams from layer3_rosters.csv.`;
+        }
+      } catch (err) {
+        console.error('loadLeague error', err);
+        setEngineStatus('error', 'Failed to load league');
+        setSimStatus('Failed to load league data. See console for details.');
+        if (dom.debugEngineLine) {
+          dom.debugEngineLine.textContent = `League load error: ${
+            err?.message || err
+          }`;
+        }
+      }
+    }
+
+    // ----- BOOTSTRAP ---------------------------------------------------------
+    (async function bootstrap() {
+      wireSimModeRadios();
+      wireControls();
+      resetForNewSimulation();
+      await initLeague();
+    })();
   </script>
+
 </body>
 </html>
