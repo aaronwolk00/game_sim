@@ -45,7 +45,12 @@ hr{height:1px;background:#1c2440;border:0;margin:10px 0;border-radius:2px}
       <h1 id="page-title">Loading Week 1 Games...</h1>
       <div class="nav">
         <a id="toSchedule" class="btn">Schedule</a>
-        <a id="toStandings" class="btn ghost" style="text-decoration:none;background:#0e1630;color:#dbe3ef;border:1px solid #2a355a">Standings</a>
+        <a id="toSimulation" class="btn" style="text-decoration:none;background:#0e1630;color:#dbe3ef;border:1px solid #2a355a">
+          Simulation
+        </a>
+        <a id="toStandings" class="btn" style="text-decoration:none;background:#0e1630;color:#dbe3ef;border:1px solid #2a355a">
+          Standings
+        </a>
       </div>
     </div>
     <div class="grid" id="game-grid"></div>
@@ -66,8 +71,10 @@ const forwardQS = join(playersParamStr, schedParamStr);
 const qs = forwardQS ? `?${forwardQS}` : '';
 
 // Wire nav
-document.getElementById('toSchedule').href = `schedule.html${qs}`;
-document.getElementById('toStandings').href = `standings.html${playersParamStr ? `?${playersParamStr}`:''}`;
+document.getElementById('toSchedule').href   = `schedule.html${qs}`;
+document.getElementById('toSimulation').href = `simulation.html${qs}`;
+document.getElementById('toStandings').href  =
+  `standings.html${playersParamStr ? `?${playersParamStr}` : ''}`;
 
 // Players CSV resolution (same-origin first, then raw GH, unless ?players= provided)
 const CSV_URLS = RAW_PLAYERS_PARAM
