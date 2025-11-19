@@ -2,430 +2,506 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>NFL Sim — Batch Simulator</title>
 <style>
   :root{
-    --bg:#0b1220;--panel:#121a2a;--card:#0e1630;--text:#eef2ff;--muted:#93a0b1;
-    --accent:#5eead4;--good:#10b981;--warn:#f59e0b;--danger:#ef4444;
+    --bg:#0b1220;--panel:#121a2a;--card:#0e1630;--text:#eef2ff;--muted:#93a0b1;--accent:#5eead4;
+    --ok:#4ade80;--warn:#f59e0b;--bad:#f87171;
   }
   *{box-sizing:border-box}
   html,body{height:100%}
   body{
     margin:0;background:var(--bg);color:var(--text);
     font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-    display:grid;place-items:start;
+    display:flex;flex-direction:column;align-items:center;gap:14px;padding:18px;
   }
-  main{width:min(1100px,94vw);margin:24px auto;display:grid;gap:16px}
-  h1{margin:0 0 2px;font-size:22px;letter-spacing:.2px}
-  .sub{font-size:12px;color:var(--muted)}
+  main{width:min(1100px,96vw);display:grid;gap:16px}
+  h1{margin:0;font-size:22px;letter-spacing:.2px}
+  .panel{background:var(--panel);border-radius:14px;padding:14px}
   .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
-  .panel{background:var(--panel);border-radius:14px;padding:12px}
-  .card{background:var(--card);border-radius:12px;padding:12px}
-  label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
-  select,input,button{border-radius:10px;border:1px solid #1f2937;background:#0b1220;color:var(--text);padding:8px 10px}
-  button{background:#111827;border:1px solid #263246;cursor:pointer}
-  button.primary{background:linear-gradient(180deg,#21c7b8,#0fb3a6);border:none;color:#072c2a;font-weight:700}
-  button:disabled{opacity:.6;cursor:not-allowed}
-  .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
-  .kpi{background:#0c1729;border:1px solid #1f2937;border-radius:12px;padding:10px}
-  .kpi .title{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
-  .kpi .value{font-size:18px;font-weight:800;margin-top:6px}
-  .kpi .subvalue{font-size:12px;color:var(--muted)}
-  table{width:100%;border-collapse:collapse;font-size:12px}
-  th,td{padding:8px;border-bottom:1px solid #1f2937;text-align:left;white-space:nowrap}
-  th{font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em;font-size:11px}
+  label{font-size:12px;color:var(--muted)}
+  input,select,button{
+    background:var(--card);color:var(--text);border:1px solid #1e2a43;
+    border-radius:10px;padding:8px 10px;font-size:14px
+  }
+  input[type="number"]{width:110px}
+  button{cursor:pointer}
+  button.primary{background:var(--accent);color:#0b1220;border-color:transparent;font-weight:600}
+  .grid{display:grid;gap:12px}
+  .two{grid-template-columns:1fr 1fr}
+  .three{grid-template-columns:repeat(3,1fr)}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{padding:8px;border-bottom:1px solid #1e2a43;text-align:left}
+  th{color:var(--muted);font-weight:600}
   .muted{color:var(--muted)}
-  .mono{font-family:ui-monospace, Menlo, Consolas, monospace}
-  .status-pill{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;background:#0b1428;border:1px solid #263246;font-size:12px}
-  .status-pill .dot{width:8px;height:8px;border-radius:999px;background:#6b7280}
-  .pill-ok .dot{background:var(--good)}
-  .pill-warn .dot{background:var(--warn)}
-  .pill-bad .dot{background:var(--danger)}
-  .progress{height:10px;background:#0c1729;border:1px solid #1f2937;border-radius:999px;overflow:hidden}
-  .bar{height:100%;width:0;background:linear-gradient(90deg,#5eead4,#60a5fa)}
-  .hint{font-size:12px;color:var(--muted)}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:#1b2640;color:var(--muted);font-size:12px}
+  progress{width:100%;height:12px}
+  .small{font-size:12px}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .warn{color:var(--warn)}
+  .ok{color:var(--ok)}
 </style>
 </head>
 <body>
-<main>
-  <div class="row" style="justify-content:space-between">
-    <div>
+  <main>
+    <header class="panel">
       <h1>Batch Simulator</h1>
-      <div class="sub">Run hundreds of games and get realistic distributions.</div>
-    </div>
-    <div id="enginePill" class="status-pill"><span class="dot"></span><span>Engine not loaded</span></div>
-  </div>
+      <div class="muted small">Run many games and summarize realistic ranges for scores, yards, plays, drives, etc. Uses your current engine & roster CSV.</div>
+    </header>
 
-  <div class="panel">
-    <div class="row">
-      <div>
-        <label>Roster CSV (optional ?players=…)</label>
-        <input id="csvUrl" style="width:480px" placeholder="Defaults to layer3_rosters.csv next to this file" />
+    <section class="panel grid">
+      <div class="row">
+        <label>Players CSV URL</label>
+        <input id="playersUrl" class="mono" placeholder="raw.githubusercontent.com/.../layer3_rosters.csv" />
       </div>
-      <div>
-        <label>Home team</label>
-        <select id="selHome"></select>
-      </div>
-      <div>
-        <label>Away team</label>
-        <select id="selAway"></select>
-      </div>
-      <div>
-        <label>Games (N)</label>
-        <input id="numGames" type="number" min="1" step="1" value="500" style="width:100px" />
-      </div>
-      <div>
+      <div class="row">
+        <label># Games (n)</label>
+        <input id="numGames" type="number" min="1" max="10000" step="1" value="500" />
+        <label>Home (teamId optional)</label>
+        <input id="homeTeam" placeholder="e.g., IND" />
+        <label>Away (teamId optional)</label>
+        <input id="awayTeam" placeholder="e.g., CAR" />
         <label>Seed (optional)</label>
-        <input id="seed" type="number" step="1" placeholder="random" style="width:120px" />
+        <input id="seed" type="number" placeholder="e.g., 123" />
+        <label>Keep PBP</label>
+        <select id="keepPBP">
+          <option value="0" selected>No (faster)</option>
+          <option value="1">Yes</option>
+        </select>
       </div>
-      <div>
-        <label>&nbsp;</label>
-        <button id="btnRun" class="primary">Run Batch</button>
+      <div class="row">
+        <button id="btnLoad" class="primary">Load Teams</button>
+        <button id="btnRun">Run Batch</button>
+        <button id="btnCSV">Download per-game CSV</button>
+        <span id="status" class="pill">Idle</span>
       </div>
-    </div>
-    <div class="row" style="margin-top:8px">
-      <div class="hint">Tip: You can also prefill with <span class="mono">?players=…&home=IND&away=CAR&n=500&seed=42</span>.</div>
-    </div>
-    <div class="row" style="margin-top:10px;align-items:center;gap:16px">
-      <div class="progress" style="flex:1"><div id="bar" class="bar"></div></div>
-      <div id="progressText" class="muted mono">Idle</div>
-      <button id="btnCSV">Download Raw CSV</button>
-    </div>
-  </div>
+      <progress id="prog" max="1" value="0"></progress>
+      <div id="notes" class="small muted"></div>
+    </section>
 
-  <div class="card">
-    <div class="kpi-grid" id="kpiGrid">
-      <!-- KPIs injected here -->
-    </div>
-  </div>
+    <section class="panel">
+      <h3 style="margin:0 0 10px">Aggregates (per game)</h3>
+      <table id="aggTable">
+        <thead>
+          <tr>
+            <th>Metric</th><th>Avg</th><th>Std</th><th>Min</th><th>Max</th><th class="muted">Notes</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div class="small muted" id="aggMeta"></div>
+    </section>
 
-  <div class="card">
-    <h3 style="margin:0 0 8px">Distributions (mean ± sd, min…p10…p50…p90…max)</h3>
-    <table id="tblDist">
-      <thead>
-        <tr>
-          <th>Metric</th>
-          <th>Mean</th><th>SD</th>
-          <th>Min</th><th>P10</th><th>P25</th><th>P50</th><th>P75</th><th>P90</th><th>Max</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-  </div>
+    <section class="panel">
+      <h3 style="margin:0 0 10px">Per-side & composition</h3>
+      <table id="sideTable">
+        <thead>
+          <tr>
+            <th>Metric</th><th>Home Avg</th><th>Away Avg</th><th class="muted">Notes</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
 
-  <div class="card">
-    <h3 style="margin:0 0 8px">Quick per-team means (across games)</h3>
-    <table id="tblTeams">
-      <thead>
-        <tr>
-          <th>Side</th><th>Pts</th><th>Yards</th><th>Plays</th><th>Drives</th><th>YPP</th><th>TOs</th><th>Plays/Drive</th><th>Scoring-Drive%</th><th>Time/Drive (s)</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-  </div>
-</main>
+    <section class="panel">
+      <h3 style="margin:0 0 10px">Scoring breakdown (per game)</h3>
+      <table id="scoreTable">
+        <thead>
+          <tr>
+            <th>Type</th><th>Avg Count</th><th class="muted">How counted</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </main>
 
-<script type="module">
-  import { loadLeague } from './data_models.js'; // uses your CSV loader
-  import { simulateGame, simulateGameSeries } from './game_engine.js';
+  <script type="module">
+    import { loadLeague } from './data_models.js';
+    import { simulateGame } from './game_engine.js';
 
-  // ---------- helpers ----------
-  const $ = (id) => document.getElementById(id);
-  const PARAMS = new URLSearchParams(location.search);
-  const val = (k) => (PARAMS.get(k) ?? '').trim();
-  const setPill = (cls, text) => {
-    const pill = $('enginePill'); pill.classList.remove('pill-ok','pill-warn','pill-bad');
-    pill.classList.add(cls); pill.querySelector('span:nth-child(2)').textContent = text;
-  };
+    // ---------- URL params ----------
+    const P = new URLSearchParams(location.search);
+    const defaultCSV = 'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/layer3_rosters.csv';
+    const csvParam = (P.get('players') || '').replace('/refs/heads/', '/');  // tolerate refs/heads form
+    const playersURL = csvParam || defaultCSV;
 
-  function mean(a){ return a.length? a.reduce((s,x)=>s+x,0)/a.length : 0; }
-  function sd(a){
-    if(a.length<2) return 0;
-    const m = mean(a); const v = a.reduce((s,x)=>s+(x-m)*(x-m),0)/(a.length-1);
-    return Math.sqrt(v);
-  }
-  function quantile(sorted, q){
-    if(!sorted.length) return 0;
-    const pos = (sorted.length-1)*q; const lo = Math.floor(pos), hi = Math.ceil(pos);
-    if(lo===hi) return sorted[lo];
-    return sorted[lo] + (sorted[hi]-sorted[lo])*(pos-lo);
-  }
-  function pct(x){ return (x*100).toFixed(1)+'%'; }
-  function fmt1(x){ return Number.isFinite(x)? x.toFixed(1) : '—'; }
-  function fmt0(x){ return Number.isFinite(x)? Math.round(x).toString() : '—'; }
+    const nParam = +(P.get('n') || 500);
+    const homeParam = P.get('home') || '';
+    const awayParam = P.get('away') || '';
+    const seedParam = P.get('seed'); // may be null
 
-  function distRow(name, arr){
-    const s = [...arr].sort((a,b)=>a-b);
-    return {
-      name,
-      mean: mean(arr), sd: sd(arr),
-      min: s[0] ?? 0, p10: quantile(s,0.10), p25: quantile(s,0.25),
-      p50: quantile(s,0.50), p75: quantile(s,0.75), p90: quantile(s,0.90),
-      max: s[s.length-1] ?? 0
-    };
-  }
+    // ---------- DOM ----------
+    const el = (id)=>document.getElementById(id);
+    el('playersUrl').value = playersURL;
+    el('numGames').value = nParam;
+    if (homeParam) el('homeTeam').value = homeParam;
+    if (awayParam) el('awayTeam').value = awayParam;
+    if (seedParam!=null) el('seed').value = seedParam;
 
-  // ---------- state ----------
-  let league = null;
-  let teams = [];
+    const status = el('status');
+    const prog = el('prog');
+    const notes = el('notes');
+    const aggBody = document.querySelector('#aggTable tbody');
+    const aggMeta = el('aggMeta');
+    const sideBody = document.querySelector('#sideTable tbody');
+    const scoreBody = document.querySelector('#scoreTable tbody');
 
-  // Resolve CSV URL (query param > input field > default next to file)
-  function resolveCsvUrl(){
-    const fromParam = val('players').replace('/refs/heads/', '/');
-    const fromInput = $('csvUrl').value.trim();
-    if(fromParam) return fromParam;
-    if(fromInput) return fromInput;
-    return './layer3_rosters.csv';
-  }
+    function setStatus(text){ status.textContent = text; }
+    function setNote(text){ notes.textContent = text; }
 
-  // ---------- UI wiring ----------
-  async function init(){
-    try{
-      setPill('','Loading league…');
-      $('csvUrl').value = val('players') || '';
-      const nParam = val('n'); if(nParam) $('numGames').value = Math.max(1, parseInt(nParam,10) || 500);
-      const seedParam = val('seed'); if(seedParam) $('seed').value = parseInt(seedParam,10);
-
-      // Load league using your loader (works with local or ?players= URL)
-      const CSV = resolveCsvUrl();
-      league = await loadLeague(CSV);  // pulls and builds Team objects
-      teams = league.teams || [];
-      if(!teams.length) throw new Error('No teams found in league data');
-
-      // Populate selects
-      const homeSel = $('selHome'), awaySel = $('selAway');
-      const fragH = document.createDocumentFragment(), fragA = document.createDocumentFragment();
-      for(const t of teams){
-        const id = t.teamId || t.id; const name = t.teamName || t.team_name || id;
-        const optH = document.createElement('option'); optH.value = id; optH.textContent = `${id} — ${name}`; fragH.appendChild(optH);
-        const optA = document.createElement('option'); optA.value = id; optA.textContent = `${id} — ${name}`; fragA.appendChild(optA);
+    // ---------- Stats helpers ----------
+    class Stat {
+      constructor(){ this.n=0; this.mean=0; this.M2=0; this.min=Infinity; this.max=-Infinity; }
+      push(x){
+        this.n++; const delta=x-this.mean; this.mean+=delta/this.n; this.M2+=delta*(x-this.mean);
+        if (x<this.min) this.min=x; if (x>this.max) this.max=x;
       }
-      homeSel.appendChild(fragH); awaySel.appendChild(fragA);
-
-      // Preselect via ?home=&away=
-      const find = (needle) => teams.find(t=>{
-        const id=(t.teamId||t.id||'').toString().toLowerCase();
-        const nm=(t.teamName||t.team_name||'').toLowerCase();
-        const ab=(t.abbr||'').toLowerCase();
-        const want=needle.toLowerCase();
-        return id===want||nm===want||ab===want;
-      });
-      const h = val('home'); const a = val('away');
-      if(h && find(h)) homeSel.value = find(h).teamId || find(h).id;
-      if(a && find(a)) awaySel.value = find(a).teamId || find(a).id;
-
-      setPill('pill-ok','Engine ready');
-    }catch(err){
-      console.error(err);
-      setPill('pill-bad','Failed to load');
+      std(){ return this.n>1 ? Math.sqrt(this.M2/(this.n-1)) : 0; }
+      toRow(fmt=(v)=>v.toFixed(2), notes=''){
+        return [fmt(this.mean), fmt(this.std()), fmt(this.min), fmt(this.max), notes];
+      }
     }
 
-    $('btnRun').addEventListener('click', runBatch);
-    $('btnCSV').addEventListener('click', downloadCsv);
-  }
-
-  function findTeamById(id){
-    return teams.find(t => (t.teamId||t.id||'').toString() === id.toString()) || null;
-  }
-
-  function progress(i, n){
-    const pct = n? (i/n)*100 : 0; $('bar').style.width = pct.toFixed(1)+'%';
-    $('progressText').textContent = n? `Simulated ${i}/${n}` : 'Idle';
-  }
-
-  // ---------- Batch run ----------
-  async function runBatch(){
-    const idH = $('selHome').value, idA = $('selAway').value;
-    const home = findTeamById(idH), away = findTeamById(idA);
-    const N = Math.max(1, parseInt(($('numGames').value||'').trim(),10) || 500);
-    const seedStr = $('seed').value.trim(); const baseSeed = seedStr ? parseInt(seedStr,10) : undefined;
-
-    if(!home || !away){ alert('Pick valid teams'); return; }
-
-    // Use the engine’s series helper so RNG seeds can step per game
-    // (same helper you already export). :contentReference[oaicite:2]{index=2}
-    const results = [];
-    progress(0,N);
-    for(let i=0;i<N;i++){
-      const r = simulateGame(home, away, { seed: baseSeed!=null ? baseSeed+i : undefined });
-      results.push(r);
-      if((i+1)%10===0 || i===N-1) progress(i+1,N);
-      // Let the UI breathe
-      if((i+1)%200===0) await new Promise(r=>setTimeout(r,0));
+    // bucket of overall & per-side stats
+    function makeBuckets(){
+      const b = {
+        // overall per-game
+        totalPts: new Stat(),
+        totalYards: new Stat(),
+        rushYds: new Stat(),
+        passYds: new Stat(),
+        plays: new Stat(),
+        drives: new Stat(),
+        turnovers: new Stat(),
+        ypp: new Stat(),
+        avgDriveSec: new Stat(),
+        playsPerDrive: new Stat(),
+        // scoring counts
+        td: new Stat(), fgMade: new Stat(), fgAtt: new Stat(), safety: new Stat(),
+        // per side
+        homePts: new Stat(), awayPts: new Stat(),
+        homeYards: new Stat(), awayYards: new Stat(),
+        homePlays: new Stat(), awayPlays: new Stat(),
+        homeTOPsec: new Stat(), awayTOPsec: new Stat(),
+        homeRush: new Stat(), awayRush: new Stat(),
+        homePass: new Stat(), awayPass: new Stat(),
+        // for CSV
+        perGameRows: []
+      };
+      return b;
     }
 
-    renderStats(results, home, away);
-    window.__BATCH_RAW__ = { results, homeId: idH, awayId: idA };
-  }
+    // ---------- League loading ----------
+    let TEAMS = [];
+    let TEAM_BY_ID = new Map();
 
-  // ---------- Aggregation ----------
-  function derivePerGame(r){
-    const H = r.teamStats?.home || {plays:0,yardsTotal:0,turnovers:0,yardsPerPlay:0,rushYards:0,passYards:0};
-    const A = r.teamStats?.away || {plays:0,yardsTotal:0,turnovers:0,yardsPerPlay:0,rushYards:0,passYards:0};
+    async function loadTeams(){
+      setStatus('Loading rosters…');
+      const url = (el('playersUrl').value || '').trim();
+      if (!url) throw new Error('Players CSV URL required');
+      const league = await loadLeague(url);
+      TEAMS = league.teams || league || [];
+      TEAM_BY_ID = new Map(TEAMS.map(t => [String(t.teamId || t.id || t.name).trim(), t]));
+      setStatus(`Loaded ${TEAMS.length} teams`);
+      setNote('Use teamIds (as in your CSV) for home/away, or leave blank to randomize each trial.');
+    }
 
-    const drivesHome = r.drives.filter(d=>d.offense==='home').length;
-    const drivesAway = r.drives.filter(d=>d.offense==='away').length;
-    const drivesTotal = drivesHome + drivesAway;
+    // ---------- Random helpers ----------
+    function pickRandomTeam(){
+      return TEAMS[Math.floor(Math.random()*TEAMS.length)];
+    }
 
-    const scoringDrives = r.drives.filter(d => /TD|FG Good|Safety/.test(d.result)).length;
-    const dur = r.drives.map(d=>d.durationSec||0);
-    const avgTimePerDrive = dur.length? dur.reduce((s,x)=>s+x,0)/dur.length : 0;
+    function resolveTeam(tag){
+      if (!tag) return null;
+      const t = TEAM_BY_ID.get(String(tag).trim());
+      if (t) return t;
+      // loose: allow matching by name (case-insensitive)
+      const lc = String(tag).toLowerCase();
+      return TEAMS.find(t => String(t.teamName||t.name||t.teamId).toLowerCase()===lc) || null;
+    }
 
-    const playsTotal = H.plays + A.plays;
-    const yardsTotal = H.yardsTotal + A.yardsTotal;
-    const yppTotal = playsTotal ? yardsTotal/playsTotal : 0;
+    // ---------- Per-game extraction ----------
+    function summarizeGame(result){
+      // core
+      const home = result.teamStats.home;
+      const away = result.teamStats.away;
 
-    return {
-      ptsHome: r.score.home,
-      ptsAway: r.score.away,
-      ptsTotal: r.score.home + r.score.away,
+      const pts = result.score.home + result.score.away;
+      const yards = (home.yardsTotal || 0) + (away.yardsTotal || 0);
+      const rush = (home.rushYards || 0) + (away.rushYards || 0);
+      const pass = (home.passYards || 0) + (away.passYards || 0);
+      const plays = (home.plays || 0) + (away.plays || 0);
+      const drives = (result.drives || []).length;
+      const tovs = (home.turnovers || 0) + (away.turnovers || 0);
+      const ypp = plays>0 ? yards/plays : 0;
 
-      yardsHome: H.yardsTotal, yardsAway: A.yardsTotal, yardsTotal,
-      rushYdsHome: H.rushYards||0, rushYdsAway: A.rushYards||0,
-      passYdsHome: H.passYards||0, passYdsAway: A.passYards||0,
+      // drive metrics
+      let totalDriveSec = 0;
+      let homeTOP = 0, awayTOP = 0;
+      for (const d of (result.drives||[])) {
+        const sec = +d.durationSec || 0;
+        totalDriveSec += sec;
+        if (d.offense === 'home') homeTOP += sec; else awayTOP += sec;
+      }
+      const avgDriveSec = drives>0 ? totalDriveSec/drives : 0;
+      const playsPerDrive = drives>0 ? plays/drives : 0;
 
-      playsHome: H.plays, playsAway: A.plays, playsTotal,
-      yppHome: H.yardsPerPlay||0, yppAway: A.yardsPerPlay||0, yppTotal,
+      // scoring counts via plays (FG att/made) + events (TD/Safety)
+      let fgAtt=0, fgMade=0;
+      for (const p of (result.plays||[])) {
+        if (p.fieldGoalAttempt) { fgAtt++; if (p.fieldGoalGood) fgMade++; }
+      }
+      let td=0, safety=0;
+      for (const e of (result.events||[])) {
+        if (e.type==='score'){
+          if (e.subtype==='touchdown') td++;
+          if (e.subtype==='safety') safety++;
+        }
+      }
 
-      drivesHome, drivesAway, drivesTotal,
-      toHome: H.turnovers||0, toAway: A.turnovers||0, toTotal: (H.turnovers||0)+(A.turnovers||0),
+      return {
+        homePts: result.score.home, awayPts: result.score.away,
+        pts, yards, rush, pass, plays, drives, tovs, ypp, avgDriveSec, playsPerDrive,
+        homeYards: home.yardsTotal||0, awayYards: away.yardsTotal||0,
+        homePlays: home.plays||0, awayPlays: away.plays||0,
+        homeRush: home.rushYards||0, awayRush: away.rushYards||0,
+        homePass: home.passYards||0, awayPass: away.passYards||0,
+        homeTOP, awayTOP,
+        td, fgAtt, fgMade, safety
+      };
+    }
 
-      playsPerDriveHome: drivesHome? H.plays/drivesHome : 0,
-      playsPerDriveAway: drivesAway? A.plays/drivesAway : 0,
-      playsPerDriveTotal: drivesTotal? playsTotal/drivesTotal : 0,
+    // ---------- Batch run ----------
+    async function runBatch(){
+      if (!TEAMS.length) await loadTeams();
 
-      scoringDriveRate: drivesTotal? scoringDrives/drivesTotal : 0,
-      timePerDriveSec: avgTimePerDrive,
-    };
-  }
+      const n = Math.max(1, Math.min(10000, +el('numGames').value || 500));
+      const keepPBP = el('keepPBP').value === '1';
+      const seedBase = el('seed').value !== '' ? +el('seed').value : null;
 
-  function aggregate(results){
-    const rows = results.map(derivePerGame);
+      // fixed teams (optional)
+      const fixedHome = resolveTeam(el('homeTeam').value.trim());
+      const fixedAway = resolveTeam(el('awayTeam').value.trim());
 
-    function col(k){ return rows.map(r=>r[k]); }
+      if ((el('homeTeam').value||'').trim() && !fixedHome) setNote(`Warning: could not resolve home team "${el('homeTeam').value}"`);
+      if ((el('awayTeam').value||'').trim() && !fixedAway) setNote(`Warning: could not resolve away team "${el('awayTeam').value}"`);
 
-    const dist = [
-      distRow('Total Points', col('ptsTotal')),
-      distRow('Total Yards', col('yardsTotal')),
-      distRow('Total Plays', col('playsTotal')),
-      distRow('Total Drives', col('drivesTotal')),
-      distRow('Turnovers (Total)', col('toTotal')),
-      distRow('Yards / Play (Total)', col('yppTotal')),
-      distRow('Plays / Drive (Total)', col('playsPerDriveTotal')),
-      distRow('Scoring-Drive %', col('scoringDriveRate').map(x=>x*100)),
-      distRow('Time / Drive (sec)', col('timePerDriveSec')),
-    ];
+      // progress
+      prog.max = n; prog.value = 0;
+      setStatus('Running…');
 
-    const perTeam = {
-      home: {
-        pts: mean(col('ptsHome')), yards: mean(col('yardsHome')), plays: mean(col('playsHome')),
-        drives: mean(col('drivesHome')), ypp: mean(col('yppHome')), tos: mean(col('toHome')),
-        ppd: mean(col('playsPerDriveHome')), sdr: mean(col('scoringDriveRate'))*100/2, // half-share approximation
-        tpd: mean(col('timePerDriveSec'))
-      },
-      away: {
-        pts: mean(col('ptsAway')), yards: mean(col('yardsAway')), plays: mean(col('playsAway')),
-        drives: mean(col('drivesAway')), ypp: mean(col('yppAway')), tos: mean(col('toAway')),
-        ppd: mean(col('playsPerDriveAway')), sdr: mean(col('scoringDriveRate'))*100/2,
-        tpd: mean(col('timePerDriveSec'))
+      const B = makeBuckets();
+
+      // main loop (yield to UI every ~25 sims)
+      for (let i=0;i<n;i++){
+        const home = fixedHome || pickRandomTeam();
+        let away  = fixedAway || pickRandomTeam();
+        // avoid accidental mirror-match if both sides random:
+        if (!fixedAway && away.teamId === home.teamId) {
+          away = pickRandomTeam();
+        }
+
+        const res = simulateGame(home, away, {
+          keepPlayByPlay: keepPBP,
+          // use real quarter length & default OT/tuning from your engine
+          seed: seedBase!=null ? (seedBase + i) : undefined
+        });
+
+        const g = summarizeGame(res);
+
+        // push to buckets
+        B.totalPts.push(g.pts);
+        B.totalYards.push(g.yards);
+        B.rushYds.push(g.rush);
+        B.passYds.push(g.pass);
+        B.plays.push(g.plays);
+        B.drives.push(g.drives);
+        B.turnovers.push(g.tovs);
+        B.ypp.push(g.ypp);
+        B.avgDriveSec.push(g.avgDriveSec);
+        B.playsPerDrive.push(g.playsPerDrive);
+
+        B.td.push(g.td);
+        B.fgAtt.push(g.fgAtt);
+        B.fgMade.push(g.fgMade);
+        B.safety.push(g.safety);
+
+        B.homePts.push(g.homePts); B.awayPts.push(g.awayPts);
+        B.homeYards.push(g.homeYards); B.awayYards.push(g.awayYards);
+        B.homePlays.push(g.homePlays); B.awayPlays.push(g.awayPlays);
+        B.homeRush.push(g.homeRush); B.awayRush.push(g.awayRush);
+        B.homePass.push(g.homePass); B.awayPass.push(g.awayPass);
+        B.homeTOPsec.push(g.homeTOP); B.awayTOPsec.push(g.awayTOP);
+
+        // CSV row
+        B.perGameRows.push({
+          game:i+1,
+          homeId: home.teamId, awayId: away.teamId,
+          homePts:g.homePts, awayPts:g.awayPts, totalPts:g.pts,
+          yards:g.yards, rush:g.rush, pass:g.pass,
+          plays:g.plays, drives:g.drives, turnovers:g.tovs, ypp:g.ypp.toFixed(3),
+          avgDriveSec:g.avgDriveSec.toFixed(2), playsPerDrive:g.playsPerDrive.toFixed(2),
+          td:g.td, fgAtt:g.fgAtt, fgMade:g.fgMade, safety:g.safety,
+          homeYards:g.homeYards, awayYards:g.awayYards,
+          homePlays:g.homePlays, awayPlays:g.awayPlays,
+          homeRush:g.homeRush, awayRush:g.awayRush,
+          homePass:g.homePass, awayPass:g.awayPass,
+          homeTOPsec:g.homeTOP.toFixed(2), awayTOPsec:g.awayTOP.toFixed(2)
+        });
+
+        // tick progress
+        if ((i%25)===0) await new Promise(r=>setTimeout(r,0));
+        prog.value = i+1;
+      }
+
+      renderAggregates(B, n);
+      setStatus('Done');
+    }
+
+    // ---------- Render ----------
+    function rowHTML(c1, arr, note=''){
+      const [avg,std,min,max,notes] = arr;
+      const safeNotes = note || notes || '';
+      return `<tr>
+        <td class="mono">${c1}</td>
+        <td>${avg}</td><td>${std}</td><td>${min}</td><td>${max}</td>
+        <td class="muted small">${safeNotes}</td>
+      </tr>`;
+    }
+
+    function renderAggregates(B, n){
+      const fmt2 = (v)=>Number(v).toFixed(2);
+      const s = [];
+      s.push(rowHTML('Total points', B.totalPts.toRow(fmt2), 'Home+Away'));
+      s.push(rowHTML('Total yards',  B.totalYards.toRow(fmt2)));
+      s.push(rowHTML('Rush yards',   B.rushYds.toRow(fmt2)));
+      s.push(rowHTML('Pass yards',   B.passYds.toRow(fmt2)));
+      s.push(rowHTML('Plays',        B.plays.toRow(fmt2)));
+      s.push(rowHTML('Drives',       B.drives.toRow(fmt2)));
+      s.push(rowHTML('Turnovers',    B.turnovers.toRow(fmt2)));
+      s.push(rowHTML('Yards/play',   B.ypp.toRow(fmt2)));
+      s.push(rowHTML('Avg drive sec',B.avgDriveSec.toRow(fmt2)));
+      s.push(rowHTML('Plays/drive',  B.playsPerDrive.toRow(fmt2)));
+      s.push(rowHTML('FG attempts',  B.fgAtt.toRow(fmt2)));
+      s.push(rowHTML('FG made',      B.fgMade.toRow(fmt2)));
+      s.push(rowHTML('Touchdowns',   B.td.toRow(fmt2)));
+      s.push(rowHTML('Safeties',     B.safety.toRow(fmt2)));
+
+      aggBody.innerHTML = s.join('');
+      aggMeta.textContent = `Trials: ${n}. Avg TOP (sec) — Home: ${B.homeTOPsec.mean.toFixed(1)}, Away: ${B.awayTOPsec.mean.toFixed(1)}.`;
+
+      const side = [];
+      side.push(`<tr><td class="mono">Points</td><td>${B.homePts.mean.toFixed(2)}</td><td>${B.awayPts.mean.toFixed(2)}</td><td class="muted small">Per side</td></tr>`);
+      side.push(`<tr><td class="mono">Yards</td><td>${B.homeYards.mean.toFixed(2)}</td><td>${B.awayYards.mean.toFixed(2)}</td><td></td></tr>`);
+      side.push(`<tr><td class="mono">Plays</td><td>${B.homePlays.mean.toFixed(2)}</td><td>${B.awayPlays.mean.toFixed(2)}</td><td></td></tr>`);
+      side.push(`<tr><td class="mono">Rush yards</td><td>${B.homeRush.mean.toFixed(2)}</td><td>${B.awayRush.mean.toFixed(2)}</td><td></td></tr>`);
+      side.push(`<tr><td class="mono">Pass yards</td><td>${B.homePass.mean.toFixed(2)}</td><td>${B.awayPass.mean.toFixed(2)}</td><td></td></tr>`);
+      side.push(`<tr><td class="mono">Time of possession (sec)</td><td>${B.homeTOPsec.mean.toFixed(1)}</td><td>${B.awayTOPsec.mean.toFixed(1)}</td><td></td></tr>`);
+      sideBody.innerHTML = side.join('');
+
+      const score = [];
+      score.push(`<tr><td class="mono">Touchdowns</td><td>${B.td.mean.toFixed(2)}</td><td class="muted small">From events</td></tr>`);
+      score.push(`<tr><td class="mono">FG attempts</td><td>${B.fgAtt.mean.toFixed(2)}</td><td class="muted small">From plays</td></tr>`);
+      score.push(`<tr><td class="mono">FG made</td><td>${B.fgMade.mean.toFixed(2)}</td><td class="muted small">From plays</td></tr>`);
+      score.push(`<tr><td class="mono">Safeties</td><td>${B.safety.mean.toFixed(2)}</td><td class="muted small">From events</td></tr>`);
+      scoreBody.innerHTML = score.join('');
+    }
+
+    // ---------- CSV ----------
+    function toCSV(rows){
+      if (!rows.length) return '';
+      const headers = Object.keys(rows[0]);
+      const esc = (v)=>String(v).includes(',')||String(v).includes('"') ? `"${String(v).replace(/"/g,'""')}"` : v;
+      const out = [headers.join(',')];
+      for (const r of rows){
+        out.push(headers.map(h=>esc(r[h]??'')).join(','));
+      }
+      return out.join('\n');
+    }
+
+    function downloadCSV(rows, name='batch_results.csv'){
+      const csv = toCSV(rows);
+      const blob = new Blob([csv], {type:'text/csv'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = name; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // ---------- Wire up ----------
+    el('btnLoad').addEventListener('click', async ()=>{
+      try{
+        await loadTeams();
+      }catch(err){
+        setStatus('Error');
+        setNote(String(err));
+        console.error(err);
+      }
+    });
+
+    el('btnRun').addEventListener('click', async ()=>{
+      try{
+        await loadTeams(); // safe if already loaded
+        // clear tables
+        document.querySelector('#aggTable tbody').innerHTML='';
+        document.querySelector('#sideTable tbody').innerHTML='';
+        document.querySelector('#scoreTable tbody').innerHTML='';
+        window._lastBatch = null;
+        // run
+        await runBatch();
+        window._lastBatch = 'ready'; // marker
+      }catch(err){
+        setStatus('Error');
+        setNote(String(err));
+        console.error(err);
+      }
+    });
+
+    let lastRowsRef = null;
+    // stash rows via closure on runBatch by overriding renderAggregates
+    const _origRunBatch = runBatch;
+    runBatch = async function(){
+      // capture rows through makeBuckets
+      const _make = makeBuckets;
+      let rowsRef = null;
+      makeBuckets = function(){
+        const B = _make();
+        // expose rows after completion
+        Object.defineProperty(B, 'rowsRef', {get(){return B.perGameRows;}});
+        rowsRef = B.perGameRows;
+        lastRowsRef = rowsRef;
+        return B;
+      };
+      try{
+        await _origRunBatch();
+      } finally {
+        makeBuckets = _make; // restore
       }
     };
 
-    return { rows, dist, perTeam };
-  }
+    el('btnCSV').addEventListener('click', ()=>{
+      if (!lastRowsRef || !lastRowsRef.length){
+        setNote('No results yet. Run a batch first.');
+        return;
+      }
+      downloadCSV(lastRowsRef,'batch_sim_results.csv');
+    });
 
-  // ---------- Rendering ----------
-  function renderStats(results, home, away){
-    const { dist, perTeam } = aggregate(results);
-    const N = results.length;
-
-    // KPIs
-    const map = Object.fromEntries(dist.map(d => [d.name, d]));
-    const kpis = [
-      ['Total Points', x => `${fmt1(x.mean)} ± ${fmt1(x.sd)}`],
-      ['Total Yards', x => `${fmt1(x.mean)} ± ${fmt1(x.sd)}`],
-      ['Total Plays', x => `${fmt1(x.mean)} ± ${fmt1(x.sd)}`],
-      ['Total Drives', x => `${fmt1(x.mean)} ± ${fmt1(x.sd)}`],
-      ['Yards / Play (Total)', x => fmt2(x.mean=+x.mean, x.sd=+x.sd)],
-      ['Plays / Drive (Total)', x => fmt1(x.mean)],
-      ['Scoring-Drive %', x => `${fmt1(x.mean)}%`],
-      ['Turnovers (Total)', x => fmt1(x.mean)],
-    ];
-    const grid = $('kpiGrid'); grid.innerHTML = '';
-    function fmt2(){ const a=[...arguments]; return `${fmt1(a[0])} ± ${fmt1(a[1])}`; }
-    for(const [key, fn] of kpis){
-      const data = map[key];
-      const div = document.createElement('div');
-      div.className = 'kpi';
-      div.innerHTML = `<div class="title">${key}</div><div class="value">${fn(data)}</div><div class="subvalue muted">N=${N}</div>`;
-      grid.appendChild(div);
-    }
-
-    // Distribution table
-    const tbody = $('tblDist').querySelector('tbody'); tbody.innerHTML = '';
-    for(const d of dist){
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td>${d.name}</td>
-        <td>${fmt1(d.mean)}</td><td>${fmt1(d.sd)}</td>
-        <td>${fmt1(d.min)}</td><td>${fmt1(d.p10)}</td><td>${fmt1(d.p25)}</td>
-        <td>${fmt1(d.p50)}</td><td>${fmt1(d.p75)}</td><td>${fmt1(d.p90)}</td><td>${fmt1(d.max)}</td>
-      `;
-      tbody.appendChild(tr);
-    }
-
-    // Per-team quick means
-    const tb2 = $('tblTeams').querySelector('tbody'); tb2.innerHTML = '';
-    function row(side,label){
-      const t = perTeam[side];
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td>${label}</td>
-        <td>${fmt1(t.pts)}</td>
-        <td>${fmt1(t.yards)}</td>
-        <td>${fmt1(t.plays)}</td>
-        <td>${fmt1(t.drives)}</td>
-        <td>${fmt1(t.ypp)}</td>
-        <td>${fmt1(t.tos)}</td>
-        <td>${fmt1(t.ppd)}</td>
-        <td>${fmt1(t.sdr)}</td>
-        <td>${fmt1(t.tpd)}</td>
-      `;
-      tb2.appendChild(tr);
-    }
-    const homeLabel = (home.teamId||home.id)+' — '+(home.teamName||home.team_name||'');
-    const awayLabel = (away.teamId||away.id)+' — '+(away.teamName||away.team_name||'');
-    row('home', homeLabel);
-    row('away', awayLabel);
-  }
-
-  // ---------- CSV download ----------
-  function toCsv(rows){
-    if(!rows?.length) return '';
-    const cols = Object.keys(rows[0]);
-    const lines = [cols.join(',')];
-    for(const r of rows){
-      lines.push(cols.map(k=>String(r[k] ?? '')).join(','));
-    }
-    return lines.join('\n');
-  }
-
-  function downloadCsv(){
-    const bundle = window.__BATCH_RAW__;
-    if(!bundle){ alert('Run a batch first.'); return; }
-    const rows = bundle.results.map(derivePerGame);
-    const csv = toCsv(rows);
-    const blob = new Blob([csv], { type:'text/csv' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `batch_results_${bundle.homeId}_vs_${bundle.awayId}.csv`;
-    a.click();
-  }
-
-  // ---------- boot ----------
-  init();
-</script>
+    // auto-load on open (respect query params)
+    (async function boot(){
+      try{
+        await loadTeams();
+        setStatus('Ready');
+        setNote('Optionally set n/home/away/seed in the querystring or fields, then Run.');
+      }catch(err){
+        setStatus('Error');
+        setNote(String(err));
+        console.error(err);
+      }
+    })();
+  </script>
 </body>
 </html>
