@@ -784,7 +784,7 @@ function simulateDrive(state) {
   // Apply outcome to game state
   // -----------------------------------------------------------------------------
   function applyPlayOutcomeToState(state, outcome) {
-    const { offenseSide, defenseSide } = getOffenseDefense(state);
+    const { offenseSide, defenseSide, offenseTeam } = getOffenseDefense(state);
     const { cfg } = state;
 
     // Advance clock
@@ -867,14 +867,16 @@ function simulateDrive(state) {
       return;
     }
 
-    // Touchdown
+    // Touchdown (includes simple XP model)
     if (newYard >= 100) {
-      if (offenseSide === "home") {
+        // 6 points for the TD
+        if (offenseSide === "home") {
         state.score.home += 6;
-      } else {
+        } else {
         state.score.away += 6;
-      }
-      state.events.push({
+        }
+    
+        state.events.push({
         type: "score",
         subtype: "touchdown",
         offense: offenseSide,
@@ -882,13 +884,45 @@ function simulateDrive(state) {
         quarter: state.quarter,
         clockSec: state.clockSec,
         score: cloneScore(state.score),
-      });
-
-      outcome.touchdown = true;
-      state.playId += 1;
-      outcome.endOfDrive = true;
-      return;
+        });
+    
+        // Simple 1-point XP kick – no 2-pt logic for now
+        try {
+        const special = getUnitProfiles(offenseTeam).special || {};
+        const kAcc = special.kicking?.accuracy ?? 60;
+    
+        const baseXpProb = 0.94;
+        const adj = 0.0025 * (kAcc - 70); // rating nudges XP odds a bit
+        const xpProb = clamp(baseXpProb + adj, 0.88, 0.99);
+    
+        const xpMade = state.rng.next() < xpProb;
+        if (xpMade) {
+            if (offenseSide === "home") {
+            state.score.home += 1;
+            } else {
+            state.score.away += 1;
+            }
+        }
+    
+        state.events.push({
+            type: "extra_point",
+            offense: offenseSide,
+            good: xpMade,
+            points: xpMade ? 1 : 0,
+            quarter: state.quarter,
+            clockSec: state.clockSec,
+            score: cloneScore(state.score),
+        });
+        } catch (_) {
+        // If anything goes weird with unitProfiles, just skip XP quietly
+        }
+    
+        outcome.touchdown = true;
+        state.playId += 1;
+        outcome.endOfDrive = true;
+        return;
     }
+  
 
     // Turnover (non-FG / non-punt)
     if (outcome.turnover) {

@@ -216,7 +216,7 @@ function clamp(x, lo, hi) {
    * @returns {Object}
    *  - pCatch, pIncomp, pInt (sum ~1)
    */
-  export function sampleCatchPointOutcome(params, rng) {
+   export function sampleCatchPointOutcome(params, rng) {
     const {
       separation = 0,
       ballPlacementStd = 1.0,
@@ -234,9 +234,13 @@ function clamp(x, lo, hi) {
     const wrCT = centerRating(wrContestedCatch, 65);
     const dbBS = centerRating(dbBallSkills, 65);
   
-    // Base logistic "catch score"
-    const openBonus = sepClamped > 1.5 ? 0.7 : sepClamped > 0.5 ? 0.3 : 0;
-    const tightPenalty = sepClamped < 0 ? -0.4 * windowTightness : 0;
+    // Slightly toned-down open bonus, harsher tight-window penalty
+    const openBonus =
+      sepClamped > 1.5 ? 0.5 :
+      sepClamped > 0.5 ? 0.22 :
+      0;
+  
+    const tightPenalty = sepClamped < 0 ? -0.55 * windowTightness : 0;
   
     const catchScore =
       0.4 * wrSoftHands +
@@ -270,6 +274,7 @@ function clamp(x, lo, hi) {
     return { pCatch, pIncomp, pInt };
   }
   
+  
   // -----------------------------------------------------------------------------
   // YAC / tackling micro-model
   // -----------------------------------------------------------------------------
@@ -294,7 +299,7 @@ function clamp(x, lo, hi) {
    *  - brokenTackles: count
    *  - forcedMiss: boolean
    */
-  export function sampleTackleOutcome(params, rng) {
+   export function sampleTackleOutcome(params, rng) {
     const {
       carrierPower = 60,
       carrierElusiveness = 60,
@@ -325,26 +330,31 @@ function clamp(x, lo, hi) {
   
     const delta = (ballSkill - effTackle) / 15;
   
-    // Base YAC mean
-    const openFieldBonus = 2.0 * openFieldFactor - 1.0; // -1..+1
-    const sidelinePenalty = sidelineFactor * 0.7;
-    const meanYAC = 2.0 + 1.2 * delta + openFieldBonus - sidelinePenalty;
-    const stdYAC = 1.2 + 0.6 * Math.abs(delta);
+    // Base YAC mean – slightly toned down
+    const openFieldBonus = 1.6 * openFieldFactor - 0.8; // -0.8..+0.8
+    const sidelinePenalty = sidelineFactor * 0.9;
+    const meanYAC = 1.6 + 1.0 * delta + openFieldBonus - sidelinePenalty;
+    const stdYAC = 1.0 + 0.5 * Math.abs(delta);
   
     let rawYAC = sampleWithOccasionalTail(
       rng,
       meanYAC,
       stdYAC,
-      0.12, // occasional huge YAC
+      0.06, // was 0.12 – cut big tails in half
       3,
-      20
+      12   // was 20 – fewer truly massive YACs
     );
   
-    rawYAC = Math.max(0, rawYAC);
+    // Hard-cap YAC to avoid outliers dominating scoring
+    rawYAC = Math.min(25, Math.max(0, rawYAC));
   
     // Break-tackle probability
     const baseMiss = logistic(delta); // ~0.5 when even
-    const forcedMissProb = clamp(baseMiss * (0.4 + 0.6 * openFieldFactor), 0.05, 0.7);
+    const forcedMissProb = clamp(
+      baseMiss * (0.4 + 0.6 * openFieldFactor),
+      0.05,
+      0.7
+    );
     const forcedMiss = rng.next() < forcedMissProb;
   
     let brokenTackles = 0;
@@ -357,6 +367,7 @@ function clamp(x, lo, hi) {
       forcedMiss,
     };
   }
+  
   
   // -----------------------------------------------------------------------------
   // Run play micro-model
@@ -651,32 +662,36 @@ function clamp(x, lo, hi) {
     let timeAfterCatch = 0.0;
   
     if (completion) {
-      // Air yards ~ target depth +/- noise
-      const airYards = clamp(Math.round(sampleNormal(rng, targetDepth, 2.0)), 0, 60);
-  
-      // YAC using tackle model
-      const yacOutcome = sampleTackleOutcome(
-        {
-          carrierPower: wrContestedCatchRating, // as a stand-in
-          carrierElusiveness: wrSpeedRating,
-          carrierBalance: (wrHandsRating + wrContestedCatchRating) / 2,
-          carrierSpeed: wrSpeedRating,
-          tacklerTackling: dbManRating,
-          tacklerPursuit: dbZoneRating,
-          tacklerAgility: dbSpeedRating,
-          numDefendersInvolved: coverage.dbBeatenClean ? 1 : 2,
-          sidelineFactor: clamp(
-            yardsToSidelineFactor(yardline),
-            0,
-            1
-          ),
-          openFieldFactor: coverage.separation > 1.5 ? 0.8 : 0.4,
-        },
-        rng
-      );
-  
-      yardsGained = Math.round(airYards + yacOutcome.yac);
-      timeAfterCatch = 1.0 + 0.1 * Math.max(0, yardsGained);
+        // Air yards ~ target depth +/- noise
+        const airYards = clamp(
+          Math.round(sampleNormal(rng, targetDepth, 2.0)),
+          0,
+          60
+        );
+      
+        // YAC using tackle model
+        const yacOutcome = sampleTackleOutcome(
+          {
+            carrierPower: wrContestedCatchRating, // as a stand-in
+            carrierElusiveness: wrSpeedRating,
+            carrierBalance: (wrHandsRating + wrContestedCatchRating) / 2,
+            carrierSpeed: wrSpeedRating,
+            tacklerTackling: dbManRating,
+            tacklerPursuit: dbZoneRating,
+            tacklerAgility: dbSpeedRating,
+            numDefendersInvolved: coverage.dbBeatenClean ? 1 : 2,
+            sidelineFactor: clamp(yardsToSidelineFactor(yardline), 0, 1),
+            openFieldFactor: coverage.separation > 1.5 ? 0.8 : 0.4,
+          },
+          rng
+        );
+      
+        yardsGained = Math.round(airYards + yacOutcome.yac);
+      
+        // Time after catch: flatter slope + cap
+        const yacTimeComponent = 0.06 * Math.max(0, yardsGained); // was 0.1
+        timeAfterCatch = 1.0 + yacTimeComponent;
+        timeAfterCatch = Math.min(timeAfterCatch, 6.0);
     } else if (interception) {
       // Small swing in yardage around LOS (return modeled by macro-level for now)
       yardsGained = Math.round(sampleNormal(rng, -2, 6));
