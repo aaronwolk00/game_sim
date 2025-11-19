@@ -109,6 +109,10 @@
       background: var(--accent-soft);
       color: #bbf7d0;
       border: 1px solid rgba(34,197,94,0.45);
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
     }
     .btn:hover {
       background: rgba(34,197,94,0.28);
@@ -172,16 +176,6 @@
       font-size: 11px;
       color: var(--muted);
     }
-    .position-tag {
-      padding: 2px 6px;
-      border-radius: 999px;
-      background: rgba(15,23,42,0.9);
-      border: 1px solid #1f2937;
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: #9ca3af;
-    }
 
     .roster-table-wrapper {
       margin-top: 8px;
@@ -237,7 +231,7 @@
       }
       table.roster-table th:nth-child(4),
       table.roster-table td:nth-child(4) {
-        display: none; /* hide rating_pos on very small screens */
+        display: none; /* hide last name on very small screens */
       }
     }
   </style>
@@ -255,13 +249,17 @@
           <span><strong>Loading</strong> rosters…</span>
         </div>
       </div>
+
+      <!-- controls now include Simulation button -->
       <div class="controls">
         <input
           id="search-input"
           class="search-input"
           type="search"
           placeholder="Filter by team name or ID…" />
-        <button id="btn-clear" class="btn" type="button">Clear Filter</button>
+        <button id="btn-clear" class="btn" type="button">Clear</button>
+        <!-- NEW: Simulation button -->
+        <a id="btn-sim" class="btn" href="#">Simulation</a>
       </div>
     </div>
 
@@ -299,6 +297,7 @@
       errorBox: document.getElementById('error-box'),
       searchInput: document.getElementById('search-input'),
       btnClear: document.getElementById('btn-clear'),
+      btnSim: document.getElementById('btn-sim'), // <-- NEW
     };
 
     function setStatus(state, msg) {
@@ -340,7 +339,6 @@
     }
 
     function parseCsvToRows(text) {
-      // Basic RFC4180-ish parser with quote support
       text = String(text || '').replace(/^\uFEFF/, ''); // strip BOM
       const rows = [];
       let row = [], field = '', q = false;
@@ -485,7 +483,6 @@
         const section = document.createElement('details');
         section.className = 'team-card';
 
-        // Open first team by default (only when no filter)
         if (!filter && visibleCount === 1) {
           section.open = true;
         }
@@ -516,7 +513,6 @@
         summary.appendChild(right);
         section.appendChild(summary);
 
-        // Roster table
         const wrapper = document.createElement('div');
         wrapper.className = 'roster-table-wrapper';
 
@@ -588,6 +584,12 @@
       dom.summaryText.textContent = 'Loading layer3_rosters.csv…';
       dom.sourceText.textContent = '';
 
+      // Wire Simulation button right away, based on EFFECTIVE_ROSTER_URL
+      if (dom.btnSim) {
+        const simHref = `simulation.html?players=${encodeURIComponent(EFFECTIVE_ROSTER_URL)}`;
+        dom.btnSim.href = simHref;
+      }
+
       try {
         const { txt, url } = await fetchCsvText();
         const rows = parseCsvToRows(txt);
@@ -601,7 +603,6 @@
         const filterVal = dom.searchInput.value;
         const visible = renderTeams(teams, filterVal);
 
-        // Wire search/filter
         dom.searchInput.addEventListener('input', () => {
           const val = dom.searchInput.value;
           const vCount = renderTeams(teams, val);
@@ -613,7 +614,7 @@
 
         dom.btnClear.addEventListener('click', () => {
           dom.searchInput.value = '';
-          const vCount = renderTeams(teams, '');
+          renderTeams(teams, '');
           dom.summaryText.textContent = `Loaded ${teams.length} teams and ${objs.length} player rows.`;
         });
       } catch (err) {
