@@ -636,14 +636,19 @@ class RNG {
     // Keep run-play times in a reasonable range (3–35s)
     const timeRaw = Number.isFinite(micro.timeElapsed) ? micro.timeElapsed : 5;
     const timeElapsed = clamp(timeRaw, 3.5, 10.0);
+
+    // Pre-compute whether this *play* reaches the end zone / own end zone
+    const prospectiveYard = state.ballYardline + yards;
+    const touchdown = prospectiveYard >= 100;
+    const safety = prospectiveYard <= 0;
   
     return {
       playType: "run",
       yardsGained: yards,
       timeElapsed,
       turnover: !!micro.fumble,
-      touchdown: false,
-      safety: false,
+      touchdown,
+      safety,
       fieldGoalAttempt: false,
       fieldGoalGood: false,
       punt: false,
@@ -741,6 +746,11 @@ class RNG {
     // Keep pass-play times in a reasonable range (3–20s)
     const timeRaw = Number.isFinite(micro.timeElapsed) ? micro.timeElapsed : 6;
     const timeElapsed = clamp(timeRaw, 2.5, 12.5);
+
+    // Pre-compute if this play itself is a TD / safety
+    const prospectiveYard = state.ballYardline + yards;
+    const touchdown = prospectiveYard >= 100;
+    const safety = prospectiveYard <= 0;
   
     // Sack != automatic turnover; interception or fumble do
     const interception = !!micro.interception;
@@ -755,8 +765,8 @@ class RNG {
       interception,
       sack: !!micro.sack,
       completion: !!micro.completion,
-      touchdown: false,
-      safety: false,
+      touchdown,
+      safety,
       fieldGoalAttempt: false,
       fieldGoalGood: false,
       punt: false,
