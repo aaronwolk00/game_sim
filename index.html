@@ -260,6 +260,7 @@
         <button id="btn-clear" class="btn" type="button">Clear</button>
         <!-- NEW: Simulation button -->
         <a id="btn-sim" class="btn" href="#">Simulation</a>
+        <a id="btn-batch" class="btn" href="#">Batch Sim</a>
       </div>
     </div>
 
@@ -298,6 +299,7 @@
       searchInput: document.getElementById('search-input'),
       btnClear: document.getElementById('btn-clear'),
       btnSim: document.getElementById('btn-sim'), // <-- NEW
+      btnBatch: document.getElementById('btn-batch')
     };
 
     function setStatus(state, msg) {
@@ -588,6 +590,12 @@
       if (dom.btnSim) {
         const simHref = `simulation.html?players=${encodeURIComponent(EFFECTIVE_ROSTER_URL)}`;
         dom.btnSim.href = simHref;
+      }
+
+      if (dom.btnBatch) {
+        // You can change n=500 to any default you like; user can override via querystring
+        const batchHref = `batch_sim.html?players=${encodeURIComponent(EFFECTIVE_ROSTER_URL)}&n=500`;
+        dom.btnBatch.href = batchHref;
       }
 
       try {
