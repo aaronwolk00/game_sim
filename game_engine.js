@@ -228,35 +228,35 @@ class RNG {
     return buildGameResult(state);
   }
   
-  // Simulate a single drive: from current state until change of possession
-  // (score, turnover, punt, turnover-on-downs, end of half/game).
-  function simulateDrive(state) {
+// Simulate a single drive: from current state until change of possession
+// (score, turnover, punt, turnover-on-downs, end of half/game).
+function simulateDrive(state) {
     const startingScore = cloneScore(state.score);
     const startingQuarter = state.quarter;
     const startingClock = state.clockSec;
     const { offenseSide } = getOffenseDefense(state);
     const offenseTeam =
       offenseSide === "home" ? state.homeTeam : state.awayTeam;
-
+  
     const startingPlayIndex = state.plays.length;
     const drivePlays = [];
     let driveOver = false;
-
+  
     while (!driveOver && !state.isFinal) {
       const playLog = simulatePlay(state);
       drivePlays.push(playLog);
-
+  
       if (playLog.endOfDrive) {
         driveOver = true;
       }
-
+  
       // End of quarter/game
       if (state.clockSec <= 0) {
         handleEndOfQuarterOrGame(state);
         driveOver = true;
       }
     }
-
+  
     // Aggregate basic drive stats
     const totalYards = drivePlays.reduce((sum, p) => {
       const y = typeof p.yardsGained === "number" ? p.yardsGained : 0;
@@ -266,18 +266,18 @@ class RNG {
       }
       return sum;
     }, 0);
-
+  
     const durationSec = Math.max(0, startingClock - state.clockSec);
-
+  
     const lastPlay = drivePlays[drivePlays.length - 1] || null;
     let resultText = "Drive ended";
-
+  
     if (lastPlay) {
       if (lastPlay.touchdown) {
         resultText = "TD";
-      } else if (lastPlay.fieldGoalAttempt && lastPlay.fieldGoalGood) {
+      } else if (lastPlay.playType === "field_goal" && lastPlay.fieldGoalGood) {
         resultText = "FG Good";
-      } else if (lastPlay.fieldGoalAttempt && !lastPlay.fieldGoalGood) {
+      } else if (lastPlay.playType === "field_goal" && !lastPlay.fieldGoalGood) {
         resultText = "FG Miss";
       } else if (lastPlay.safety) {
         resultText = "Safety";
@@ -289,9 +289,9 @@ class RNG {
     } else if (state.clockSec <= 0) {
       resultText = "End of quarter";
     }
-
+  
     const playIndices = drivePlays.map((_, idx) => startingPlayIndex + idx);
-
+  
     state.drives.push({
       driveId: state.driveId,
       offense: offenseSide,                 // "home" | "away"
@@ -303,31 +303,51 @@ class RNG {
       startClockSec: startingClock,
       endClockSec: state.clockSec,
       durationSec,
-      timeStr: formatClockFromSec(durationSec),
       yards: totalYards,
       playCount: drivePlays.length,
       playIndices,                         // used in step-through mode
       startScore: startingScore,
       endScore: cloneScore(state.score),
     });
-
-    // If the game isn't final, and we just ended a drive by score/turnover/punt,
-    // start the next drive with the other team, if clock remains.
+  
+    // Decide how the *next* drive should start
     if (!state.isFinal && state.clockSec > 0) {
-      const nextPossession = offenseSide === "home" ? "away" : "home";
-      state.possession = nextPossession;
-      state.ballYardline = 25; // Simplified: new drive starts at own 25
+      const isTD = !!lastPlay?.touchdown;
+      const isFG = lastPlay?.playType === "field_goal";
+      const isFGGood = !!lastPlay?.fieldGoalGood;
+      const isFGMiss = isFG && !isFGGood;
+      const isSafety = !!lastPlay?.safety;
+  
+      if (isTD || (isFG && isFGGood)) {
+        // Offense just scored – other team receives at own 25.
+        state.possession = offenseSide === "home" ? "away" : "home";
+        state.ballYardline = 25;
+      } else if (isSafety) {
+        // Safety: scoring defense already has possession from applyPlayOutcome.
+        // Approximate free kick by starting them at their own 25.
+        state.ballYardline = 25;
+      } else if (isFGMiss) {
+        // Missed FG: treat as turnover at spot, approximate by flipping field
+        const los = clamp(state.ballYardline, 1, 99);
+        state.possession = offenseSide === "home" ? "away" : "home";
+        state.ballYardline = 100 - los;
+      } else {
+        // Punts / interceptions / fumbles / turnover on downs / end-of-quarter:
+        // applyPlayOutcome + handleEndOfQuarterOrGame already set
+        // possession and field position; leave them as-is.
+      }
+  
       state.down = 1;
       state.distance = 10;
       state.driveId += 1;
-      const lastPlayForReason = drivePlays[drivePlays.length - 1] || null;
       startNewDrive(
         state,
-        lastPlayForReason,
-        "New drive after change of possession"
+        lastPlay,
+        "New drive after change of possession or break"
       );
     }
   }
+  
 
   
   // Register a new drive meta entry (start placeholder)
@@ -1178,63 +1198,53 @@ class RNG {
     });
   }
   
+
 // -----------------------------------------------------------------------------
-// Aggregate basic team stats from the play log
+// Basic team stats aggregation for UI
 // -----------------------------------------------------------------------------
 function computeTeamStats(state) {
-    const makeEmpty = () => ({
+    const makeRow = () => ({
       plays: 0,
       yardsTotal: 0,
-      yardsPerPlay: 0,
       rushYards: 0,
       passYards: 0,
-      rushAttempts: 0,
-      passAttempts: 0,
-      completions: 0,
-      sacks: 0,
       turnovers: 0,
+      yardsPerPlay: 0,
     });
   
     const stats = {
-      home: makeEmpty(),
-      away: makeEmpty(),
+      home: makeRow(),
+      away: makeRow(),
     };
   
-    for (const p of state.plays || []) {
+    for (const p of state.plays) {
       const side = p.offense === "away" ? "away" : "home";
-      const teamStats = stats[side];
+      const s = stats[side];
   
       const y = Number.isFinite(p.yardsGained) ? p.yardsGained : 0;
-      teamStats.plays += 1;
+      const type = p.playType || p.decisionType;
   
-      const playType = p.playType || p.decisionType;
-  
-      if (playType === "run") {
-        teamStats.rushAttempts += 1;
-        teamStats.rushYards += y;
-      } else if (playType === "pass") {
-        teamStats.passAttempts += 1;
-        teamStats.passYards += y;
-        if (p.completion) teamStats.completions += 1;
-        if (p.sack) teamStats.sacks += 1;
-        if (p.interception) teamStats.turnovers += 1;
+      if (type === "run" || type === "pass") {
+        s.plays += 1;
+        s.yardsTotal += y;
+        if (type === "run") s.rushYards += y;
+        if (type === "pass") s.passYards += y;
       }
   
-      if (p.fumble && p.turnover) {
-        teamStats.turnovers += 1;
+      // Count only “true” turnovers, not punts or missed FGs
+      if (p.turnover && !p.fieldGoalAttempt && !p.punt) {
+        s.turnovers += 1;
       }
     }
   
     for (const side of ["home", "away"]) {
       const s = stats[side];
-      s.rushYards = s.rushYards || 0;
-      s.passYards = s.passYards || 0;
-      s.yardsTotal = s.rushYards + s.passYards;
       s.yardsPerPlay = s.plays > 0 ? s.yardsTotal / s.plays : 0;
     }
   
     return stats;
   }
+  
   
   
 
@@ -1245,9 +1255,9 @@ function computeTeamStats(state) {
 function buildGameResult(state) {
     const { homeTeam, awayTeam, score } = state;
     const diff = score.home - score.away;
-    const winner = diff > 0 ? "home" : diff < 0 ? "away" : null;
+    const winner =
+      diff > 0 ? "home" : diff < 0 ? "away" : null;
   
-    // Aggregate team stats from plays so the UI can show them
     const teamStats = computeTeamStats(state);
   
     return {
@@ -1261,9 +1271,10 @@ function buildGameResult(state) {
       drives: state.drives,
       plays: state.plays,
       events: state.events,
-      teamStats,      // <-- NEW: what simulation.html expects
+      teamStats,              // <— new, used by simulation.html
     };
   }
+  
   
   
   function formatGameSummary(result) {
