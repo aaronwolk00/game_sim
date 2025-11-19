@@ -927,7 +927,20 @@
     import { loadLeague } from './data_models.js';
     import { simulateGame } from './game_engine.js';
 
-    const CSV_URL = 'https://raw.githubusercontent.com/aaronwolk00/game_sim/main/layer3_rosters.csv';
+    // --- Resolve CSV + optional home/away from URL params -----------------------
+    const PARAMS = new URLSearchParams(location.search);
+
+    // Allow ?players=<url> override. If not present, use your Layer 3 roster.
+    const RAW_PLAYERS_PARAM = (PARAMS.get('players') || '').replace('/refs/heads/', '/');
+    const DEFAULT_CSV_URL =
+    'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/layer3_rosters.csv';
+
+    const CSV_URL = RAW_PLAYERS_PARAM || DEFAULT_CSV_URL;
+
+    // Optional: pre-select teams if ?home= / ?away= are passed in.
+    const HOME_PARAM = PARAMS.get('home') || '';
+    const AWAY_PARAM = PARAMS.get('away') || '';
+
 
     // ----- DOM LOOKUPS -------------------------------------------------------
     const dom = {
@@ -1581,73 +1594,92 @@
 
     // ----- INIT LEAGUE LOAD --------------------------------------------------
     async function initLeague() {
-      setEngineStatus('pending', 'Loading Layer 3 rosters…');
-      setSimStatus('Loading teams from layer3_rosters.csv…');
+        setEngineStatus('pending', 'Loading Layer 3 rosters…');
+        setSimStatus('Loading teams from layer3_rosters.csv…');
 
-      try {
-        league = await loadLeague('https://raw.githubusercontent.com/aaronwolk00/game_sim/main/layer3_rosters.csv');
+        try {
+            // Use the resolved CSV_URL so your engine can use either the default
+            // Layer 3 roster or whatever is passed via ?players=
+            league = await loadLeague(CSV_URL);
 
-        if (!league || !Array.isArray(league.teams) || league.teams.length === 0) {
-          throw new Error('No teams found in league data.');
+            if (!league || !Array.isArray(league.teams) || league.teams.length === 0) {
+            throw new Error('No teams found in league data.');
+            }
+
+            // Populate selects
+            const fragHome = document.createDocumentFragment();
+            const fragAway = document.createDocumentFragment();
+
+            league.teams.forEach((team) => {
+            const id = team.teamId || team.id;
+            const label = getTeamLabel(team);
+
+            const optHome = document.createElement('option');
+            optHome.value = id;
+            optHome.textContent = label;
+            fragHome.appendChild(optHome);
+
+            const optAway = document.createElement('option');
+            optAway.value = id;
+            optAway.textContent = label;
+            fragAway.appendChild(optAway);
+            });
+
+            dom.selectHome.innerHTML = '';
+            dom.selectAway.innerHTML = '';
+            dom.selectHome.appendChild(fragHome);
+            dom.selectAway.appendChild(fragAway);
+
+            // Helper: match a team by id / name / abbr from URL params
+            const findTeamByAnyId = (value) => {
+            if (!value) return null;
+            const target = value.toLowerCase();
+            return (
+                league.teams.find((t) => {
+                const id = (t.teamId || t.id || '').toString().toLowerCase();
+                const name = (t.team_name || t.teamName || t.displayName || '').toLowerCase();
+                const abbr = (t.abbr || '').toLowerCase();
+                return id === target || name === target || abbr === target;
+                }) || null
+            );
+            };
+
+            // Use ?home= / ?away= if present, otherwise fall back to first two teams
+            let homeTeam = findTeamByAnyId(HOME_PARAM) || league.teams[0] || null;
+            let awayTeam = findTeamByAnyId(AWAY_PARAM) || league.teams[1] || null;
+
+            if (homeTeam) {
+            dom.selectHome.value = homeTeam.teamId || homeTeam.id;
+            }
+            if (awayTeam) {
+            dom.selectAway.value = awayTeam.teamId || awayTeam.id;
+            }
+
+            syncSelectedTeamsToCards();
+            resetForNewSimulation();
+            enableControlsAfterLeagueLoad();
+            setEngineStatus('ready', 'Engine ready (Layer 3)');
+            setSimStatus('Teams loaded. Configure options and run a simulation.');
+
+            if (dom.debugEngineLine) {
+            dom.debugEngineLine.textContent = `League loaded: ${
+                league.teams.length
+            } teams from ${CSV_URL}.`;
+            }
+
+            await probeCSV(CSV_URL);
+        } catch (err) {
+            console.error('loadLeague error', err);
+            setEngineStatus('error', 'Failed to load league');
+            setSimStatus('Failed to load league data. See console for details.');
+            if (dom.debugEngineLine) {
+            dom.debugEngineLine.textContent = `League load error: ${
+                err?.message || err
+            }`;
+            }
         }
-
-        // Populate selects
-        const fragHome = document.createDocumentFragment();
-        const fragAway = document.createDocumentFragment();
-
-        league.teams.forEach((team) => {
-          const id = team.teamId || team.id;
-          const label = getTeamLabel(team);
-
-          const optHome = document.createElement('option');
-          optHome.value = id;
-          optHome.textContent = label;
-          fragHome.appendChild(optHome);
-
-          const optAway = document.createElement('option');
-          optAway.value = id;
-          optAway.textContent = label;
-          fragAway.appendChild(optAway);
-        });
-
-        dom.selectHome.innerHTML = '';
-        dom.selectAway.innerHTML = '';
-        dom.selectHome.appendChild(fragHome);
-        dom.selectAway.appendChild(fragAway);
-
-        // Default teams: first as home, second as away if available
-        if (league.teams[0]) {
-          dom.selectHome.value = league.teams[0].teamId || league.teams[0].id;
-        }
-        if (league.teams[1]) {
-          dom.selectAway.value = league.teams[1].teamId || league.teams[1].id;
-        }
-
-        syncSelectedTeamsToCards();
-        resetForNewSimulation();
-        enableControlsAfterLeagueLoad();
-        setEngineStatus('ready', 'Engine ready (Layer 3)');
-        setSimStatus('Teams loaded. Configure options and run a simulation.');
-
-        if (dom.debugEngineLine) {
-          dom.debugEngineLine.textContent = `League loaded: ${
-            league.teams.length
-          } teams from layer3_rosters.csv.`;
-        }
-
-        await probeCSV(CSV_URL);
-
-      } catch (err) {
-        console.error('loadLeague error', err);
-        setEngineStatus('error', 'Failed to load league');
-        setSimStatus('Failed to load league data. See console for details.');
-        if (dom.debugEngineLine) {
-          dom.debugEngineLine.textContent = `League load error: ${
-            err?.message || err
-          }`;
-        }
-      }
     }
+
 
     // ----- BOOTSTRAP ---------------------------------------------------------
     (async function bootstrap() {
