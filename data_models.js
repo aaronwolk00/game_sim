@@ -1,338 +1,256 @@
 // data_models.js
 // -----------------------------------------------------------------------------
-// Domain models & data loading for the NFL-style simulation.
-// This module is the bridge between your Layer2/Layer3 CSV-style data and the
-// simulation engine (randomness models, micro-engine, and game loop).
+// Data & domain models, wired specifically to layer3_rosters.csv
 //
-// It knows about:
-//   - Players (ratings, traits, factors, plus a slot for latent vectors)
-//   - Teams (rosters, depth charts, rating snapshots)
-//   - League container
-//   - GameClock & GameState skeleton
-//
-// It does NOT:
-//   - Decide how probabilities work (that belongs in the models / micro-engine)
-//   - Simulate plays or drives (that belongs in game_engine.js)
-//
-// All exports are plain JS classes + helpers; everything is ES-module friendly.
+// - Parses the CSV you showed (layer3_rosters.csv in same folder).
+// - Builds Player and Team objects.
+// - Derives latent vectors A/C/T/P/V from factor_* and seed columns.
+// - Derives unitProfiles for offense/defense/special from rating_* columns.
 // -----------------------------------------------------------------------------
 
-// -----------------------------------------------------------------------------
 // Small helpers
-// -----------------------------------------------------------------------------
-
-/**
- * Safely parse a numeric field from a raw object.
- * Returns defaultValue if missing or NaN.
- */
- function toNumber(raw, key, defaultValue = 0) {
-    if (!raw || raw[key] === undefined || raw[key] === null) return defaultValue;
-    const v = Number(raw[key]);
-    return Number.isFinite(v) ? v : defaultValue;
+function toNumber(v, fallback = 0) {
+    if (v === undefined || v === null || v === "") return fallback;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : fallback;
   }
   
-  /**
-   * Safely parse an integer field.
-   */
-  function toInt(raw, key, defaultValue = 0) {
-    if (!raw || raw[key] === undefined || raw[key] === null) return defaultValue;
-    const v = parseInt(raw[key], 10);
-    return Number.isFinite(v) ? v : defaultValue;
+  function scale01From100(v) {
+    return toNumber(v) / 100; // ratings like 93.0
   }
   
-  /**
-   * Safely parse a string field.
-   */
-  function toStr(raw, key, defaultValue = "") {
-    if (!raw || raw[key] === undefined || raw[key] === null) return defaultValue;
-    return String(raw[key]);
+  function scale01From10000(v) {
+    return toNumber(v) / 10000; // seeds / factors like ~7000–9000
   }
   
-  /**
-   * Shallow clone of an object (so we never mutate original CSV rows).
-   */
-  function shallowClone(obj) {
-    return Object.assign({}, obj);
-  }
-  
-  // -----------------------------------------------------------------------------
-  // Position & side-of-ball semantics
-  // -----------------------------------------------------------------------------
-  // These are intentionally minimal. The config/statistical modules can extend.
-  // -----------------------------------------------------------------------------
-  
-  /**
-   * Side-of-ball classification.
-   * Used for routing players into units, not for ratings math directly.
-   */
-  export const SIDE = /** @type {const} */ ({
-    OFFENSE: "OFFENSE",
-    DEFENSE: "DEFENSE",
-    SPECIAL: "SPECIAL",
-  });
-  
-  /**
-   * Map of primary position -> side of ball.
-   * This is aligned with your Layer 2 / Layer 3 positions.
-   */
-  export const POSITION_SIDE = {
-    QB: SIDE.OFFENSE,
-    RB: SIDE.OFFENSE,
-    WR: SIDE.OFFENSE,
-    TE: SIDE.OFFENSE,
-    FB: SIDE.OFFENSE,
-    LT: SIDE.OFFENSE,
-    LG: SIDE.OFFENSE,
-    C: SIDE.OFFENSE,
-    RG: SIDE.OFFENSE,
-    RT: SIDE.OFFENSE,
-  
-    DT: SIDE.DEFENSE,
-    EDGE: SIDE.DEFENSE,
-    LB: SIDE.DEFENSE,
-    CB: SIDE.DEFENSE,
-    S: SIDE.DEFENSE,
-  
-    K: SIDE.SPECIAL,
-    P: SIDE.SPECIAL,
-  };
-  
-  /**
-   * Convenience list of all primary positions in the sim.
-   */
-  export const ALL_POSITIONS = Object.freeze([
-    "QB",
-    "RB",
-    "WR",
-    "TE",
-    "FB",
-    "LT",
-    "LG",
-    "C",
-    "RG",
-    "RT",
-    "DT",
-    "EDGE",
-    "LB",
-    "CB",
-    "S",
-    "K",
-    "P",
-  ]);
-  
-  // -----------------------------------------------------------------------------
-  // Latent profiles: A / C / T / P / V
-  // -----------------------------------------------------------------------------
-  // This is a *container*; the actual computation of these will generally live
-  // in your "models" / randomness module so you can iterate on math independently.
-  // -----------------------------------------------------------------------------
-  
-  /**
-   * A single latent sub-vector (e.g. A, C, T, P, V).
-   * Wrapped as a simple keyed numeric map.
-   */
-  export class LatentSubVector {
-    /**
-     * @param {Object.<string, number>} components
-     */
-    constructor(components = {}) {
-      /** @type {Object.<string, number>} */
-      this.components = { ...components };
+  function groupBy(arr, keyFn) {
+    const m = new Map();
+    for (const item of arr) {
+      const key = keyFn(item);
+      if (!m.has(key)) m.set(key, []);
+      m.get(key).push(item);
     }
-  
-    get(name, fallback = 0) {
-      const v = this.components[name];
-      return typeof v === "number" && Number.isFinite(v) ? v : fallback;
-    }
-  
-    set(name, value) {
-      this.components[name] = Number(value) || 0;
-    }
-  
-    toJSON() {
-      return shallowClone(this.components);
-    }
-  }
-  
-  /**
-   * Full latent profile per player.
-   * A = athletic, C = cognitive, T = technical, P = psyche, V = variance/context.
-   */
-  export class LatentProfile {
-    constructor({
-      A = {},
-      C = {},
-      T = {},
-      P = {},
-      V = {},
-    } = {}) {
-      /** @type {LatentSubVector} */
-      this.A = A instanceof LatentSubVector ? A : new LatentSubVector(A);
-      this.C = C instanceof LatentSubVector ? C : new LatentSubVector(C);
-      this.T = T instanceof LatentSubVector ? T : new LatentSubVector(T);
-      this.P = P instanceof LatentSubVector ? P : new LatentSubVector(P);
-      this.V = V instanceof LatentSubVector ? V : new LatentSubVector(V);
-    }
-  
-    /**
-     * Convenience accessor:
-     *    profile.get("A", "explosiveness", 0)
-     */
-    get(group, key, fallback = 0) {
-      const vec = this[group];
-      if (!vec || typeof vec.get !== "function") return fallback;
-      return vec.get(key, fallback);
-    }
-  
-    toJSON() {
-      return {
-        A: this.A.toJSON(),
-        C: this.C.toJSON(),
-        T: this.T.toJSON(),
-        P: this.P.toJSON(),
-        V: this.V.toJSON(),
-      };
-    }
+    return m;
   }
   
   // -----------------------------------------------------------------------------
   // Player model
   // -----------------------------------------------------------------------------
-  // This wraps a single row from layer2 / layer3_rosters as a live simulation
-  // object, with convenient access to core fields and trait/factor maps.
-  // -----------------------------------------------------------------------------
   
   export class Player {
-    /**
-     * @param {Object} rawRow - One row from layer2_ratings or layer3_rosters.
-     *                          Must at least have: id, position, rating_overall.
-     *                          For layer3_rosters, also team_id, team_name, depth.
-     */
     constructor(rawRow) {
-      if (!rawRow) rawRow = {};
-      /** Raw CSV/JSON backing object (never mutate this directly). */
-      this.raw = shallowClone(rawRow);
+      this.raw = rawRow; // keep full row for debugging
   
-      /** Unique player id as string. */
-      this.id = toStr(rawRow, "id");
+      // Core identity
+      this.teamId = rawRow.team_id;
+      this.teamName = rawRow.team_name;
+      this.position = rawRow.position;
+      this.depth = toNumber(rawRow.depth, 1);
   
-      /** Primary position, e.g. "QB", "WR", "DT". */
-      this.position = toStr(rawRow, "position").toUpperCase();
+      // Prefer the first id column as playerId
+      this.playerId = rawRow.id_0 ?? rawRow.id;
+      this.firstName = rawRow.first_name;
+      this.lastName = rawRow.last_name;
+      this.displayName = `${this.firstName} ${this.lastName}`;
   
-      /** Overall 0-100 rating (already normalized by your Python pipeline). */
-      this.ratingOverall = toNumber(rawRow, "rating_overall", 0);
+      // Overall ratings
+      this.ratingOverall = toNumber(rawRow.rating_overall);
+      this.ratingPos = toNumber(rawRow.rating_pos);
   
-      /**
-       * Position-specific overall (if present).
-       * For OL, this may be rating_OL_overall; for DB, rating_CB_overall / rating_S_overall, etc.
-       */
-      this.ratingPos = toNumber(rawRow, "rating_pos", this.ratingOverall);
-  
-      /** Optional human-readable name; if not present, we just use "Player <id>". */
-      this.name =
-        rawRow.name ||
-        rawRow.player_name ||
-        rawRow.full_name ||
-        `Player ${this.id || "?"}`;
-  
-      /** Team ID + name (may be empty for pure Layer2 data without team assignment). */
-      this.teamId = toStr(rawRow, "team_id", "");
-      this.teamName = toStr(rawRow, "team_name", "");
-  
-      /** Depth on team at this position, e.g. 1=starter, 2=backup. 0 if unknown. */
-      this.depth = toInt(rawRow, "depth", 0);
-  
-      /** Map of factor_* columns (0-10000-style) -> numeric 0..1. */
-      this.factors = {};
-      /** Map of trait_* columns (0-10000-style) -> numeric 0..1. */
-      this.traits = {};
-  
-      /** Latent A/C/T/P/V profile – can be filled in later by the models module. */
-      this.latent = new LatentProfile();
-  
-      /** Side of ball (OFFENSE/DEFENSE/SPECIAL) based on primary position. */
-      this.side = POSITION_SIDE[this.position] || null;
-  
-      this._ingestFactorsAndTraits(rawRow);
+      // Build structured views
+      this.seeds = this._buildSeeds(rawRow);
+      this.latent = this._buildLatent(rawRow);
+      this.traits = this._buildTraits(rawRow);
+      this.positionRatings = this._buildPositionRatings(rawRow);
     }
   
-    _ingestFactorsAndTraits(rawRow) {
-      for (const [key, val] of Object.entries(rawRow)) {
-        if (key.startsWith("factor_")) {
-          const v = Number(val);
-          // assume 0..10000 or 0..100; normalize softly to 0..1
-          const scaled =
-            !Number.isFinite(v) ? 0 : v > 1000 ? v / 10000 : v / 100;
-          this.factors[key.slice("factor_".length)] = Math.max(
-            0,
-            Math.min(1, scaled)
-          );
-        } else if (key.startsWith("trait_")) {
-          const v = Number(val);
-          const scaled =
-            !Number.isFinite(v) ? 0 : v > 1000 ? v / 10000 : v / 100;
-          this.traits[key.slice("trait_".length)] = Math.max(
-            0,
-            Math.min(1, scaled)
-          );
+    _buildSeeds(row) {
+      return {
+        phys: scale01From10000(row.phys_seed),
+        cog: scale01From10000(row.cog_seed),
+        drive: scale01From10000(row.drive_seed),
+        stability: scale01From10000(row.stability_seed),
+        social: scale01From10000(row.social_seed),
+        chaos: scale01From10000(row.chaos_seed),
+        env: scale01From10000(row.env_seed),
+      };
+    }
+  
+    _buildLatent(row) {
+      // Athletic (A): use factor_* + some raw physical metrics.
+      const A = {
+        explosiveness: scale01From10000(row.factor_explosiveness),
+        topSpeed: scale01From10000(row.factor_top_speed),
+        changeOfDirection: scale01From10000(
+          row.factor_change_of_direction
+        ),
+        playStrength: scale01From10000(row.factor_play_strength),
+        durability: scale01From10000(row.factor_durability),
+  
+        shortSpeed5y: scale01From10000(row.trait_speed_5y),
+        shortSpeed10y: scale01From10000(row.trait_speed_10y),
+        acceleration: scale01From10000(row.trait_burst_accel),
+        longSpeedReserve: scale01From10000(
+          row.trait_long_speed_reserve
+        ),
+        shortAreaQuickness: scale01From10000(
+          row.trait_short_area_quickness
+        ),
+        functionalStrengthRun: scale01From10000(
+          row.trait_functional_strength_run
+        ),
+        functionalStrengthPass: scale01From10000(
+          row.trait_functional_strength_pass
+        ),
+        balanceControl: scale01From10000(row.trait_balance_control),
+      };
+  
+      // Cognitive (C): decision speed, pattern IQ, discipline, relevant seeds.
+      const C = {
+        decisionSpeed: scale01From10000(row.factor_decision_speed),
+        patternIQ: scale01From10000(row.factor_pattern_iq),
+        discipline: scale01From10000(row.factor_discipline),
+  
+        generalProblemSolving: scale01From10000(
+          row.general_problem_solving
+        ),
+        processingSpeed: scale01From10000(row.processing_speed),
+        workingMemory: scale01From10000(row.working_memory),
+        patternRecognition: scale01From10000(row.pattern_recognition),
+        spatialReasoning: scale01From10000(row.spatial_reasoning),
+  
+        attentionalControl: scale01From10000(row.attentional_control),
+        abstractLearningRate: scale01From10000(
+          row.abstract_learning_rate
+        ),
+        motorLearningRate: scale01From10000(
+          row.factor_motor_learning_factor
+        ),
+      };
+  
+      // Technical (T): position skills & ratings.
+      const T = {
+        // Route running / WR skills
+        routeDeception: scale01From10000(row.trait_route_deception),
+        releaseVsPress: scale01From10000(row.trait_release_vs_press),
+        catchReliability: scale01From10000(
+          row.trait_catch_hand_reliability
+        ),
+        contestedCatch: scale01From10000(
+          row.trait_contested_catch_skill
+        ),
+        sidelineWizardry: scale01From10000(
+          row.trait_sideline_wizardry
+        ),
+  
+        // QB skills
+        pocketNavigation: scale01From10000(
+          row.trait_pocket_navigation
+        ),
+        offScriptPlaymaking: scale01From10000(
+          row.trait_off_script_playmaking
+        ),
+        throwingUnderDuress: scale01From10000(
+          row.trait_throwing_under_duress
+        ),
+        readProgressionSpeed: scale01From10000(
+          row.trait_read_progression_speed
+        ),
+  
+        // Coverage / DB / S
+        zoneCoverageInstincts: scale01From10000(
+          row.trait_zone_coverage_instincts
+        ),
+        manCoverageMirroring: scale01From10000(
+          row.trait_man_coverage_mirroring
+        ),
+        ballSkillsDB: scale01From10000(row.trait_ball_skills_db),
+  
+        // Tackling / run fit
+        runFitDiscipline: scale01From10000(
+          row.trait_run_fit_discipline
+        ),
+        openFieldTackling: scale01From10000(
+          row.trait_open_field_tackling
+        ),
+        blockingPointOfAttack: scale01From10000(
+          row.trait_blocking_run_point_of_attack
+        ),
+        passProTechnique: scale01From10000(
+          row.trait_pass_pro_technique
+        ),
+  
+        // RB vision & ball security
+        visionBetweenTackles: scale01From10000(
+          row.trait_vision_between_tackles
+        ),
+        cutbackVision: scale01From10000(row.trait_cutback_vision),
+        screenVision: scale01From10000(row.trait_screen_vision),
+        ballSecurityTrait: scale01From10000(row.trait_ball_security),
+      };
+  
+      // Psyche/Personality (P)
+      const P = {
+        conscientiousness: scale01From10000(row.conscientiousness),
+        grit: scale01From10000(row.grit),
+        riskTolerance: scale01From10000(row.risk_tolerance),
+        competitiveness: scale01From10000(row.competitiveness),
+        aggression: scale01From10000(row.aggression),
+        emotionalStability: scale01From10000(
+          row.emotional_stability
+        ),
+        impulsivity: scale01From10000(row.impulsivity),
+        sociability: scale01From10000(row.sociability),
+        leadershipDrive: scale01From10000(row.leadership_drive),
+        ruleOrientation: scale01From10000(row.rule_orientation),
+        creativity: scale01From10000(row.creativity),
+      };
+  
+      // Variance / environment (V)
+      const V = {
+        chaosSeed: this.seeds?.chaos ?? scale01From10000(
+          row.chaos_seed
+        ),
+        stabilitySeed: this.seeds?.stability ?? scale01From10000(
+          row.stability_seed
+        ),
+        childhoodSES: scale01From10000(row.childhood_ses),
+        childhoodNutrition: scale01From10000(
+          row.childhood_nutrition
+        ),
+        sportsAccess: scale01From10000(row.sports_access),
+        academicAccess: scale01From10000(row.academic_access),
+        parentalSupport: scale01From10000(row.parental_support),
+        neighborhoodSafety: scale01From10000(
+          row.neighborhood_safety
+        ),
+        earlyPhysicalLabor: scale01From10000(
+          row.early_physical_labor
+        ),
+        earlyTrauma: scale01From10000(row.early_trauma),
+      };
+  
+      return { A, C, T, P, V };
+    }
+  
+    _buildTraits(row) {
+      const traits = {};
+      for (const [key, value] of Object.entries(row)) {
+        if (key.startsWith("trait_")) {
+          traits[key] = scale01From10000(value);
         }
       }
+      return traits;
     }
   
-    // --- Convenience getters ---------------------------------------------------
-  
-    /**
-     * Get a normalized factor in [0,1] by short name (e.g. "explosiveness").
-     */
-    getFactor(name, fallback = 0.5) {
-      const v = this.factors[name];
-      return typeof v === "number" && Number.isFinite(v) ? v : fallback;
-    }
-  
-    /**
-     * Get a normalized trait in [0,1] by short name (e.g. "speed_20y").
-     */
-    getTrait(name, fallback = 0.5) {
-      const v = this.traits[name];
-      return typeof v === "number" && Number.isFinite(v) ? v : fallback;
-    }
-  
-    /**
-     * Update team assignment (used when building teams from generic Layer2 data).
-     */
-    assignTeam(teamId, teamName, depth = 0) {
-      this.teamId = teamId;
-      this.teamName = teamName || teamId;
-      this.depth = depth;
-    }
-  
-    /**
-     * Attach a latent profile (usually computed by the statistical models module).
-     * @param {LatentProfile} profile
-     */
-    setLatentProfile(profile) {
-      if (profile instanceof LatentProfile) {
-        this.latent = profile;
-      } else if (profile && typeof profile === "object") {
-        this.latent = new LatentProfile(profile);
+    _buildPositionRatings(row) {
+      const ratings = {};
+      for (const [key, value] of Object.entries(row)) {
+        if (key.startsWith("rating_")) {
+          ratings[key] = toNumber(value);
+        }
       }
-    }
-  
-    /**
-     * Minimal JSON representation for logs / UI.
-     */
-    toJSON() {
-      return {
-        id: this.id,
-        name: this.name,
-        position: this.position,
-        side: this.side,
-        teamId: this.teamId,
-        teamName: this.teamName,
-        depth: this.depth,
-        ratingOverall: this.ratingOverall,
-        ratingPos: this.ratingPos,
-      };
+      return ratings;
     }
   }
   
@@ -341,383 +259,368 @@
   // -----------------------------------------------------------------------------
   
   export class Team {
-    /**
-     * @param {string} teamId
-     * @param {string} teamName
-     */
-    constructor(teamId, teamName) {
-      this.id = String(teamId);
-      this.name = String(teamName || teamId);
+    constructor(teamId, teamName, players) {
+      this.teamId = teamId;
+      this.teamName = teamName;
+      this.roster = players.slice().sort(
+        (a, b) => a.depth - b.depth
+      );
   
-      /** Flat roster list in no particular order. */
-      this.roster = /** @type {Player[]} */ ([]);
-  
-      /** Depth charts by position: position -> Player[] sorted by depth then rating. */
-      this.depthCharts = /** @type {Record<string, Player[]>} */ ({});
-  
-      /** Optional rating snapshot – usually filled in by the ratings module. */
-      this.ratings = {
-        offense: null,
-        defense: null,
-        special: null,
-        overall: null,
-      };
-  
-      /** Optional richer unit profiles, filled by later modules. */
-      this.unitProfiles = {
-        offense: null, // e.g. { pass: 0-100, run: 0-100, explosiveness: ... }
-        defense: null, // e.g. { coverage: 0-100, passRush: 0-100, runFit: ... }
-        special: null,
-      };
+      this.depthChart = this._buildDepthChart();
+      this.unitProfiles = this._buildUnitProfiles();
     }
   
-    /**
-     * Add a player to this team and place them into the depth chart.
-     * Depth is taken from player.depth if not provided.
-     */
-    addPlayer(player, explicitDepth = null) {
-      if (!(player instanceof Player)) {
-        throw new Error("Team.addPlayer expects a Player instance.");
+    _buildDepthChart() {
+      const chart = {};
+      for (const p of this.roster) {
+        if (!chart[p.position]) chart[p.position] = [];
+        chart[p.position].push(p);
       }
-      const depth = explicitDepth != null ? explicitDepth : player.depth || 0;
-  
-      // Attach team info to player (in case player came from generic Layer2 data).
-      player.assignTeam(this.id, this.name, depth);
-  
-      this.roster.push(player);
-  
-      const pos = player.position;
-      if (!this.depthCharts[pos]) {
-        this.depthCharts[pos] = [];
+      // Ensure sorted by depth
+      for (const pos of Object.keys(chart)) {
+        chart[pos].sort((a, b) => a.depth - b.depth);
       }
-      this.depthCharts[pos].push(player);
-  
-      // Keep the depth chart sorted: 1,2,3,... then by rating desc.
-      this.depthCharts[pos].sort((a, b) => {
-        const da = a.depth || 999;
-        const db = b.depth || 999;
-        if (da !== db) return da - db;
-        return b.ratingOverall - a.ratingOverall;
-      });
+      return chart;
     }
   
-    /**
-     * Get depth chart for a position; always returns an array (possibly empty).
-     */
-    getDepthChart(position) {
-      return this.depthCharts[position] || [];
+    getPlayersByPosition(pos) {
+      return this.depthChart[pos] ?? [];
     }
   
-    /**
-     * Return the "starter" at a position (depth === 1) if any.
-     */
-    getStarter(position) {
-      const list = this.getDepthChart(position);
-      if (!list.length) return null;
-      // Ensure sorted by depth then rating.
-      return list[0];
+    getStarter(pos) {
+      const arr = this.getPlayersByPosition(pos);
+      return arr.length ? arr[0] : null;
     }
   
-    /**
-     * Set a rating snapshot for this team.
-     * Usually called from the ratings / models module.
-     */
-    setRatings({ offense, defense, special, overall }) {
-      this.ratings = {
-        offense: offense ?? this.ratings.offense,
-        defense: defense ?? this.ratings.defense,
-        special: special ?? this.ratings.special,
-        overall: overall ?? this.ratings.overall,
-      };
+    _meanRating(players, key) {
+      const vals = players
+        .map((p) => p.positionRatings[key])
+        .filter((v) => Number.isFinite(v));
+      if (!vals.length) return 50; // neutral-ish baseline
+      return vals.reduce((a, b) => a + b, 0) / vals.length;
     }
   
-    /**
-     * Set richer unit profiles, like pass/run splits, coverage strength, etc.
-     */
-    setUnitProfiles({ offense, defense, special }) {
-      if (offense) this.unitProfiles.offense = offense;
-      if (defense) this.unitProfiles.defense = defense;
-      if (special) this.unitProfiles.special = special;
-    }
+    _buildUnitProfiles() {
+      // Group by positions
+      const QBs = this.getPlayersByPosition("QB");
+      const RBs = this.getPlayersByPosition("RB");
+      const WRs = this.getPlayersByPosition("WR");
+      const TEs = this.getPlayersByPosition("TE");
+      const FBs = this.getPlayersByPosition("FB");
+      const OTs = [
+        ...this.getPlayersByPosition("LT"),
+        ...this.getPlayersByPosition("RT"),
+      ];
+      const OGs = [
+        ...this.getPlayersByPosition("LG"),
+        ...this.getPlayersByPosition("RG"),
+      ];
+      const Cs = this.getPlayersByPosition("C");
   
-    /**
-     * Simple summary for UI / debugging.
-     */
-    summary() {
-      return {
-        id: this.id,
-        name: this.name,
-        rosterSize: this.roster.length,
-        ratings: this.ratings,
-      };
-    }
+      const DTs = this.getPlayersByPosition("DT");
+      const EDGEs = this.getPlayersByPosition("EDGE");
+      const LBs = this.getPlayersByPosition("LB");
+      const CBs = this.getPlayersByPosition("CB");
+      const Ss = this.getPlayersByPosition("S");
   
-    toJSON() {
-      return {
-        id: this.id,
-        name: this.name,
-        ratings: this.ratings,
-      };
-    }
-  }
+      const Ks = this.getPlayersByPosition("K");
+      const Ps = this.getPlayersByPosition("P");
   
-  // -----------------------------------------------------------------------------
-  // League container
-  // -----------------------------------------------------------------------------
+      // Offense: pass / run profiles
+      const qbPass = this._meanRating(QBs, "rating_QB_overall");
+      const qbProcessing = this._meanRating(
+        QBs,
+        "rating_QB_processing"
+      );
+      const qbRisk = this._meanRating(
+        QBs,
+        "rating_QB_risk_taking"
+      );
   
-  export class League {
-    /**
-     * @param {Team[]} teams
-     */
-    constructor(teams = []) {
-      /** @type {Map<string, Team>} */
-      this.teamsById = new Map();
-      /** @type {Map<string, Player>} */
-      this.playersById = new Map();
+      const wrHands = this._meanRating(WRs, "rating_WR_hands");
+      const wrDeep = this._meanRating(WRs, "rating_WR_deep");
+      const wrRoute = this._meanRating(WRs, "rating_WR_route");
   
-      for (const t of teams) {
-        this.addTeam(t);
-      }
-    }
+      const teHands = this._meanRating(TEs, "rating_TE_hands");
+      const teRoute = this._meanRating(TEs, "rating_TE_route");
   
-    addTeam(team) {
-      if (!(team instanceof Team)) {
-        throw new Error("League.addTeam expects a Team instance.");
-      }
-      this.teamsById.set(team.id, team);
-      for (const p of team.roster) {
-        this.playersById.set(p.id, p);
-      }
-    }
+      const rbRun = this._meanRating(RBs, "rating_RB_overall");
+      const rbInside = this._meanRating(
+        RBs,
+        "rating_RB_runner_inside"
+      );
+      const rbReceiving = this._meanRating(
+        RBs,
+        "rating_RB_receiving"
+      );
+      const fbLead = this._meanRating(FBs, "rating_FB_lead_block");
   
-    getTeam(teamId) {
-      return this.teamsById.get(teamId) || null;
-    }
+      const olPass = this._meanRating(
+        [...OTs, ...OGs, ...Cs],
+        "rating_OL_pass_block"
+      );
+      const olRun = this._meanRating(
+        [...OTs, ...OGs, ...Cs],
+        "rating_OL_run_block"
+      );
+      const olMental = this._meanRating(
+        [...OTs, ...OGs, ...Cs],
+        "rating_OL_mental"
+      );
   
-    getPlayer(playerId) {
-      return this.playersById.get(playerId) || null;
-    }
-  
-    listTeams() {
-      return Array.from(this.teamsById.values());
-    }
-  
-    /**
-     * Basic position count diagnostics across the league.
-     */
-    getPositionCounts() {
-      const counts = {};
-      for (const team of this.teamsById.values()) {
-        for (const player of team.roster) {
-          const pos = player.position;
-          counts[pos] = (counts[pos] || 0) + 1;
-        }
-      }
-      return counts;
-    }
-  }
-  
-  // -----------------------------------------------------------------------------
-  // GameClock & GameState skeleton
-  // -----------------------------------------------------------------------------
-  // These are intentionally light. The game engine module will drive them.
-  // -----------------------------------------------------------------------------
-  
-  export class GameClock {
-    constructor({
-      quarter = 1,
-      secondsRemaining = 15 * 60, // per quarter
-      running = false,
-    } = {}) {
-      this.quarter = quarter;
-      this.secondsRemaining = secondsRemaining;
-      this.running = running;
-    }
-  
-    clone() {
-      return new GameClock({
-        quarter: this.quarter,
-        secondsRemaining: this.secondsRemaining,
-        running: this.running,
-      });
-    }
-  }
-  
-  export class GameState {
-    /**
-     * @param {Object} opts
-     * @param {League} opts.league
-     * @param {Team} opts.homeTeam
-     * @param {Team} opts.awayTeam
-     */
-    constructor({ league, homeTeam, awayTeam }) {
-      this.league = league;
-      this.homeTeam = homeTeam;
-      this.awayTeam = awayTeam;
-  
-      // basic scoreboard
-      this.score = {
-        home: 0,
-        away: 0,
-      };
-  
-      // possession: "home" or "away"
-      this.possession = "home";
-  
-      // field state
-      this.ballOnYardline = 25; // 25 = own 25 (we'll define a convention in the game engine)
-      this.down = 1;
-      this.distance = 10;
-  
-      // quarter & clock
-      this.clock = new GameClock();
-  
-      // logs
-      this.plays = []; // each element will be a play result object
-      this.drives = []; // each element will be a drive summary
-  
-      // simple flags
-      this.isFinal = false;
-    }
-  
-    /**
-     * Swap possession between home and away.
-     */
-    switchPossession() {
-      this.possession = this.possession === "home" ? "away" : "home";
-    }
-  
-    /**
-     * Get the Team object currently on offense.
-     */
-    getOffenseTeam() {
-      return this.possession === "home" ? this.homeTeam : this.awayTeam;
-    }
-  
-    /**
-     * Get the Team object currently on defense.
-     */
-    getDefenseTeam() {
-      return this.possession === "home" ? this.awayTeam : this.homeTeam;
-    }
-  
-    /**
-     * Record a play result into the log.
-     * The game engine will decide the shape of `playResult` objects.
-     */
-    logPlay(playResult) {
-      this.plays.push(playResult);
-    }
-  
-    toJSON() {
-      return {
-        homeTeam: this.homeTeam.summary(),
-        awayTeam: this.awayTeam.summary(),
-        score: this.score,
-        possession: this.possession,
-        ballOnYardline: this.ballOnYardline,
-        down: this.down,
-        distance: this.distance,
-        clock: {
-          quarter: this.clock.quarter,
-          secondsRemaining: this.clock.secondsRemaining,
+      const offense = {
+        pass: {
+          overall:
+            0.40 * qbPass +
+            0.20 * qbProcessing +
+            0.10 * qbRisk +
+            0.15 * wrHands +
+            0.10 * wrRoute +
+            0.05 * teHands,
+          qbPass,
+          qbProcessing,
+          qbRisk,
+          wrHands,
+          wrRoute,
+          teHands,
+          teRoute,
+          olPass,
         },
-        isFinal: this.isFinal,
+        run: {
+          overall:
+            0.35 * rbRun +
+            0.15 * rbInside +
+            0.10 * rbReceiving +
+            0.10 * fbLead +
+            0.30 * olRun,
+          rbRun,
+          rbInside,
+          rbReceiving,
+          fbLead,
+          olRun,
+          olMental,
+        },
       };
+  
+      // Defense: coverage / run fit / pass rush
+      const cbCoverage = this._meanRating(
+        CBs,
+        "rating_CB_coverage_man"
+      );
+      const cbZone = this._meanRating(
+        CBs,
+        "rating_CB_coverage_zone"
+      );
+      const cbSpeed = this._meanRating(CBs, "rating_CB_speed");
+  
+      const sCoverage = this._meanRating(Ss, "rating_S_coverage");
+      const sDeepRange = this._meanRating(
+        Ss,
+        "rating_S_deep_range"
+      );
+      const sSpeed = this._meanRating(Ss, "rating_S_speed");
+  
+      const lbCoverage = this._meanRating(
+        LBs,
+        "rating_LB_coverage"
+      );
+  
+      const dtRun = this._meanRating(DTs, "rating_DT_run_def");
+      const edgeRun = this._meanRating(
+        EDGEs,
+        "rating_EDGE_run_def"
+      );
+      const lbRun = this._meanRating(LBs, "rating_LB_run_def");
+      const sRunSupport = this._meanRating(
+        Ss,
+        "rating_S_run_support"
+      );
+      const cbRunSupport = this._meanRating(
+        CBs,
+        "rating_CB_run_support"
+      );
+  
+      const dtRush = this._meanRating(DTs, "rating_DT_pass_rush");
+      const edgeRush = this._meanRating(
+        EDGEs,
+        "rating_EDGE_pass_rush"
+      );
+      const lbBlitz = this._meanRating(LBs, "rating_LB_blitz");
+  
+      const defense = {
+        coverage: {
+          overall:
+            0.35 * cbCoverage +
+            0.15 * cbZone +
+            0.20 * sCoverage +
+            0.10 * sDeepRange +
+            0.10 * lbCoverage +
+            0.10 * Math.max(cbSpeed, sSpeed),
+          cbCoverage,
+          cbZone,
+          sCoverage,
+          sDeepRange,
+          lbCoverage,
+          cbSpeed,
+          sSpeed,
+        },
+        runFit: {
+          overall:
+            0.30 * dtRun +
+            0.25 * edgeRun +
+            0.25 * lbRun +
+            0.10 * sRunSupport +
+            0.10 * cbRunSupport,
+          dtRun,
+          edgeRun,
+          lbRun,
+          sRunSupport,
+          cbRunSupport,
+        },
+        passRush: {
+          overall: 0.40 * edgeRush + 0.35 * dtRush + 0.25 * lbBlitz,
+          dtRush,
+          edgeRush,
+          lbBlitz,
+        },
+      };
+  
+      // Special teams
+      const kAcc = this._meanRating(Ks, "rating_K_accuracy");
+      const kPow = this._meanRating(Ks, "rating_K_power");
+      const kOverall = this._meanRating(Ks, "rating_K_overall");
+  
+      const pControl = this._meanRating(Ps, "rating_P_control");
+      const pFieldFlip = this._meanRating(
+        Ps,
+        "rating_P_field_flip"
+      );
+      const pOverall = this._meanRating(Ps, "rating_P_overall");
+  
+      const cbST = this._meanRating(
+        CBs,
+        "rating_CB_special_teams"
+      );
+      const lbST = this._meanRating(
+        LBs,
+        "rating_LB_special_teams"
+      );
+      const sST = this._meanRating(
+        Ss,
+        "rating_S_special_teams"
+      );
+      const wrST = this._meanRating(
+        WRs,
+        "rating_WR_special_teams"
+      );
+      const rbReturn = this._meanRating(
+        RBs,
+        "rating_RB_return"
+      );
+  
+      const special = {
+        kicking: {
+          overall: 0.5 * kAcc + 0.5 * kPow,
+          accuracy: kAcc,
+          power: kPow,
+          kOverall,
+        },
+        punting: {
+          overall: 0.5 * pControl + 0.5 * pFieldFlip,
+          control: pControl,
+          fieldFlip: pFieldFlip,
+          pOverall,
+        },
+        coverage:
+          0.35 * cbST + 0.35 * lbST + 0.30 * sST,
+        returner:
+          0.5 * wrST + 0.3 * rbReturn + 0.2 * sST,
+      };
+  
+      return { offense, defense, special };
     }
   }
   
   // -----------------------------------------------------------------------------
-  // Data loading from Layer3-style rosters
-  // -----------------------------------------------------------------------------
-  // We assume you've already parsed CSV into an array of plain JS objects where
-  // each row looks like a line from layer3_rosters.csv.
+  // CSV parsing & league builder
   // -----------------------------------------------------------------------------
   
+  function parseCsv(text) {
+    const lines = text
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
+  
+    if (!lines.length) return [];
+  
+    const headerParts = lines[0].split(",");
+    // Handle duplicate column names (like 'id' appears twice)
+    const headers = [];
+    const nameCounts = {};
+    for (const h of headerParts) {
+      const base = h.trim();
+      const count = nameCounts[base] ?? 0;
+      const name = count === 0 ? base : `${base}_${count}`;
+      nameCounts[base] = count + 1;
+      headers.push(name);
+    }
+  
+    const rows = [];
+  
+    for (let i = 1; i < lines.length; i++) {
+      const parts = lines[i].split(",");
+      if (parts.length === 1 && parts[0] === "") continue;
+      const row = {};
+      for (let j = 0; j < headers.length; j++) {
+        row[headers[j]] = parts[j] ?? "";
+      }
+      rows.push(row);
+    }
+  
+    return rows;
+  }
+  
   /**
-   * Build a full League (teams + players) from rows that look like layer3_rosters.csv.
-   *
-   * Each row is expected to contain at least:
-   *   - team_id, team_name
-   *   - position
-   *   - depth
-   *   - id
-   *   - rating_overall
-   *   - rating_pos
-   * plus all the Layer2 factor_* and trait_* columns.
-   *
-   * @param {Object[]} rows
-   * @param {Object} [options]
-   * @param {boolean} [options.attachLatentPlaceholders=true] - If true, we attach
-   *        empty LatentProfiles so later modules can just fill them in.
-   * @returns {{ league: League, teams: Team[], playersById: Map<string, Player> }}
+   * Build { teams, playersById } from layer3_rosters.csv text.
    */
-  export function buildLeagueFromRosterRows(
-    rows,
-    { attachLatentPlaceholders = true } = {}
-  ) {
-    /** @type {Map<string, Team>} */
-    const teamsById = new Map();
-    /** @type {Map<string, Player>} */
+  export function buildLeagueFromLayer3Csv(csvText) {
+    const rawRows = parseCsv(csvText);
+    const players = rawRows.map((row) => new Player(row));
+  
+    const teamsMap = groupBy(players, (p) => p.teamId);
+    const teams = [];
+  
+    for (const [teamId, teamPlayers] of teamsMap.entries()) {
+      const teamName = teamPlayers[0]?.teamName ?? teamId;
+      teams.push(new Team(teamId, teamName, teamPlayers));
+    }
+  
     const playersById = new Map();
-  
-    if (!Array.isArray(rows)) {
-      throw new Error("buildLeagueFromRosterRows expects an array of row objects.");
-    }
-  
-    for (const row of rows) {
-      const teamId = toStr(row, "team_id");
-      const teamName = toStr(row, "team_name", teamId || "Unknown Team");
-  
-      if (!teamId) {
-        // You *could* support no-team data, but for layer3 it's expected.
-        // For now we just skip rows without a team_id.
-        // You can relax this later if needed.
-        continue;
-      }
-  
-      let team = teamsById.get(teamId);
-      if (!team) {
-        team = new Team(teamId, teamName);
-        teamsById.set(teamId, team);
-      }
-  
-      const player = new Player(row);
-      if (attachLatentPlaceholders && !player.latent) {
-        player.setLatentProfile(new LatentProfile());
-      }
-  
-      // Depth is already baked into the row (from layer3).
-      team.addPlayer(player, player.depth);
-  
-      if (player.id) {
-        playersById.set(player.id, player);
+    for (const p of players) {
+      if (p.playerId != null) {
+        playersById.set(String(p.playerId), p);
       }
     }
   
-    const teams = Array.from(teamsById.values());
-    const league = new League(teams);
-  
-    return { league, teams, playersById };
+    return { teams, playersById };
   }
   
   /**
-   * Lightweight league diagnostics (for wiring / sanity checks).
-   * Returns summary stats, does not print directly.
+   * Convenience loader for browser usage.
+   * Assumes layer3_rosters.csv is served next to simulation.html.
+   *
+   * Example:
+   *   import { loadLeague } from "./data_models.js";
+   *   const { teams } = await loadLeague("./layer3_rosters.csv");
    */
-  export function summarizeLeague(league) {
-    const teams = league.listTeams();
-    const teamSummaries = teams.map((t) => t.summary());
-    const posCounts = league.getPositionCounts();
-  
-    const numTeams = teams.length;
-    const numPlayers = Array.from(league.playersById.values()).length;
-  
-    return {
-      numTeams,
-      numPlayers,
-      positionCounts: posCounts,
-      teams: teamSummaries,
-    };
+  export async function loadLeague(csvUrl = "./layer3_rosters.csv") {
+    const res = await fetch(csvUrl);
+    if (!res.ok) {
+      throw new Error(
+        `Failed to fetch ${csvUrl}: ${res.status} ${res.statusText}`
+      );
+    }
+    const text = await res.text();
+    return buildLeagueFromLayer3Csv(text);
   }
   

@@ -923,6 +923,32 @@
   </footer>
 
   <!-- Top-level module: imports other modules and wires up the UI. -->
-  <script type="module" src="./game_engine.js"></script>
+  <script type="module">
+    import { loadLeague } from './data_models.js';
+    import { simulateGame, formatGameSummary } from './game_engine.js';
+  
+    const runBtn = document.getElementById('runSim');
+    const outputEl = document.getElementById('output');
+  
+    let league = null;
+  
+    (async () => {
+      league = await loadLeague('./layer3_rosters.csv');
+    })();
+  
+    runBtn.addEventListener('click', () => {
+      if (!league) {
+        outputEl.textContent = 'League not loaded yet.';
+        return;
+      }
+  
+      const home = league.teams.find(t => t.teamId === 'CAR');
+      const away = league.teams.find(t => t.teamId === 'IND');
+  
+      const result = simulateGame(home, away, { seed: 1234 });
+      outputEl.textContent = formatGameSummary(result);
+      console.log(result); // inspect plays/drives in dev tools
+    });
+  </script>
 </body>
 </html>
