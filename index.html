@@ -57,126 +57,171 @@ hr{height:1px;background:#1c2440;border:0;margin:10px 0;border-radius:2px}
     <div class="small">Tip: Click any card to open the simulator with these teams preloaded.</div>
   </main>
 
-<script>
-// Params (so we can preserve players/schedule across pages)
-const PARAMS = new URLSearchParams(location.search);
-const RAW_PLAYERS_PARAM = (PARAMS.get('players') || '').replace('/refs/heads/', '/');
-const RAW_SCHEDULE_PARAM = (PARAMS.get('schedule') || '').replace('/refs/heads/', '/');
-
-// Build param string to forward
-const playersParamStr = RAW_PLAYERS_PARAM ? `players=${encodeURIComponent(RAW_PLAYERS_PARAM)}` : '';
-const schedParamStr   = RAW_SCHEDULE_PARAM ? `schedule=${encodeURIComponent(RAW_SCHEDULE_PARAM)}` : '';
-const join = (...parts)=> parts.filter(Boolean).join('&');
-const forwardQS = join(playersParamStr, schedParamStr);
-const qs = forwardQS ? `?${forwardQS}` : '';
-
-// Wire nav
-document.getElementById('toSchedule').href   = `schedule.html${qs}`;
-document.getElementById('toSimulation').href = `simulation.html${qs}`;
-document.getElementById('toStandings').href  =
-  `standings.html${playersParamStr ? `?${playersParamStr}` : ''}`;
-
-// Players CSV resolution (same-origin first, then raw GH, unless ?players= provided)
-const CSV_URLS = RAW_PLAYERS_PARAM
-  ? [RAW_PLAYERS_PARAM, new URL('players.csv', location.href).href]
-  : [new URL('players.csv', location.href).href,
-     'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/players.csv'];
-
-async function fetchCsvText(){
-  let lastErr = null;
-  for (const url of CSV_URLS){
-    try{
-      const res = await fetch(url, { cache: 'no-store', mode: 'cors' });
-      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-      const txt = await res.text();
-      return { txt, url };
-    }catch(e){ lastErr = e; }
-  }
-  throw lastErr || new Error('CSV not reachable');
-}
-
-function parseCsvToRows(text){
-  text = String(text||'').replace(/^\uFEFF/,'');
-  const rows=[]; let row=[], field='', q=false;
-  for(let i=0;i<text.length;i++){
-    const c=text[i];
-    if(q){
-      if(c==='"'){ if(text[i+1]==='"'){ field+='"'; i++; } else q=false; }
-      else field+=c;
-    }else{
-      if(c==='"') q=true;
-      else if(c===','){ row.push(field); field=''; }
-      else if(c==='\n'){ row.push(field); rows.push(row); row=[]; field=''; }
-      else if(c!=='\r'){ field+=c; }
+  <script>
+    // --- Query params (preserve players / schedule across pages) -----------------
+    const PARAMS = new URLSearchParams(location.search);
+    const RAW_PLAYERS_PARAM = (PARAMS.get('players') || '').replace('/refs/heads/', '/');
+    const RAW_SCHEDULE_PARAM = (PARAMS.get('schedule') || '').replace('/refs/heads/', '/');
+    
+    // Default Layer 3 roster URL (your raw link)
+    const DEFAULT_LAYER3_URL =
+      'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/layer3_rosters.csv';
+    
+    // Effective roster URL: query param if present, otherwise default Layer 3
+    const PLAYERS_URL = RAW_PLAYERS_PARAM || DEFAULT_LAYER3_URL;
+    
+    // Build param strings to forward
+    const playersParamStr = `players=${encodeURIComponent(PLAYERS_URL)}`;
+    const schedParamStr   = RAW_SCHEDULE_PARAM
+      ? `schedule=${encodeURIComponent(RAW_SCHEDULE_PARAM)}`
+      : '';
+    
+    const join = (...parts) => parts.filter(Boolean).join('&');
+    const forwardQS = join(playersParamStr, schedParamStr);
+    const qs = forwardQS ? `?${forwardQS}` : '';
+    
+    // Wire nav buttons
+    document.getElementById('toSchedule').href   = `schedule.html${qs}`;
+    document.getElementById('toSimulation').href = `simulation.html${qs}`;
+    document.getElementById('toStandings').href  = `standings.html?${playersParamStr}`;
+    
+    // --- CSV resolution: try the chosen Layer3 URL (or override) -----------------
+    const CSV_URLS = [
+      PLAYERS_URL,
+      DEFAULT_LAYER3_URL
+    ];
+    
+    // --- CSV parsing helpers -----------------------------------------------------
+    async function fetchCsvText() {
+      let lastErr = null;
+      for (const url of CSV_URLS) {
+        try {
+          const res = await fetch(url, { cache: 'no-store', mode: 'cors' });
+          if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+          const txt = await res.text();
+          return { txt, url };
+        } catch (e) {
+          lastErr = e;
+        }
+      }
+      throw lastErr || new Error('CSV not reachable');
     }
-  }
-  row.push(field); rows.push(row);
-  return rows.filter(r=>r.length && r.some(x=>x!==''));
-}
-function findHeaderIndex(rows){
-  const norm=s=>String(s||'').trim().toLowerCase();
-  for(let i=0;i<Math.min(rows.length,8);i++){
-    if(rows[i].some(c=>norm(c)==='team')) return i;
-  }
-  return -1;
-}
-function rowsToObjects(rows, headerIdx){
-  const header = rows[headerIdx].map(h => String(h||'').trim());
-  return rows.slice(headerIdx+1).map(r=>{
-    const o={}; header.forEach((h,j)=> o[h]= r[j]===undefined ? '' : r[j]); return o;
-  });
-}
-function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
-
-async function loadGames(){
-  const grid = document.getElementById('game-grid');
-  const title = document.getElementById('page-title');
-
-  try{
-    const { txt: text, url: csvUrlUsed } = await fetchCsvText();
-
-    const rows = parseCsvToRows(text);
-    const headerIdx = findHeaderIndex(rows);
-    if (headerIdx < 0) throw new Error('No "Team" header row found');
-
-    const objs = rowsToObjects(rows, headerIdx);
-    const teams = Array.from(new Set(
-      objs.map(r => String(r.Team||'').trim()).filter(Boolean)
-    ));
-
-    shuffle(teams);
-
-    const playersParam = encodeURIComponent(csvUrlUsed);
-    let html = '';
-    for (let i=0; i+1<teams.length; i+=2){
-      const home = teams[i], away = teams[i+1];
-      const url = `game.html?home=${encodeURIComponent(home)}&away=${encodeURIComponent(away)}&players=${playersParam}`;
-      html += `
-        <a class="card" href="${url}" aria-label="${home} vs. ${away} — Play Sim">
-          <div class="cardHeader">
-            <div class="title">${home} vs. ${away}</div>
-            <span class="btn" role="button">Play Sim</span>
-          </div>
-          <hr>
-          <div class="badges">
-            <span class="pill home">${home}</span>
-            <span class="pill away">${away}</span>
-          </div>
-        </a>`;
+    
+    // Simple CSV parser (handles quotes, BOM)
+    function parseCsvToRows(text) {
+      text = String(text || '').replace(/^\uFEFF/, '');
+      const rows = [];
+      let row = [], field = '', q = false;
+    
+      for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        if (q) {
+          if (c === '"') {
+            if (text[i + 1] === '"') { field += '"'; i++; }
+            else q = false;
+          } else field += c;
+        } else {
+          if (c === '"') q = true;
+          else if (c === ',') { row.push(field); field = ''; }
+          else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+          else if (c !== '\r') field += c;
+        }
+      }
+      row.push(field);
+      rows.push(row);
+      return rows.filter(r => r.length && r.some(x => x !== ''));
     }
-
-    grid.innerHTML = html || '<div class="small" style="color:#fca5a5">No pairable teams found.</div>';
-    title.textContent = 'Week 1 Games';
-
-  }catch(err){
-    console.error(err);
-    title.textContent = 'Error loading games';
-    document.getElementById('game-grid').innerHTML =
-      `<p style="color:#fca5a5">Could not load teams from the CSV. Check the URL (must be a <em>raw</em> link) and that a header row contains a <code>Team</code> column.</p>`;
-  }
-}
-
-document.addEventListener('DOMContentLoaded', loadGames);
+    
+    // For layer3_rosters: header is the first row (index 0).
+    function rowsToObjects_layer3(rows) {
+      if (!rows.length) return [];
+      const header = rows[0].map(h => String(h || '').trim());
+      return rows.slice(1).map(r => {
+        const o = {};
+        header.forEach((h, j) => {
+          o[h] = r[j] === undefined ? '' : r[j];
+        });
+        return o;
+      });
+    }
+    
+    function shuffle(a) {
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    }
+    
+    // --- Main: load games from layer3_rosters -----------------------------------
+    async function loadGames() {
+      const grid = document.getElementById('game-grid');
+      const title = document.getElementById('page-title');
+    
+      try {
+        const { txt: text, url: csvUrlUsed } = await fetchCsvText();
+    
+        const rows = parseCsvToRows(text);
+        const objs = rowsToObjects_layer3(rows);
+    
+        // Collect unique teams by team_name (fallback: team_id)
+        const teams = Array.from(
+          new Set(
+            objs
+              .map(r =>
+                String(
+                  r.team_name ||
+                  r.team_id ||
+                  ''
+                ).trim()
+              )
+              .filter(Boolean)
+          )
+        );
+    
+        shuffle(teams);
+    
+        const playersParam = encodeURIComponent(csvUrlUsed);
+        let html = '';
+    
+        // Pair teams: [0 vs 1], [2 vs 3], ...
+        for (let i = 0; i + 1 < teams.length; i += 2) {
+          const home = teams[i];
+          const away = teams[i + 1];
+    
+          const url = `game.html?home=${encodeURIComponent(home)}&away=${encodeURIComponent(away)}&players=${playersParam}`;
+    
+          html += `
+            <a class="card" href="${url}" aria-label="${home} vs. ${away} — Play Sim">
+              <div class="cardHeader">
+                <div class="title">${home} vs. ${away}</div>
+                <span class="btn" role="button">Play Sim</span>
+              </div>
+              <hr>
+              <div class="badges">
+                <span class="pill home">${home}</span>
+                <span class="pill away">${away}</span>
+              </div>
+            </a>`;
+        }
+    
+        grid.innerHTML =
+          html ||
+          '<div class="small" style="color:#fca5a5">No pairable teams found.</div>';
+        title.textContent = 'Week 1 Games';
+      } catch (err) {
+        console.error(err);
+        title.textContent = 'Error loading games';
+        document.getElementById('game-grid').innerHTML =
+          `<p style="color:#fca5a5">
+             Could not load teams from <code>layer3_rosters.csv</code>.<br>
+             Make sure the URL is valid and that columns <code>team_id</code> / <code>team_name</code> exist.
+           </p>`;
+      }
+    }
+    
+    document.addEventListener('DOMContentLoaded', loadGames);
 </script>
+    
 </body>
 </html>
