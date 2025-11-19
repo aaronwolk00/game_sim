@@ -96,7 +96,7 @@ class RNG {
     puntBaseDistance: 42,
     puntStd: 7,
     // Kickoffs
-    kickoffTouchbackRate: 0.75,
+    kickoffTouchbackRate: 0.643,
     // Logging verbosity
     keepPlayByPlay: true,
   };
@@ -227,10 +227,50 @@ class RNG {
   
     return buildGameResult(state);
   }
+
+  // Kickoff helper: use after TD/FG (or safety if you want)
+  function applyKickoff(state, kickingSide) {
+    const { cfg, rng } = state;
+    const receiving = kickingSide === "home" ? "away" : "home";
   
-// Simulate a single drive: from current state until change of possession
-// (score, turnover, punt, turnover-on-downs, end of half/game).
-function simulateDrive(state) {
+    // Small time cost for the kickoff play
+    const kickoffTime = rng.nextRange(5, 9);
+    state.clockSec = Math.max(0, state.clockSec - kickoffTime);
+  
+    // Touchback? (new rule: kickoff touchback to the 35)
+    const tbRate = cfg.kickoffTouchbackRate ?? 0.75;
+    if (rng.next() < tbRate) {
+      state.possession = receiving;
+      state.ballYardline = 35; // kickoff touchback spot (per your rule)
+      state.events.push({
+        type: "kickoff",
+        touchback: true,
+        quarter: state.quarter,
+        clockSec: state.clockSec,
+      });
+      return;
+    }
+  
+    // Simple return model: caught ~goal line to the 5, return ~15–35 yards
+    const catchDepth = Math.round(rng.nextRange(-2, 5)); // -2 means in end zone
+    const returnYds = clamp(Math.round(normal(rng, 22, 8)), 5, 60);
+    const spot = clamp(Math.max(0, catchDepth) + returnYds, 1, 99);
+  
+    state.possession = receiving;
+    state.ballYardline = spot;
+    state.events.push({
+      type: "kickoff",
+      touchback: false,
+      returnYards: returnYds,
+      quarter: state.quarter,
+      clockSec: state.clockSec,
+    });
+  }
+  
+  
+  // Simulate a single drive: from current state until change of possession
+  // (score, turnover, punt, turnover-on-downs, end of half/game).
+  function simulateDrive(state) {
     const startingScore = cloneScore(state.score);
     const startingQuarter = state.quarter;
     const startingClock = state.clockSec;
@@ -250,7 +290,7 @@ function simulateDrive(state) {
         driveOver = true;
       }
   
-      // End of quarter/game
+      // End of quarter/game: we always break the drive here
       if (state.clockSec <= 0) {
         handleEndOfQuarterOrGame(state);
         driveOver = true;
@@ -260,7 +300,6 @@ function simulateDrive(state) {
     // Aggregate basic drive stats
     const totalYards = drivePlays.reduce((sum, p) => {
       const y = typeof p.yardsGained === "number" ? p.yardsGained : 0;
-      // Count offensive yards only (ignore punt distance etc.)
       if (p.playType === "run" || p.playType === "pass") {
         return sum + y;
       }
@@ -294,9 +333,9 @@ function simulateDrive(state) {
   
     state.drives.push({
       driveId: state.driveId,
-      offense: offenseSide,                 // "home" | "away"
-      teamId: offenseTeam.teamId,          // used by UI
-      offenseTeamId: offenseTeam.teamId,   // extra alias
+      offense: offenseSide,
+      teamId: offenseTeam.teamId,
+      offenseTeamId: offenseTeam.teamId,
       result: resultText,
       startQuarter: startingQuarter,
       endQuarter: state.quarter,
@@ -305,12 +344,12 @@ function simulateDrive(state) {
       durationSec,
       yards: totalYards,
       playCount: drivePlays.length,
-      playIndices,                         // used in step-through mode
+      playIndices,
       startScore: startingScore,
       endScore: cloneScore(state.score),
     });
   
-    // Decide how the *next* drive should start
+    // Decide how the next drive should start
     if (!state.isFinal && state.clockSec > 0) {
       const isTD = !!lastPlay?.touchdown;
       const isFG = lastPlay?.playType === "field_goal";
@@ -318,35 +357,60 @@ function simulateDrive(state) {
       const isFGMiss = isFG && !isFGGood;
       const isSafety = !!lastPlay?.safety;
   
+      // Detect pure quarter break (no scoring / no explicit end-of-drive type)
+      const quarterBreakOnly =
+        state.quarter !== startingQuarter &&
+        state.clockSec === state.cfg.quarterLengthSec &&
+        !isTD &&
+        !isFG &&
+        !isSafety;
+  
+      if (quarterBreakOnly) {
+        // Same offense, same ball spot, *same down & distance*.
+        // We only bump driveId and log a new drive start.
+        state.driveId += 1;
+        startNewDrive(
+          state,
+          lastPlay,
+          "Quarter break – continuing series"
+        );
+        return;
+      }
+  
       if (isTD || (isFG && isFGGood)) {
         // Offense just scored – other team receives at own 25.
-        state.possession = offenseSide === "home" ? "away" : "home";
-        state.ballYardline = 25;
+        applyKickoff(state, offenseSide);
+        state.down = 1;
+        state.distance = 10;
       } else if (isSafety) {
         // Safety: scoring defense already has possession from applyPlayOutcome.
-        // Approximate free kick by starting them at their own 25.
+        // Approximate free kick by starting them at own 25.
         state.ballYardline = 25;
+        state.down = 1;
+        state.distance = 10;
       } else if (isFGMiss) {
         // Missed FG: treat as turnover at spot, approximate by flipping field
         const los = clamp(state.ballYardline, 1, 99);
         state.possession = offenseSide === "home" ? "away" : "home";
         state.ballYardline = 100 - los;
+        state.down = 1;
+        state.distance = 10;
       } else {
-        // Punts / interceptions / fumbles / turnover on downs / end-of-quarter:
-        // applyPlayOutcome + handleEndOfQuarterOrGame already set
-        // possession and field position; leave them as-is.
+        // Punts / interceptions / fumbles / turnover on downs:
+        // applyPlayOutcome already set possession + field position.
+        state.down = 1;
+        state.distance = 10;
       }
   
-      state.down = 1;
-      state.distance = 10;
       state.driveId += 1;
       startNewDrive(
         state,
         lastPlay,
-        "New drive after change of possession or break"
+        "New drive after change of possession or score"
       );
     }
   }
+  
   
 
   
@@ -570,8 +634,8 @@ function simulateDrive(state) {
     const yards = Math.round(yardsRaw);
   
     // Keep run-play times in a reasonable range (3–35s)
-    const timeRaw = Number.isFinite(micro.timeElapsed) ? micro.timeElapsed : 25;
-    const timeElapsed = clamp(timeRaw, 3, 35);
+    const timeRaw = Number.isFinite(micro.timeElapsed) ? micro.timeElapsed : 5;
+    const timeElapsed = clamp(timeRaw, 3.5, 10.0);
   
     return {
       playType: "run",
@@ -676,7 +740,7 @@ function simulateDrive(state) {
   
     // Keep pass-play times in a reasonable range (3–20s)
     const timeRaw = Number.isFinite(micro.timeElapsed) ? micro.timeElapsed : 6;
-    const timeElapsed = clamp(timeRaw, 3, 20);
+    const timeElapsed = clamp(timeRaw, 2.5, 12.5);
   
     // Sack != automatic turnover; interception or fumble do
     const interception = !!micro.interception;
@@ -711,30 +775,32 @@ function simulateDrive(state) {
     const { offenseSide } = getOffenseDefense(state);
   
     const yardsToGoal = 100 - state.ballYardline;
-    const kickDistance = yardsToGoal + 17; // typical NFL: LOS + 17 yards
+    const kickDistance = yardsToGoal + 17; // LOS + 17
   
     const kAcc = specialOff.kicking?.accuracy ?? 60;
     const kPow = specialOff.kicking?.power ?? 60;
   
-    // Rough probability model: base + accuracy + power vs distance
-    const distancePenalty = (kickDistance - 35) * 0.012; // beyond 35 reduces
+    // Distance penalty ramps up aggressively beyond ~35, plus extra after ~48
+    const distancePenalty = Math.max(0, kickDistance - 35) * 0.018;
+    const longBonusPenalty = Math.max(0, kickDistance - 48) * 0.012;
+  
     let prob =
       cfg.fgBaseProb +
       cfg.fgAccuracyWeight * (kAcc - 70) +
       0.002 * (kPow - 70) -
-      distancePenalty;
+      distancePenalty -
+      longBonusPenalty;
   
-    prob = clamp(prob, 0.05, 0.98);
+    prob = clamp(prob, 0.05, 0.96);
   
     const made = rng.next() < prob;
-  
     const timeElapsed = rng.nextRange(5, 9);
   
     return {
       playType: "field_goal",
       yardsGained: 0,
       timeElapsed,
-      turnover: !made, // ball to defense if missed
+      turnover: !made,
       touchdown: false,
       safety: false,
       fieldGoalAttempt: true,
@@ -745,6 +811,7 @@ function simulateDrive(state) {
       offenseSide,
     };
   }
+  
   
   // ------------------------ Punt ----------------------------------------------
   function simulatePunt(state, specialOff, rng) {
@@ -786,15 +853,52 @@ function simulateDrive(state) {
   function applyPlayOutcomeToState(state, outcome) {
     const { offenseSide, defenseSide, offenseTeam } = getOffenseDefense(state);
     const { cfg } = state;
-
-    // Advance clock
-    state.clockSec = Math.max(
-      0,
-      state.clockSec - outcome.timeElapsed
-    );
-
+    const rng = state.rng;
+  
+    const playType = outcome.playType;
+    const isRun = playType === "run";
+    const isPass = playType === "pass";
+    const isFG = !!outcome.fieldGoalAttempt;
+    const isPunt = !!outcome.punt;
+    const isCompletion = !!outcome.completion;
+    const isSack = !!outcome.sack;
+    const isInterception = !!outcome.interception;
+    const isTurnover = !!outcome.turnover;
+  
+    const isIncompletion =
+      isPass && !isCompletion && !isInterception && !isSack;
+  
+    // ---------------------------------------------------------------------------
+    // Clock: micro time + between-play runoff, with stop on incompletions
+    // ---------------------------------------------------------------------------
+    let clockRunoff = Number.isFinite(outcome.timeElapsed)
+      ? outcome.timeElapsed
+      : 5;
+  
+    if (!state.isFinal && state.clockSec > 0) {
+      if (isIncompletion) {
+        // Clock stops on incompletion: only a small fixed slice comes off
+        clockRunoff = clamp(clockRunoff, 3, 8);
+      } else if (isRun || (isPass && (isCompletion || isSack))) {
+        // Typical in-bounds offensive play
+        clockRunoff += rng.nextRange(12, 24);         // between-play runoff
+        clockRunoff = clamp(clockRunoff, 18, 40);     // realistic range
+      } else if (isFG || isPunt || isTurnover) {
+        // Special-teams / change-of-possession chaos
+        clockRunoff += rng.nextRange(6, 16);
+        clockRunoff = clamp(clockRunoff, 10, 35);
+      } else {
+        // Fallback
+        clockRunoff = clamp(clockRunoff + rng.nextRange(8, 18), 12, 35);
+      }
+    }
+  
+    state.clockSec = Math.max(0, state.clockSec - clockRunoff);
+  
+    // ---------------------------------------------------------------------------
     // Field goal
-    if (outcome.fieldGoalAttempt) {
+    // ---------------------------------------------------------------------------
+    if (isFG) {
       if (outcome.fieldGoalGood) {
         if (offenseSide === "home") {
           state.score.home += 3;
@@ -811,36 +915,49 @@ function simulateDrive(state) {
           score: cloneScore(state.score),
         });
       }
-      // After FG, new possession will be switched in simulateDrive
+  
+      // After FG, new possession handled in simulateDrive
       state.down = 1;
       state.distance = 10;
       outcome.endOfDrive = true;
       state.playId += 1;
       return;
     }
-
-    // Punt: we don't model exact landing spot; just approximate new field position
-    if (outcome.punt) {
-      const newYardline = Math.max(
-        10,
-        100 - Math.round(outcome.puntDistance)
-      );
-      state.possession =
-        offenseSide === "home" ? "away" : "home";
-      state.ballYardline = newYardline;
-      state.down = 1;
-      state.distance = 10;
-      state.playId += 1;
-      outcome.endOfDrive = true;
-      return;
+  
+    // ---------------------------------------------------------------------------
+    // Punt – approximate field position
+    // ---------------------------------------------------------------------------
+    if (isPunt) {
+        if (outcome.punt) {
+            const los = state.ballYardline;                       // line of scrimmage
+            const distance = Math.max(0, outcome.puntDistance || 0);
+            const landing = los + distance;
+          
+            state.possession = offenseSide === "home" ? "away" : "home";
+          
+            if (landing >= 100) {
+              // Punt touchback spot (per your rule)
+              state.ballYardline = 20;
+            } else {
+              // Flip field relative to receiving team
+              state.ballYardline = Math.max(1, 100 - Math.round(landing));
+            }
+          
+            state.down = 1;
+            state.distance = 10;
+            state.playId += 1;
+            outcome.endOfDrive = true;
+            return;
+          }
     }
-
+  
+    // ---------------------------------------------------------------------------
     // Normal offensive play (run / pass)
+    // ---------------------------------------------------------------------------
     let newYard = state.ballYardline + outcome.yardsGained;
-
+  
     // Safety (ball carrier tackled in own end zone)
     if (newYard <= 0) {
-      // Safety for defense
       if (defenseSide === "home") {
         state.score.home += 2;
       } else {
@@ -855,28 +972,26 @@ function simulateDrive(state) {
         clockSec: state.clockSec,
         score: cloneScore(state.score),
       });
-
-      // Next drive will begin from other team after free kick; we approximate
-      state.possession = defenseSide;
-      state.ballYardline = 35;
+  
+      // Defense will start next drive after free kick, approximate at own 25
+      applyKickoff(state, offenseSide);
       state.down = 1;
       state.distance = 10;
-      state.playId += 1;
       outcome.safety = true;
       outcome.endOfDrive = true;
+      state.playId += 1;
       return;
     }
-
-    // Touchdown (includes simple XP model)
+  
+    // Touchdown (with XP)
     if (newYard >= 100) {
-        // 6 points for the TD
-        if (offenseSide === "home") {
+      // 6 for the TD
+      if (offenseSide === "home") {
         state.score.home += 6;
-        } else {
+      } else {
         state.score.away += 6;
-        }
-    
-        state.events.push({
+      }
+      state.events.push({
         type: "score",
         subtype: "touchdown",
         offense: offenseSide,
@@ -884,56 +999,56 @@ function simulateDrive(state) {
         quarter: state.quarter,
         clockSec: state.clockSec,
         score: cloneScore(state.score),
-        });
-    
-        // Simple 1-point XP kick – no 2-pt logic for now
-        try {
+      });
+  
+      // Simple XP model – no 2-pt logic for now
+      try {
         const special = getUnitProfiles(offenseTeam).special || {};
         const kAcc = special.kicking?.accuracy ?? 60;
-    
+  
         const baseXpProb = 0.94;
-        const adj = 0.0025 * (kAcc - 70); // rating nudges XP odds a bit
+        const adj = 0.0025 * (kAcc - 70);
         const xpProb = clamp(baseXpProb + adj, 0.88, 0.99);
-    
-        const xpMade = state.rng.next() < xpProb;
+  
+        const xpMade = rng.next() < xpProb;
         if (xpMade) {
-            if (offenseSide === "home") {
+          if (offenseSide === "home") {
             state.score.home += 1;
-            } else {
+          } else {
             state.score.away += 1;
-            }
+          }
         }
-    
+  
         state.events.push({
-            type: "extra_point",
-            offense: offenseSide,
-            good: xpMade,
-            points: xpMade ? 1 : 0,
-            quarter: state.quarter,
-            clockSec: state.clockSec,
-            score: cloneScore(state.score),
+          type: "extra_point",
+          offense: offenseSide,
+          good: xpMade,
+          points: xpMade ? 1 : 0,
+          quarter: state.quarter,
+          clockSec: state.clockSec,
+          score: cloneScore(state.score),
         });
-        } catch (_) {
-        // If anything goes weird with unitProfiles, just skip XP quietly
-        }
-    
-        outcome.touchdown = true;
-        state.playId += 1;
-        outcome.endOfDrive = true;
-        return;
+      } catch (_) {
+        // If anything goes wrong with unitProfiles, just skip XP quietly.
+      }
+  
+      outcome.touchdown = true;
+      outcome.endOfDrive = true;
+      state.playId += 1;
+      return;
     }
   
-
     // Turnover (non-FG / non-punt)
-    if (outcome.turnover) {
+    if (isTurnover) {
       state.possession =
         offenseSide === "home" ? "away" : "home";
-      // When turnover happens, we approximate spot as where play ended
+      // Approximate spot as where play ended
       state.ballYardline = 100 - clamp(newYard, 1, 99);
       state.down = 1;
       state.distance = 10;
-      state.playId += 1;
       outcome.endOfDrive = true;
+      state.playId += 1;
+  
       state.events.push({
         type: "turnover",
         offense: offenseSide,
@@ -944,18 +1059,19 @@ function simulateDrive(state) {
       });
       return;
     }
-
+  
+    // ---------------------------------------------------------------------------
     // No score, no turnover: normal advancement
+    // ---------------------------------------------------------------------------
     state.ballYardline = clamp(newYard, 1, 99);
-
+  
     const yardsToFirst = state.distance - outcome.yardsGained;
-
+  
     if (yardsToFirst <= 0) {
       // First down
       state.down = 1;
       state.distance = 10;
     } else {
-      // Advance down
       if (state.down === 4) {
         // Turnover on downs
         state.possession =
@@ -965,6 +1081,7 @@ function simulateDrive(state) {
         state.down = 1;
         state.distance = 10;
         outcome.endOfDrive = true;
+  
         state.events.push({
           type: "turnover_on_downs",
           offense: offenseSide,
@@ -978,9 +1095,10 @@ function simulateDrive(state) {
         state.distance = yardsToFirst;
       }
     }
-
+  
     state.playId += 1;
   }
+  
 
   function formatClockFromSec(seconds) {
     if (!Number.isFinite(seconds) || seconds < 0) return "0:00";

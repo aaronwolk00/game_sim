@@ -234,7 +234,7 @@ function clamp(x, lo, hi) {
     const wrCT = centerRating(wrContestedCatch, 65);
     const dbBS = centerRating(dbBallSkills, 65);
   
-    // Slightly toned-down open bonus, harsher tight-window penalty
+    // Toned-down open bonus, harsher tight-window penalty
     const openBonus =
       sepClamped > 1.5 ? 0.5 :
       sepClamped > 0.5 ? 0.22 :
@@ -248,21 +248,19 @@ function clamp(x, lo, hi) {
       0.4 * dbBS -
       0.5 * placementPenalty +
       openBonus +
-      tightPenalty;
+      tightPenalty -
+      0.25; // global completion nerf
   
     let pCatch = logistic(catchScore);
   
-    // Interception probability grows with tightness and DB skill
     const baseInt = 0.02 + 0.04 * windowTightness * logistic(dbBS / 1.2);
     const aggFactor = 0.5 + throwAggressiveness * 1.2;
     let pInt = clamp(baseInt * aggFactor, 0.001, 0.30);
   
-    // If WR is much better than DB / lots of separation, suppress INT
     if (sepClamped > 1.5 && wrCT > dbBS + 0.5) {
       pInt *= 0.4;
     }
   
-    // Normalize to 1
     let pIncomp = 1 - pCatch - pInt;
     if (pIncomp < 0) {
       const total = pCatch + pInt;
@@ -273,6 +271,7 @@ function clamp(x, lo, hi) {
   
     return { pCatch, pIncomp, pInt };
   }
+  
   
   
   // -----------------------------------------------------------------------------
@@ -324,42 +323,41 @@ function clamp(x, lo, hi) {
       tacklerPursuit * 0.3 +
       tacklerAgility * 0.2;
   
-    // More defenders = scale up tackleSkill
     const multiplier = 1 + 0.25 * (numDefendersInvolved - 1);
     const effTackle = tackleSkill * multiplier;
   
     const delta = (ballSkill - effTackle) / 15;
   
-    // Base YAC mean – slightly toned down
-    const openFieldBonus = 1.6 * openFieldFactor - 0.8; // -0.8..+0.8
-    const sidelinePenalty = sidelineFactor * 0.9;
-    const meanYAC = 1.6 + 1.0 * delta + openFieldBonus - sidelinePenalty;
-    const stdYAC = 1.0 + 0.5 * Math.abs(delta);
+    // Base YAC mean – nerfed
+    const openFieldBonus = 1.4 * openFieldFactor - 0.8; // -0.8..+0.6
+    const sidelinePenalty = sidelineFactor * 1.0;
+    const meanYAC = 1.2 + 0.9 * delta + openFieldBonus - sidelinePenalty;
+    const stdYAC = 0.9 + 0.5 * Math.abs(delta);
   
     let rawYAC = sampleWithOccasionalTail(
       rng,
       meanYAC,
       stdYAC,
-      0.06, // was 0.12 – cut big tails in half
+      0.04, // slimmer tails
       3,
-      12   // was 20 – fewer truly massive YACs
+      10
     );
   
-    // Hard-cap YAC to avoid outliers dominating scoring
-    rawYAC = Math.min(25, Math.max(0, rawYAC));
+    // Hard cap YAC to avoid wild outliers
+    rawYAC = Math.min(18, Math.max(0, rawYAC));
   
     // Break-tackle probability
-    const baseMiss = logistic(delta); // ~0.5 when even
+    const baseMiss = logistic(delta);
     const forcedMissProb = clamp(
-      baseMiss * (0.4 + 0.6 * openFieldFactor),
+      baseMiss * (0.35 + 0.55 * openFieldFactor),
       0.05,
-      0.7
+      0.65
     );
     const forcedMiss = rng.next() < forcedMissProb;
   
     let brokenTackles = 0;
     if (forcedMiss) brokenTackles += 1;
-    if (rawYAC > 10 && rng.next() < 0.3) brokenTackles += 1;
+    if (rawYAC > 10 && rng.next() < 0.25) brokenTackles += 1;
   
     return {
       yac: rawYAC,
@@ -367,6 +365,7 @@ function clamp(x, lo, hi) {
       forcedMiss,
     };
   }
+  
   
   
   // -----------------------------------------------------------------------------
@@ -394,7 +393,7 @@ function clamp(x, lo, hi) {
    *  - timeElapsed: total play time
    *  - fumble: boolean
    */
-  export function sampleRunOutcome(params, rng) {
+   export function sampleRunOutcome(params, rng) {
     const {
       olRunBlockRating = 60,
       rbVisionRating = 60,
@@ -409,17 +408,20 @@ function clamp(x, lo, hi) {
     } = params || {};
   
     const runBlock = olRunBlockRating;
-    const rbSkill = rbVisionRating * 0.5 + rbPowerRating * 0.25 + rbElusivenessRating * 0.25;
+    const rbSkill =
+      rbVisionRating * 0.5 +
+      rbPowerRating * 0.25 +
+      rbElusivenessRating * 0.25;
     const defRun = frontRunDefRating;
   
     const baseBox = 7;
-    const boxDelta = boxCount - baseBox; // +2 heavy, -1 light
+    const boxDelta = boxCount - baseBox;
     const boxPenalty = -0.7 * boxDelta + 1.0 * boxLightness;
   
     const ratingDelta = (runBlock + rbSkill - defRun * 1.1) / 20;
   
-    // Expected yards before contact
-    const beforeContactMean = 1.8 + 1.0 * ratingDelta + boxPenalty * 0.4;
+    // Expected yards before contact – slightly lower & more sensitive to heavy boxes
+    const beforeContactMean = 1.4 + 0.9 * ratingDelta + boxPenalty * 0.45;
     const beforeContactStd = 1.0 + 0.3 * Math.abs(ratingDelta);
   
     let yardsBeforeContact = sampleNormal(rng, beforeContactMean, beforeContactStd);
@@ -430,12 +432,16 @@ function clamp(x, lo, hi) {
       carrierPower: rbPowerRating,
       carrierElusiveness: rbElusivenessRating,
       carrierBalance: (rbPowerRating + rbElusivenessRating) / 2,
-      carrierSpeed: rbVisionRating, // crude placeholder
+      carrierSpeed: rbVisionRating,
       tacklerTackling: defRun,
       tacklerPursuit: defRun,
       tacklerAgility: defRun,
       numDefendersInvolved: boxCount >= 7 ? 2 : 1,
-      sidelineFactor: clamp((yardline < 10 || yardline > 90) ? 0.7 : 0.2, 0, 1),
+      sidelineFactor: clamp(
+        yardline < 10 || yardline > 90 ? 0.7 : 0.2,
+        0,
+        1
+      ),
       openFieldFactor: clamp(1 - boxCount / 8, 0.2, 0.9),
     };
   
@@ -453,10 +459,15 @@ function clamp(x, lo, hi) {
       totalYards -= (yardline - 90) * 0.2;
     }
   
+    // Occasional blown-up run when defense has a clear advantage
+    if (totalYards > -1 && ratingDelta < -0.7 && rng.next() < 0.18) {
+      totalYards -= 3 + 3 * rng.next();
+    }
+  
     totalYards = Math.round(totalYards);
   
-    // Fumble probability: use ball security conceptually; here use rbVision as a proxy if not passed
-    const ballSecurityRating = rbVisionRating; // you can sub rating_RB_ball_security here
+    // Fumble probability (as before)
+    const ballSecurityRating = rbVisionRating;
     const ballSecurityCentered = centerRating(ballSecurityRating, 65);
     const baseFumble = 0.012;
     let fumbleProb = baseFumble * (1.2 - 0.2 * tackledInTraffic(boxCount));
@@ -475,6 +486,7 @@ function clamp(x, lo, hi) {
       tackleOutcome,
     };
   }
+  
   
   function tackledInTraffic(boxCount) {
     return boxCount >= 7 ? 1 : boxCount >= 6 ? 0.6 : 0.3;
