@@ -613,7 +613,7 @@ function toNumber(v, fallback = 0) {
    *   import { loadLeague } from "./data_models.js";
    *   const { teams } = await loadLeague("./layer3_rosters.csv");
    */
-  export async function loadLeague(csvUrl = "./layer3_rosters.csv") {
+   export async function loadLeague(csvUrl = "https://raw.githubusercontent.com/aaronwolk00/game_sim/main/layer3_rosters.csv") {
     const res = await fetch(csvUrl);
     if (!res.ok) {
       throw new Error(

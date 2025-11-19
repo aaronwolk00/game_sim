@@ -1540,7 +1540,7 @@
       setSimStatus('Loading teams from layer3_rosters.csv…');
 
       try {
-        league = await loadLeague('./layer3_rosters.csv');
+        league = await loadLeague('https://raw.githubusercontent.com/aaronwolk00/game_sim/main/layer3_rosters.csv');
 
         if (!league || !Array.isArray(league.teams) || league.teams.length === 0) {
           throw new Error('No teams found in league data.');
