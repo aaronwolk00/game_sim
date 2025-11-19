@@ -1,97 +1,329 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>NFL Sim - Weekly Games</title>
-<style>
-:root{
-  --bg:#0b1220; --panel:#121a2a; --card:#0e1630; --text:#eef2ff; --muted:#93a0b1;
-  --accent:#5eead4; --home:#4ade80; --away:#60a5fa;
-}
-*{box-sizing:border-box}
-html,body{height:100%}
-body{
-  margin:0;background:var(--bg);color:var(--text);
-  font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  display:grid;place-items:center
-}
-main{width:min(920px,92vw);display:grid;gap:16px}
-h1{margin:0 0 6px;font-size:22px;letter-spacing:.2px}
-.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between}
-.nav{display:flex;gap:8px;flex-wrap:wrap}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
-.card{
-  display:block;background:var(--panel);border-radius:14px;padding:14px;text-decoration:none;color:inherit;
-  border:1px solid #1c2440;box-shadow:0 6px 24px rgba(0,0,0,.25);
-  transition:border-color .15s ease, transform .08s ease, box-shadow .15s ease;
-}
-.card:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:0 10px 28px rgba(0,0,0,.35)}
-.cardHeader{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
-.title{font-weight:800;font-size:16px}
-.meta{font-size:12px;color:var(--muted)}
-.badges{display:flex;gap:8px;align-items:center}
-.pill{display:inline-block;padding:4px 8px;border-radius:999px;background:var(--card);border:1px solid #233055;font-size:12px;color:var(--muted)}
-.pill.home{color:var(--home)} .pill.away{color:var(--away)}
-hr{height:1px;background:#1c2440;border:0;margin:10px 0;border-radius:2px}
-.btn{display:inline-flex;align-items:center;justify-content:center;padding:10px 12px;border-radius:10px;background:var(--accent);color:#0a0f17;font-weight:700;font-size:14px;border:none;box-shadow:0 2px 0 rgba(0,0,0,.25);text-decoration:none}
-.card:hover .btn{box-shadow:0 3px 0 rgba(0,0,0,.28)}
-.small{font-size:12px;color:var(--muted)}
-</style>
+  <meta charset="utf-8" />
+  <title>Layer 3 – Team Rosters</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #020617;
+      --panel: #020617;
+      --card: #020617;
+      --card-border: #1e293b;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --accent: #22c55e;
+      --accent-soft: rgba(34,197,94,0.15);
+      --danger: #f97373;
+      --font: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
+              "Segoe UI", Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at top, #0b1120 0, #020617 48%, #020617 100%);
+      color: var(--text);
+      font-family: var(--font);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    main {
+      width: min(1080px, 96vw);
+      margin: 24px 0 40px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 24px;
+      letter-spacing: 0.03em;
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+    }
+    h1 span.sub {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 500;
+      text-transform: uppercase;
+    }
+    .top-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid #1f2937;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+    }
+    .status-pill .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: #fbbf24;
+    }
+    .status-pill.ready .dot { background: #22c55e; }
+    .status-pill.error .dot { background: var(--danger); }
+    .status-pill strong { color: var(--text); }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .search-input {
+      background: #020617;
+      border-radius: 999px;
+      border: 1px solid #1f2937;
+      padding: 6px 10px;
+      color: var(--text);
+      font-size: 13px;
+      min-width: 180px;
+    }
+    .search-input::placeholder {
+      color: #6b7280;
+    }
+    .btn {
+      border: none;
+      outline: none;
+      cursor: pointer;
+      border-radius: 999px;
+      padding: 7px 11px;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-weight: 600;
+      background: var(--accent-soft);
+      color: #bbf7d0;
+      border: 1px solid rgba(34,197,94,0.45);
+    }
+    .btn:hover {
+      background: rgba(34,197,94,0.28);
+    }
+
+    .summary-bar {
+      margin: 6px 0 18px;
+      font-size: 13px;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .teams-container {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    details.team-card {
+      background: rgba(15, 23, 42, 0.95);
+      border-radius: 14px;
+      border: 1px solid var(--card-border);
+      padding: 10px 12px;
+      backdrop-filter: blur(10px);
+      transition: border-color 0.12s ease, background 0.12s ease;
+    }
+    details.team-card[open] {
+      border-color: rgba(34,197,94,0.5);
+      background: radial-gradient(circle at top left, rgba(34,197,94,0.18), rgba(15,23,42,0.95));
+    }
+    summary.team-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      list-style: none;
+    }
+    summary.team-header::-webkit-details-marker {
+      display: none;
+    }
+    .team-name-block {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .team-name {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+    .team-meta {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .roster-meta {
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .position-tag {
+      padding: 2px 6px;
+      border-radius: 999px;
+      background: rgba(15,23,42,0.9);
+      border: 1px solid #1f2937;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #9ca3af;
+    }
+
+    .roster-table-wrapper {
+      margin-top: 8px;
+      border-radius: 10px;
+      border: 1px solid #1f2937;
+      overflow: hidden;
+      background: rgba(15, 23, 42, 0.95);
+    }
+    table.roster-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    table.roster-table thead {
+      background: rgba(15, 23, 42, 1);
+    }
+    table.roster-table th,
+    table.roster-table td {
+      padding: 6px 8px;
+      border-bottom: 1px solid #1f2937;
+      text-align: left;
+      white-space: nowrap;
+    }
+    table.roster-table th {
+      font-weight: 600;
+      color: #9ca3af;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-size: 11px;
+    }
+    table.roster-table tbody tr:nth-child(even) {
+      background: rgba(15, 23, 42, 0.75);
+    }
+    table.roster-table tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    .empty-message {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 8px;
+    }
+
+    .error-text {
+      color: var(--danger);
+      font-size: 13px;
+      margin-top: 8px;
+    }
+
+    @media (max-width: 640px) {
+      .team-name {
+        font-size: 14px;
+      }
+      table.roster-table th:nth-child(4),
+      table.roster-table td:nth-child(4) {
+        display: none; /* hide rating_pos on very small screens */
+      }
+    }
+  </style>
 </head>
 <body>
   <main>
-    <div class="row">
-      <h1 id="page-title">Loading Week 1 Games...</h1>
-      <div class="nav">
-        <a id="toSchedule" class="btn">Schedule</a>
-        <a id="toSimulation" class="btn" style="text-decoration:none;background:#0e1630;color:#dbe3ef;border:1px solid #2a355a">
-          Simulation
-        </a>
-        <a id="toStandings" class="btn" style="text-decoration:none;background:#0e1630;color:#dbe3ef;border:1px solid #2a355a">
-          Standings
-        </a>
+    <div class="top-row">
+      <div>
+        <h1>
+          Layer 3 Rosters
+          <span class="sub">from layer3_rosters.csv</span>
+        </h1>
+        <div id="status-pill" class="status-pill">
+          <span class="dot"></span>
+          <span><strong>Loading</strong> rosters…</span>
+        </div>
+      </div>
+      <div class="controls">
+        <input
+          id="search-input"
+          class="search-input"
+          type="search"
+          placeholder="Filter by team name or ID…" />
+        <button id="btn-clear" class="btn" type="button">Clear Filter</button>
       </div>
     </div>
-    <div class="grid" id="game-grid"></div>
-    <div class="small">Tip: Click any card to open the simulator with these teams preloaded.</div>
+
+    <div class="summary-bar">
+      <span id="summary-text">Reading CSV…</span>
+      <span id="source-text"></span>
+    </div>
+
+    <div id="error-box" class="error-text" style="display:none;"></div>
+    <div id="teams-container" class="teams-container"></div>
   </main>
 
   <script>
-    // --- Query params (preserve players / schedule across pages) -----------------
+    // ---------------------------- Config --------------------------------------
     const PARAMS = new URLSearchParams(location.search);
+
+    // Allow ?players=<url> override; otherwise default to your Layer 3 roster URL.
     const RAW_PLAYERS_PARAM = (PARAMS.get('players') || '').replace('/refs/heads/', '/');
-    const RAW_SCHEDULE_PARAM = (PARAMS.get('schedule') || '').replace('/refs/heads/', '/');
-    
-    // Default Layer 3 roster URL (your raw link)
     const DEFAULT_LAYER3_URL =
       'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/layer3_rosters.csv';
-    
-    // Effective roster URL: query param if present, otherwise default Layer 3
-    const PLAYERS_URL = RAW_PLAYERS_PARAM || DEFAULT_LAYER3_URL;
-    
-    // Build param strings to forward
-    const playersParamStr = `players=${encodeURIComponent(PLAYERS_URL)}`;
-    const schedParamStr   = RAW_SCHEDULE_PARAM
-      ? `schedule=${encodeURIComponent(RAW_SCHEDULE_PARAM)}`
-      : '';
-    
-    const join = (...parts) => parts.filter(Boolean).join('&');
-    const forwardQS = join(playersParamStr, schedParamStr);
-    const qs = forwardQS ? `?${forwardQS}` : '';
-    
-    // Wire nav buttons
-    document.getElementById('toSchedule').href   = `schedule.html${qs}`;
-    document.getElementById('toSimulation').href = `simulation.html${qs}`;
-    document.getElementById('toStandings').href  = `standings.html?${playersParamStr}`;
-    
-    // --- CSV resolution: try the chosen Layer3 URL (or override) -----------------
+
+    const EFFECTIVE_ROSTER_URL = RAW_PLAYERS_PARAM || DEFAULT_LAYER3_URL;
+
     const CSV_URLS = [
-      PLAYERS_URL,
+      EFFECTIVE_ROSTER_URL,
       DEFAULT_LAYER3_URL
     ];
-    
-    // --- CSV parsing helpers -----------------------------------------------------
+
+    // ------------------------ DOM lookup helpers ------------------------------
+    const dom = {
+      statusPill: document.getElementById('status-pill'),
+      summaryText: document.getElementById('summary-text'),
+      sourceText: document.getElementById('source-text'),
+      teamsContainer: document.getElementById('teams-container'),
+      errorBox: document.getElementById('error-box'),
+      searchInput: document.getElementById('search-input'),
+      btnClear: document.getElementById('btn-clear'),
+    };
+
+    function setStatus(state, msg) {
+      // state: 'loading' | 'ready' | 'error'
+      const pill = dom.statusPill;
+      if (!pill) return;
+      pill.classList.remove('ready', 'error');
+      const dot = pill.querySelector('.dot');
+      const span = pill.querySelector('span:last-child');
+
+      if (state === 'loading') {
+        span.innerHTML = `<strong>Loading</strong> rosters…`;
+        if (dot) dot.style.background = '#fbbf24';
+      } else if (state === 'error') {
+        pill.classList.add('error');
+        span.innerHTML = `<strong>Error</strong> ${msg || ''}`;
+        if (dot) dot.style.background = '#f97373';
+      } else {
+        pill.classList.add('ready');
+        span.innerHTML = `<strong>Rosters</strong> loaded`;
+        if (dot) dot.style.background = '#22c55e';
+      }
+    }
+
+    // ------------------------- CSV helpers ------------------------------------
     async function fetchCsvText() {
       let lastErr = null;
       for (const url of CSV_URLS) {
@@ -106,122 +338,294 @@ hr{height:1px;background:#1c2440;border:0;margin:10px 0;border-radius:2px}
       }
       throw lastErr || new Error('CSV not reachable');
     }
-    
-    // Simple CSV parser (handles quotes, BOM)
+
     function parseCsvToRows(text) {
-      text = String(text || '').replace(/^\uFEFF/, '');
+      // Basic RFC4180-ish parser with quote support
+      text = String(text || '').replace(/^\uFEFF/, ''); // strip BOM
       const rows = [];
       let row = [], field = '', q = false;
-    
+
       for (let i = 0; i < text.length; i++) {
         const c = text[i];
         if (q) {
           if (c === '"') {
-            if (text[i + 1] === '"') { field += '"'; i++; }
-            else q = false;
-          } else field += c;
+            if (text[i + 1] === '"') {
+              field += '"';
+              i++;
+            } else {
+              q = false;
+            }
+          } else {
+            field += c;
+          }
         } else {
-          if (c === '"') q = true;
-          else if (c === ',') { row.push(field); field = ''; }
-          else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
-          else if (c !== '\r') field += c;
+          if (c === '"') {
+            q = true;
+          } else if (c === ',') {
+            row.push(field);
+            field = '';
+          } else if (c === '\n') {
+            row.push(field);
+            rows.push(row);
+            row = [];
+            field = '';
+          } else if (c !== '\r') {
+            field += c;
+          }
         }
       }
       row.push(field);
       rows.push(row);
+
       return rows.filter(r => r.length && r.some(x => x !== ''));
     }
-    
-    // For layer3_rosters: header is the first row (index 0).
-    function rowsToObjects_layer3(rows) {
+
+    function rowsToObjectsWithDedupHeader(rows) {
       if (!rows.length) return [];
-      const header = rows[0].map(h => String(h || '').trim());
+      const headerRaw = rows[0].map(h => String(h || '').trim());
+
+      // Deduplicate header names: id, id_1, id_2, ...
+      const nameCounts = {};
+      const headers = headerRaw.map(h => {
+        const base = h;
+        const count = nameCounts[base] || 0;
+        const name = count === 0 ? base : `${base}_${count}`;
+        nameCounts[base] = count + 1;
+        return name;
+      });
+
       return rows.slice(1).map(r => {
         const o = {};
-        header.forEach((h, j) => {
-          o[h] = r[j] === undefined ? '' : r[j];
+        headers.forEach((h, i) => {
+          o[h] = r[i] === undefined ? '' : r[i];
         });
         return o;
       });
     }
-    
-    function shuffle(a) {
-      for (let i = a.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [a[i], a[j]] = [a[j], a[i]];
-      }
-      return a;
-    }
-    
-    // --- Main: load games from layer3_rosters -----------------------------------
-    async function loadGames() {
-      const grid = document.getElementById('game-grid');
-      const title = document.getElementById('page-title');
-    
-      try {
-        const { txt: text, url: csvUrlUsed } = await fetchCsvText();
-    
-        const rows = parseCsvToRows(text);
-        const objs = rowsToObjects_layer3(rows);
-    
-        // Collect unique teams by team_name (fallback: team_id)
-        const teams = Array.from(
-          new Set(
-            objs
-              .map(r =>
-                String(
-                  r.team_name ||
-                  r.team_id ||
-                  ''
-                ).trim()
-              )
-              .filter(Boolean)
-          )
-        );
-    
-        shuffle(teams);
-    
-        const playersParam = encodeURIComponent(csvUrlUsed);
-        let html = '';
-    
-        // Pair teams: [0 vs 1], [2 vs 3], ...
-        for (let i = 0; i + 1 < teams.length; i += 2) {
-          const home = teams[i];
-          const away = teams[i + 1];
-    
-          const url = `game.html?home=${encodeURIComponent(home)}&away=${encodeURIComponent(away)}&players=${playersParam}`;
-    
-          html += `
-            <a class="card" href="${url}" aria-label="${home} vs. ${away} — Play Sim">
-              <div class="cardHeader">
-                <div class="title">${home} vs. ${away}</div>
-                <span class="btn" role="button">Play Sim</span>
-              </div>
-              <hr>
-              <div class="badges">
-                <span class="pill home">${home}</span>
-                <span class="pill away">${away}</span>
-              </div>
-            </a>`;
+
+    // --------------------- Roster grouping / rendering ------------------------
+    function buildTeamsFromRows(objs) {
+      const teamsMap = new Map();
+
+      for (const row of objs) {
+        const teamId = String(row.team_id || '').trim();
+        const teamName = String(row.team_name || '').trim();
+        if (!teamId && !teamName) continue;
+
+        const key = teamId || teamName;
+        if (!teamsMap.has(key)) {
+          teamsMap.set(key, {
+            teamId,
+            teamName: teamName || teamId || 'Unknown',
+            players: [],
+          });
         }
-    
-        grid.innerHTML =
-          html ||
-          '<div class="small" style="color:#fca5a5">No pairable teams found.</div>';
-        title.textContent = 'Week 1 Games';
+        teamsMap.get(key).players.push(row);
+      }
+
+      const teams = Array.from(teamsMap.values());
+      teams.sort((a, b) => {
+        const nameA = (a.teamName || '').toLowerCase();
+        const nameB = (b.teamName || '').toLowerCase();
+        if (nameA < nameB) return -1;
+        if (nameA > nameB) return 1;
+        const idA = (a.teamId || '').toLowerCase();
+        const idB = (b.teamId || '').toLowerCase();
+        if (idA < idB) return -1;
+        if (idA > idB) return 1;
+        return 0;
+      });
+
+      // Sort players within team: position, depth
+      for (const team of teams) {
+        team.players.sort((p1, p2) => {
+          const pos1 = String(p1.position || '').toUpperCase();
+          const pos2 = String(p2.position || '').toUpperCase();
+          if (pos1 < pos2) return -1;
+          if (pos1 > pos2) return 1;
+
+          const d1 = Number(p1.depth);
+          const d2 = Number(p2.depth);
+          if (Number.isFinite(d1) && Number.isFinite(d2)) {
+            return d1 - d2;
+          }
+          return String(p1.first_name || '').localeCompare(p2.first_name || '');
+        });
+      }
+
+      return teams;
+    }
+
+    function clearTeamsUI() {
+      dom.teamsContainer.innerHTML = '';
+    }
+
+    function formatRating(v) {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return '';
+      return n.toFixed(1).replace(/\.0$/, '');
+    }
+
+    function renderTeams(teams, filterText) {
+      clearTeamsUI();
+      const filter = String(filterText || '').trim().toLowerCase();
+
+      let visibleCount = 0;
+
+      for (const team of teams) {
+        const name = team.teamName || '';
+        const id = team.teamId || '';
+        const hay = `${name} ${id}`.toLowerCase();
+        if (filter && !hay.includes(filter)) {
+          continue;
+        }
+
+        visibleCount++;
+
+        const section = document.createElement('details');
+        section.className = 'team-card';
+
+        // Open first team by default (only when no filter)
+        if (!filter && visibleCount === 1) {
+          section.open = true;
+        }
+
+        const summary = document.createElement('summary');
+        summary.className = 'team-header';
+
+        const left = document.createElement('div');
+        left.className = 'team-name-block';
+
+        const nameSpan = document.createElement('div');
+        nameSpan.className = 'team-name';
+        nameSpan.textContent = name;
+
+        const metaSpan = document.createElement('div');
+        metaSpan.className = 'team-meta';
+        const idLabel = id ? id : '—';
+        metaSpan.textContent = `ID: ${idLabel} • ${team.players.length} players`;
+
+        left.appendChild(nameSpan);
+        left.appendChild(metaSpan);
+
+        const right = document.createElement('div');
+        right.className = 'roster-meta';
+        right.textContent = 'Click to toggle roster';
+
+        summary.appendChild(left);
+        summary.appendChild(right);
+        section.appendChild(summary);
+
+        // Roster table
+        const wrapper = document.createElement('div');
+        wrapper.className = 'roster-table-wrapper';
+
+        if (!team.players.length) {
+          const p = document.createElement('p');
+          p.className = 'empty-message';
+          p.textContent = 'No players found for this team.';
+          wrapper.appendChild(p);
+        } else {
+          const table = document.createElement('table');
+          table.className = 'roster-table';
+          table.innerHTML = `
+            <thead>
+              <tr>
+                <th>Pos</th>
+                <th>Depth</th>
+                <th>First</th>
+                <th>Last</th>
+                <th>Ovr</th>
+                <th>Pos&nbsp;Rt</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          `;
+          const tbody = table.querySelector('tbody');
+
+          for (const row of team.players) {
+            const tr = document.createElement('tr');
+            const pos = String(row.position || '').toUpperCase();
+            const depth = row.depth || '';
+            const fn = row.first_name || '';
+            const ln = row.last_name || '';
+            const ovr = formatRating(row.rating_overall);
+            const posRt = formatRating(row.rating_pos);
+
+            tr.innerHTML = `
+              <td>${pos}</td>
+              <td>${depth}</td>
+              <td>${fn}</td>
+              <td>${ln}</td>
+              <td>${ovr}</td>
+              <td>${posRt}</td>
+            `;
+            tbody.appendChild(tr);
+          }
+
+          wrapper.appendChild(table);
+        }
+
+        section.appendChild(wrapper);
+        dom.teamsContainer.appendChild(section);
+      }
+
+      if (visibleCount === 0) {
+        const p = document.createElement('p');
+        p.className = 'empty-message';
+        p.textContent = filter
+          ? 'No teams match this filter.'
+          : 'No teams found in roster data.';
+        dom.teamsContainer.appendChild(p);
+      }
+
+      return visibleCount;
+    }
+
+    // ----------------------------- Main init ---------------------------------
+    async function bootstrap() {
+      setStatus('loading');
+      dom.summaryText.textContent = 'Loading layer3_rosters.csv…';
+      dom.sourceText.textContent = '';
+
+      try {
+        const { txt, url } = await fetchCsvText();
+        const rows = parseCsvToRows(txt);
+        const objs = rowsToObjectsWithDedupHeader(rows);
+        const teams = buildTeamsFromRows(objs);
+
+        dom.sourceText.textContent = `Source: ${url}`;
+        dom.summaryText.textContent = `Loaded ${teams.length} teams and ${objs.length} player rows.`;
+
+        setStatus('ready');
+        const filterVal = dom.searchInput.value;
+        const visible = renderTeams(teams, filterVal);
+
+        // Wire search/filter
+        dom.searchInput.addEventListener('input', () => {
+          const val = dom.searchInput.value;
+          const vCount = renderTeams(teams, val);
+          dom.summaryText.textContent =
+            val.trim()
+              ? `Showing ${vCount} of ${teams.length} teams (filter: “${val.trim()}”).`
+              : `Loaded ${teams.length} teams and ${objs.length} player rows.`;
+        });
+
+        dom.btnClear.addEventListener('click', () => {
+          dom.searchInput.value = '';
+          const vCount = renderTeams(teams, '');
+          dom.summaryText.textContent = `Loaded ${teams.length} teams and ${objs.length} player rows.`;
+        });
       } catch (err) {
-        console.error(err);
-        title.textContent = 'Error loading games';
-        document.getElementById('game-grid').innerHTML =
-          `<p style="color:#fca5a5">
-             Could not load teams from <code>layer3_rosters.csv</code>.<br>
-             Make sure the URL is valid and that columns <code>team_id</code> / <code>team_name</code> exist.
-           </p>`;
+        console.error('Roster load error', err);
+        setStatus('error', 'Failed to load rosters');
+        dom.summaryText.textContent = 'Failed to load rosters.';
+        dom.errorBox.style.display = 'block';
+        dom.errorBox.textContent = `Error loading layer3_rosters.csv: ${err && err.message ? err.message : String(err)}`;
       }
     }
-    
-    document.addEventListener('DOMContentLoaded', loadGames);
-</script>
-    
+
+    bootstrap();
+  </script>
 </body>
 </html>
