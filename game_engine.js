@@ -17,6 +17,8 @@
 //   - formatGameSummary(result) -> string (human-readable summary)
 // -----------------------------------------------------------------------------
 
+import { sampleRunOutcome, samplePassOutcome } from './micro_engine.js';
+
 // -----------------------------------------------------------------------------
 // PRNG (deterministic, seedable) – Mulberry32
 // -----------------------------------------------------------------------------
@@ -207,6 +209,8 @@ class RNG {
     const rng = new RNG(seed);
   
     const state = createInitialGameState(homeTeam, awayTeam, cfg, rng);
+
+    state.seed = seed;
   
     // Register initial drive meta
     startNewDrive(state, null, "home received opening kickoff");
@@ -229,37 +233,82 @@ class RNG {
     const startingQuarter = state.quarter;
     const startingClock = state.clockSec;
     const { offenseSide } = getOffenseDefense(state);
-  
+    const offenseTeam =
+      offenseSide === "home" ? state.homeTeam : state.awayTeam;
+
+    const startingPlayIndex = state.plays.length;
     const drivePlays = [];
     let driveOver = false;
-  
+
     while (!driveOver && !state.isFinal) {
       const playLog = simulatePlay(state);
       drivePlays.push(playLog);
-  
+
       if (playLog.endOfDrive) {
         driveOver = true;
       }
-  
+
       // End of quarter/game
       if (state.clockSec <= 0) {
         handleEndOfQuarterOrGame(state);
         driveOver = true;
       }
     }
-  
+
+    // Aggregate basic drive stats
+    const totalYards = drivePlays.reduce((sum, p) => {
+      const y = typeof p.yardsGained === "number" ? p.yardsGained : 0;
+      // Count offensive yards only (ignore punt distance etc.)
+      if (p.playType === "run" || p.playType === "pass") {
+        return sum + y;
+      }
+      return sum;
+    }, 0);
+
+    const durationSec = Math.max(0, startingClock - state.clockSec);
+
+    const lastPlay = drivePlays[drivePlays.length - 1] || null;
+    let resultText = "Drive ended";
+
+    if (lastPlay) {
+      if (lastPlay.touchdown) {
+        resultText = "TD";
+      } else if (lastPlay.fieldGoalAttempt && lastPlay.fieldGoalGood) {
+        resultText = "FG Good";
+      } else if (lastPlay.fieldGoalAttempt && !lastPlay.fieldGoalGood) {
+        resultText = "FG Miss";
+      } else if (lastPlay.safety) {
+        resultText = "Safety";
+      } else if (lastPlay.punt) {
+        resultText = "Punt";
+      } else if (lastPlay.turnover) {
+        resultText = "Turnover";
+      }
+    } else if (state.clockSec <= 0) {
+      resultText = "End of quarter";
+    }
+
+    const playIndices = drivePlays.map((_, idx) => startingPlayIndex + idx);
+
     state.drives.push({
       driveId: state.driveId,
-      offense: offenseSide,
+      offense: offenseSide,                 // "home" | "away"
+      teamId: offenseTeam.teamId,          // used by UI
+      offenseTeamId: offenseTeam.teamId,   // extra alias
+      result: resultText,
       startQuarter: startingQuarter,
       endQuarter: state.quarter,
       startClockSec: startingClock,
       endClockSec: state.clockSec,
+      durationSec,
+      timeStr: formatClockFromSec(durationSec),
+      yards: totalYards,
+      playCount: drivePlays.length,
+      playIndices,                         // used in step-through mode
       startScore: startingScore,
       endScore: cloneScore(state.score),
-      plays: drivePlays.map((p) => p.playId),
     });
-  
+
     // If the game isn't final, and we just ended a drive by score/turnover/punt,
     // start the next drive with the other team, if clock remains.
     if (!state.isFinal && state.clockSec > 0) {
@@ -269,13 +318,15 @@ class RNG {
       state.down = 1;
       state.distance = 10;
       state.driveId += 1;
+      const lastPlayForReason = drivePlays[drivePlays.length - 1] || null;
       startNewDrive(
         state,
-        drivePlays[drivePlays.length - 1] || null,
+        lastPlayForReason,
         "New drive after change of possession"
       );
     }
   }
+
   
   // Register a new drive meta entry (start placeholder)
   function startNewDrive(state, priorPlay, reason) {
@@ -293,9 +344,7 @@ class RNG {
     });
   }
   
-  // -----------------------------------------------------------------------------
   // Play simulation
-  // -----------------------------------------------------------------------------
   function simulatePlay(state) {
     const { rng } = state;
     const {
@@ -304,23 +353,32 @@ class RNG {
       offenseSide,
       defenseSide,
     } = getOffenseDefense(state);
-  
+
     const offenseUnits = getUnitProfiles(offenseTeam).offense;
     const defenseUnits = getUnitProfiles(defenseTeam).defense;
     const specialOff = getUnitProfiles(offenseTeam).special;
-  
-    const situation = {
+
+    // Snapshot of state *before* the play for logging
+    const preState = {
       down: state.down,
       distance: state.distance,
       yardline: state.ballYardline,
-      quarter: state.quarter,
       clockSec: state.clockSec,
+      quarter: state.quarter,
+    };
+
+    const situation = {
+      down: preState.down,
+      distance: preState.distance,
+      yardline: preState.yardline,
+      quarter: preState.quarter,
+      clockSec: preState.clockSec,
       scoreDiff:
         offenseSide === "home"
           ? state.score.home - state.score.away
           : state.score.away - state.score.home,
     };
-  
+
     const decision = choosePlayType(
       situation,
       offenseUnits,
@@ -328,7 +386,7 @@ class RNG {
       specialOff,
       rng
     );
-  
+
     let playOutcome;
     switch (decision.type) {
       case "run":
@@ -351,14 +409,26 @@ class RNG {
       default:
         playOutcome = simulateRunPlay(state, offenseUnits, defenseUnits, rng);
     }
-  
+
+    // Apply outcome (updates score, clock, field position, possession, etc.)
     applyPlayOutcomeToState(state, playOutcome);
-  
-    const playLog = buildPlayLog(state, decision, playOutcome);
+
+    // Build a richer log using pre-play context & original offense/defense
+    const playLog = buildPlayLog(
+      state,
+      decision,
+      playOutcome,
+      preState,
+      offenseSide,
+      defenseSide,
+      offenseTeam,
+      defenseTeam
+    );
     state.plays.push(playLog);
-  
+
     return playLog;
   }
+
   
   // Choose between run / pass / FG / punt based on situation and unit strengths
   function choosePlayType(
@@ -429,127 +499,170 @@ class RNG {
   }
   
   // ------------------------ Run play -----------------------------------------
+
   function simulateRunPlay(state, offenseUnits, defenseUnits, rng) {
-    const { cfg } = state;
+    // offenseUnits.run / defenseUnits.runFit are built from layer3 data in data_models
+    const runOff = offenseUnits.run?.overall ?? 60;
+    const frontRunDef = defenseUnits.runFit?.overall ?? 60;
   
-    const offRun = offenseUnits.run?.overall ?? 60;
-    const defRun = defenseUnits.runFit?.overall ?? 60;
+    const yardline = state.ballYardline;
+    const down = state.down;
+    const distance = state.distance;
   
-    const adv = (offRun - defRun) / 10;
-    const mean = cfg.baseRunMean + adv * 1.1;
-    const std = cfg.baseRunStd + 0.2 * Math.abs(adv);
+    // Very simple box logic: heavier near goal line or in short yardage
+    let boxCount = 7;
+    if (yardline < 15 || yardline > 85) boxCount = 8;         // backed up or in tight red zone
+    if (distance >= 8) boxCount = 6;                          // lighter box on long yardage
+    if (down === 1 && distance >= 10) boxCount = 6;
   
-    let yards = normal(rng, mean, std);
+    // Box lightness: +1 light, -1 heavy
+    let boxLightness = 0;
+    if (boxCount <= 6) boxLightness = 0.6;
+    if (boxCount >= 8) boxLightness = -0.6;
   
-    // Add some tail events: stuffs + breakouts
-    const roll = rng.next();
-    if (roll < 0.05) {
-      // Stuff / TFL
-      yards -= rng.nextRange(3, 6);
-    } else if (roll > 0.95) {
-      // Breakaway
-      yards += rng.nextRange(10, 40);
-    }
+    // Map aggregate ratings to micro-level RB/OL inputs
+    const olRunBlockRating = runOff; // treat run unit overall as OL + RB composite
+    const rbVisionRating   = runOff;
+    const rbPowerRating    = runOff;
+    const rbElusivenessRating = runOff;
   
-    yards = Math.round(yards);
+    const params = {
+      olRunBlockRating,
+      rbVisionRating,
+      rbPowerRating,
+      rbElusivenessRating,
+      frontRunDefRating: frontRunDef,
+      boxCount,
+      boxLightness,
+      yardline,
+      down,
+      distance,
+    };
   
-    // Turnover chance (fumble)
-    let turnover = false;
-    if (rng.next() < cfg.turnoverBaseProb * 0.8) {
-      turnover = true;
-    }
+    const micro = sampleRunOutcome(params, rng);
   
-    const timeElapsed = rng.nextRange(20, 35); // average run play time
+    // Map micro result back into macro outcome shape the rest of the engine expects
+    const yards = Number.isFinite(micro.yardsGained) ? Math.round(micro.yardsGained) : 0;
+    const timeElapsed = Number.isFinite(micro.timeElapsed) ? micro.timeElapsed : 25;
   
     return {
-      playType: "run",
+      playType: 'run',
       yardsGained: yards,
       timeElapsed,
-      turnover,
+      turnover: !!micro.fumble,
       touchdown: false,
       safety: false,
       fieldGoalAttempt: false,
       fieldGoalGood: false,
       punt: false,
       endOfDrive: false,
+  
+      // extra debug info from micro-engine (not required by macro UI, but useful)
+      micro,
     };
   }
+  
   
   // ------------------------ Pass play ----------------------------------------
   function simulatePassPlay(state, offenseUnits, defenseUnits, rng) {
-    const { cfg } = state;
+    const passOff   = offenseUnits.pass?.overall ?? 60;
+    const runOff    = offenseUnits.run?.overall ?? 60;
+    const coverDef  = defenseUnits.coverage?.overall ?? 60;
+    const rushDef   = defenseUnits.passRush?.overall ?? 60;
   
-    const offPass = offenseUnits.pass?.overall ?? 60;
-    const defCover = defenseUnits.coverage?.overall ?? 60;
-    const passRush = defenseUnits.passRush?.overall ?? 60;
-    const adv = (offPass - defCover) / 10;
-    const mean = cfg.basePassMean + adv * 1.2;
-    const std = cfg.basePassStd + 0.3 * Math.abs(adv);
+    const yardline = state.ballYardline;
+    const down = state.down;
+    const distance = state.distance;
   
-    let yards = normal(rng, mean, std);
+    // Map aggregate ratings to "micro" inputs.
+    // We’re using simple heuristics – everything comes from your team unit profiles.
+    const qbAccuracyRating       = passOff;
+    const qbProcessingRating     = passOff;
+    const qbUnderPressureRating  = passOff - 5;
   
-    const rushPressure = (passRush - offPass) / 20;
-    const sackProb = clamp(0.04 + rushPressure * 0.03, 0.01, 0.12);
-    const intProbBase = cfg.turnoverBaseProb * 1.4;
-    const intProb =
-      intProbBase *
-      (1 + clamp((defCover - offPass) / 20, -0.4, 0.7));
+    const wrRouteRating          = passOff;
+    const wrReleaseRating        = passOff;
+    const wrSpeedRating          = Math.max(40, Math.min(99, passOff + 5));
+    const wrHandsRating          = Math.max(40, Math.min(99, passOff));
+    const wrContestedCatchRating = Math.max(40, Math.min(99, passOff - 2));
   
-    let completion = true;
-    let interception = false;
-    let sack = false;
+    const dbManRating            = coverDef;
+    const dbZoneRating           = coverDef;
+    const dbPressRating          = Math.max(40, Math.min(99, coverDef - 2));
+    const dbSpeedRating          = Math.max(40, Math.min(99, coverDef + 2));
+    const dbBallSkillsRating     = coverDef;
   
-    const r = rng.next();
-    if (r < sackProb) {
-      // Sack
-      sack = true;
-      yards = cfg.sackMeanLoss + rng.nextRange(-3, 2); // negative
-      completion = false;
-    } else if (r < sackProb + intProb) {
-      // Interception
-      interception = true;
-      completion = false;
-      yards = rng.nextRange(-2, 5); // ball caught around LOS-ish
-    } else {
-      // Normal pass outcome: completion vs incompletion
-      const completionProb = clamp(
-        logistic((offPass - defCover) / 12),
-        0.45,
-        0.75
-      );
-      const compRoll = rng.next();
-      if (compRoll > completionProb) {
-        completion = false;
-        yards = 0;
-      }
-    }
+    // Basic situational coverage / aggression heuristics
+    let coverageType = 'mixed';
+    if (down === 3 && distance <= 6) coverageType = 'man';
+    if (down === 2 && distance >= 8) coverageType = 'zone';
   
-    // Big pass play tail
-    if (completion && yards > 0 && rng.next() > 0.94) {
-      yards += rng.nextRange(10, 50);
-    }
+    // Slightly more aggressive when trailing late (macro engine already knows score)
+    const scoreDiff =
+      state.possession === 'home'
+        ? state.score.home - state.score.away
+        : state.score.away - state.score.home;
   
-    // Some incompletions are basically clock stoppages
-    const timeElapsed = completion
-      ? rng.nextRange(18, 40)
-      : rng.nextRange(5, 12);
+    let situationalAggression = 0.5;
+    if (down >= 3 && distance >= 7) situationalAggression = 0.6;
+    if (state.quarter >= 4 && scoreDiff < 0) situationalAggression = 0.7;
   
-    const turnover = interception;
+    let throwAggressiveness = 0.45;
+    if (distance >= 10) throwAggressiveness += 0.1;
+    if (state.quarter >= 4 && scoreDiff < 0) throwAggressiveness += 0.15;
+  
+    const params = {
+      qbAccuracyRating,
+      qbProcessingRating,
+      qbUnderPressureRating,
+      olPassBlockRating: passOff,
+      dlPassRushRating: rushDef,
+      wrRouteRating,
+      wrReleaseRating,
+      wrSpeedRating,
+      wrHandsRating,
+      wrContestedCatchRating,
+      dbManRating,
+      dbZoneRating,
+      dbPressRating,
+      dbSpeedRating,
+      dbBallSkillsRating,
+      yardline,
+      down,
+      distance,
+      coverageType,
+      situationalAggression,
+      throwAggressiveness,
+    };
+  
+    const micro = samplePassOutcome(params, rng);
+  
+    const yards = Number.isFinite(micro.yardsGained) ? Math.round(micro.yardsGained) : 0;
+    const timeElapsed = Number.isFinite(micro.timeElapsed) ? micro.timeElapsed : 25;
+  
+    // NOTE: sack ≠ turnover; only interception or fumble flip possession.
+    const turnover = !!(micro.interception || micro.fumble);
+  
     return {
-      playType: "pass",
-      yardsGained: Math.round(yards),
+      playType: 'pass',
+      yardsGained: yards,
       timeElapsed,
       turnover,
-      interception,
-      sack,
+      interception: !!micro.interception,
+      sack: !!micro.sack,
+      completion: !!micro.completion,
       touchdown: false,
       safety: false,
       fieldGoalAttempt: false,
       fieldGoalGood: false,
       punt: false,
       endOfDrive: false,
+  
+      // extra micro-engine details (optional for UI)
+      micro,
     };
   }
+  
   
   // ------------------------ Field goal ----------------------------------------
   function simulateFieldGoal(state, offenseUnits, specialOff, rng) {
@@ -632,13 +745,13 @@ class RNG {
   function applyPlayOutcomeToState(state, outcome) {
     const { offenseSide, defenseSide } = getOffenseDefense(state);
     const { cfg } = state;
-  
+
     // Advance clock
     state.clockSec = Math.max(
       0,
       state.clockSec - outcome.timeElapsed
     );
-  
+
     // Field goal
     if (outcome.fieldGoalAttempt) {
       if (outcome.fieldGoalGood) {
@@ -664,7 +777,7 @@ class RNG {
       state.playId += 1;
       return;
     }
-  
+
     // Punt: we don't model exact landing spot; just approximate new field position
     if (outcome.punt) {
       const newYardline = Math.max(
@@ -680,10 +793,10 @@ class RNG {
       outcome.endOfDrive = true;
       return;
     }
-  
+
     // Normal offensive play (run / pass)
     let newYard = state.ballYardline + outcome.yardsGained;
-  
+
     // Safety (ball carrier tackled in own end zone)
     if (newYard <= 0) {
       // Safety for defense
@@ -701,7 +814,7 @@ class RNG {
         clockSec: state.clockSec,
         score: cloneScore(state.score),
       });
-  
+
       // Next drive will begin from other team after free kick; we approximate
       state.possession = defenseSide;
       state.ballYardline = 35;
@@ -712,7 +825,7 @@ class RNG {
       outcome.endOfDrive = true;
       return;
     }
-  
+
     // Touchdown
     if (newYard >= 100) {
       if (offenseSide === "home") {
@@ -729,13 +842,13 @@ class RNG {
         clockSec: state.clockSec,
         score: cloneScore(state.score),
       });
-  
+
       outcome.touchdown = true;
       state.playId += 1;
       outcome.endOfDrive = true;
       return;
     }
-  
+
     // Turnover (non-FG / non-punt)
     if (outcome.turnover) {
       state.possession =
@@ -756,12 +869,12 @@ class RNG {
       });
       return;
     }
-  
+
     // No score, no turnover: normal advancement
     state.ballYardline = clamp(newYard, 1, 99);
-  
+
     const yardsToFirst = state.distance - outcome.yardsGained;
-  
+
     if (yardsToFirst <= 0) {
       // First down
       state.down = 1;
@@ -790,10 +903,115 @@ class RNG {
         state.distance = yardsToFirst;
       }
     }
-  
+
     state.playId += 1;
   }
-  
+
+  function formatClockFromSec(seconds) {
+    if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  }
+
+  function formatDownAndDistance(down, distance, yardline) {
+    const downMap = { 1: "1st", 2: "2nd", 3: "3rd", 4: "4th" };
+    const downLabel = downMap[down] || `${down}th`;
+    const dist = Math.max(1, Math.round(distance || 1));
+
+    // yardline is 0–100 from offense goal line
+    const y = clamp(Math.round(yardline), 0, 100);
+    let spot;
+    if (y === 50) {
+      spot = "50";
+    } else if (y < 50) {
+      spot = `OWN ${y}`;
+    } else {
+      spot = `OPP ${100 - y}`;
+    }
+    return `${downLabel} & ${dist} at ${spot}`;
+  }
+
+  function describePlay(decision, outcome, offenseTeamName) {
+    const team = offenseTeamName || "Offense";
+    const playType = outcome.playType || decision.type || "run";
+    const yards = Number.isFinite(outcome.yardsGained)
+      ? outcome.yardsGained
+      : 0;
+
+    switch (playType) {
+      case "run": {
+        if (yards > 0) {
+          return `${team} run for ${yards} yards`;
+        } else if (yards < 0) {
+          return `${team} run for a loss of ${Math.abs(yards)} yards`;
+        }
+        return `${team} run for no gain`;
+      }
+      case "pass": {
+        if (outcome.sack) {
+          return `${team} sacked for a loss of ${Math.abs(yards)} yards`;
+        }
+        if (outcome.interception) {
+          return `${team} pass intercepted`;
+        }
+        if (yards > 0) {
+          return `${team} pass complete for ${yards} yards`;
+        }
+        if (yards < 0) {
+          return `${team} pass complete for -${Math.abs(yards)} yards`;
+        }
+        return `${team} incomplete pass`;
+      }
+      case "field_goal": {
+        const dist = Math.round(outcome.kickDistance || 0);
+        if (outcome.fieldGoalGood) {
+          return dist
+            ? `${team} field goal from ${dist} yards is good`
+            : `${team} field goal is good`;
+        }
+        return dist
+          ? `${team} misses field goal from ${dist} yards`
+          : `${team} misses field goal`;
+      }
+      case "punt": {
+        const dist = Math.round(outcome.puntDistance || 0);
+        if (dist) {
+          return `${team} punts ${dist} yards`;
+        }
+        return `${team} punts`;
+      }
+      default: {
+        if (yards > 0) {
+          return `${team} ${playType} play for ${yards} yards`;
+        } else if (yards < 0) {
+          return `${team} ${playType} play for a loss of ${Math.abs(yards)} yards`;
+        }
+        return `${team} ${playType} play for no gain`;
+      }
+    }
+  }
+
+  function buildTags(decision, outcome) {
+    const playType = outcome.playType || decision.type || "run";
+    const tags = [];
+
+    if (playType === "run") tags.push("RUN");
+    if (playType === "pass") tags.push("PASS");
+    if (playType === "field_goal") tags.push("FG");
+    if (playType === "punt") tags.push("PUNT");
+
+    if (outcome.touchdown) tags.push("TD", "SCORE");
+    if (outcome.safety) tags.push("SAFETY", "SCORE");
+    if (outcome.fieldGoalGood) tags.push("SCORE");
+
+    if (outcome.turnover) tags.push("TURNOVER");
+    if (outcome.interception) tags.push("INT");
+    if (outcome.sack) tags.push("SACK");
+
+    return tags;
+  }
+
   // Build a play log entry after outcome is applied
   function buildPlayLog(state, decision, outcome) {
     const {
@@ -802,7 +1020,36 @@ class RNG {
       offenseTeam,
       defenseTeam,
     } = getOffenseDefense(state);
-  
+
+    const playType = outcome.playType || decision.type || "run";
+
+    const text = describePlay(
+      decision,
+      outcome,
+      offenseTeam.teamName || offenseTeam.teamId
+    );
+
+    const downAndDistance = formatDownAndDistance(
+      state.down,
+      state.distance,
+      state.ballYardline
+    );
+
+    const tags = buildTags(decision, outcome);
+
+    const isScoring = !!(
+      outcome.touchdown ||
+      outcome.safety ||
+      outcome.fieldGoalGood
+    );
+
+    const isTurnover = !!(
+      outcome.turnover &&
+      !outcome.fieldGoalAttempt &&
+      !outcome.punt &&
+      !outcome.safety
+    );
+
     const log = {
       playId: state.playId,
       driveId: state.driveId,
@@ -818,9 +1065,22 @@ class RNG {
       distance: state.distance,
       ballYardline: state.ballYardline,
       decisionType: decision.type,
+      playType,
+
+      // Description fields the UI is looking for:
+      text,
+      description: text,
+      desc: text,
+      downAndDistance,
+      tags,
+      isScoring,
+      isTurnover,
+      highImpact: isScoring || isTurnover,
+
+      // Raw outcome data
       ...outcome,
     };
-  
+
     return log;
   }
   

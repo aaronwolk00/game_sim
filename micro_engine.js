@@ -1,1147 +1,819 @@
 // micro_engine.js
 // -----------------------------------------------------------------------------
-// Play Micro-Engine
+// Micro-level engine for NFL-style interactions driven by DNA-style player data.
 //
-// This module handles *per-play* football simulation:
-//   - Pass plays: pass rush vs protection, separation, ball placement,
-//                 catch vs incompletion vs INT, YAC, sacks, fumbles.
-//   - Run plays: point-of-attack vs run fit, broken tackles, explosive runs,
-//                stuffs, fumbles.
-//   - Penalties and weird events (stochastic, driven by discipline/aggression).
+// This module is intentionally self-contained: it does not import anything.
+// It expects a RNG object with `.next()` that returns a float in [0,1).
 //
-// It uses:
-//   - Player latent profiles (A/C/T/P/V) attached by random_models.prepareLeagueForSimulation
-//   - Team unit profiles (offense/defense/special) computed in random_models
-//   - RNG streams provided by game_engine.js
+// Exports (all pure w.r.t. RNG):
+//   - sampleRunOutcome(params, rng)
+//   - samplePassOutcome(params, rng)
+//   - sampleTackleOutcome(params, rng)
+//   - sampleCoverageMatchup(params, rng)
+//   - samplePressureTime(params, rng)
+//   - samplePenaltyOutcome(params, rng)
 //
-// It does NOT update GameState – that’s game_engine.js’ job.
-// Instead, it returns a rich PlayMicroResult object describing:
-//   yards, outcome, turnover flags, penalties, time elapsed, and debug info.
+// The "params" objects are numeric summaries of players/units derived from your
+// layer3_rosters.csv (ratings + factor_* + trait_*). The mapping from raw
+// Player objects to these params should happen in data_models/game_engine.
 // -----------------------------------------------------------------------------
 
-import { Player, Team } from "./data_models.js";
-import { clamp01, lerp, logistic } from "./random_models.js";
-
 // -----------------------------------------------------------------------------
-// Enums / constants
+// Helpers
 // -----------------------------------------------------------------------------
 
-export const PlayType = Object.freeze({
-  PASS: "PASS",
-  RUN: "RUN",
-});
-
-export const PassDepth = Object.freeze({
-  SHORT: "SHORT",
-  INTERMEDIATE: "INTERMEDIATE",
-  DEEP: "DEEP",
-});
-
-export const RunDirection = Object.freeze({
-  INSIDE: "INSIDE",
-  OUTSIDE: "OUTSIDE",
-});
-
-export const PlayOutcomeType = Object.freeze({
-  PASS_COMPLETE: "PASS_COMPLETE",
-  PASS_INCOMPLETE: "PASS_INCOMPLETE",
-  INTERCEPTION: "INTERCEPTION",
-  SACK: "SACK",
-  RUN: "RUN",
-  FUMBLE_LOST: "FUMBLE_LOST",
-  FUMBLE_OUT_OF_BOUNDS: "FUMBLE_OUT_OF_BOUNDS",
-  PENALTY_ONLY: "PENALTY_ONLY", // dead-ball penalty, no play
-});
-
-export const PenaltyType = Object.freeze({
-  NONE: "NONE",
-  OFF_HOLDING: "OFF_HOLDING",
-  DEF_PI: "DEF_PI",
-  DEF_HOLDING: "DEF_HOLDING",
-  FALSE_START: "FALSE_START",
-  OFF_PI: "OFF_PI",
-  PERSONAL_FOUL: "PERSONAL_FOUL",
-});
-
-export const TurnoverType = Object.freeze({
-  NONE: "NONE",
-  INTERCEPTION: "INTERCEPTION",
-  FUMBLE: "FUMBLE",
-});
-
-// Default clock impact (seconds) for typical plays if game_engine
-// doesn't override based on specific context.
-const DEFAULT_PASS_PLAY_TIME = 5; // includes huddle + snap + result
-const DEFAULT_RUN_PLAY_TIME = 5;
-
-// -----------------------------------------------------------------------------
-// Helper: basic depth chart access / starter selection
-// -----------------------------------------------------------------------------
-
-function getDepthChart(team, pos) {
-  if (typeof team.getDepthChart === "function") {
-    return team.getDepthChart(pos) || [];
+function clamp(x, lo, hi) {
+    return x < lo ? lo : x > hi ? hi : x;
   }
-  // Fallback: filter roster by position and sort by depth (if any) then rating
-  const roster = team.roster || [];
-  return roster
-    .filter((p) => p.position === pos)
-    .sort((a, b) => {
-      const da = a.depth ?? 999;
-      const db = b.depth ?? 999;
-      if (da !== db) return da - db;
-      return (b.ratingOverall || 0) - (a.ratingOverall || 0);
-    });
-}
-
-function getStarter(team, pos) {
-  const chart = getDepthChart(team, pos);
-  return chart.length ? chart[0] : null;
-}
-
-function chooseTargetReceiver(offenseTeam, playCall, rng) {
-  // Very simple rule-based selection for now:
-  //   SHORT: RB/TE/slot WR bias
-  //   INTERMEDIATE: WR/TE
-  //   DEEP: WR bias
-  //
-  // game_engine can override by putting playCall.targetId.
-  if (playCall && playCall.targetId) {
-    // Let game_engine pre-select exact target if desired
-    return offenseTeam.getPlayerById
-      ? offenseTeam.getPlayerById(playCall.targetId)
-      : null;
+  
+  function logistic(x) {
+    return 1 / (1 + Math.exp(-x));
   }
-
-  const wrChart = getDepthChart(offenseTeam, "WR");
-  const teChart = getDepthChart(offenseTeam, "TE");
-  const rbChart = getDepthChart(offenseTeam, "RB");
-
-  const depth = playCall.depth || PassDepth.INTERMEDIATE;
-  const bucket = [];
-
-  if (depth === PassDepth.SHORT) {
-    if (rbChart[0]) bucket.push(rbChart[0]);
-    if (teChart[0]) bucket.push(teChart[0]);
-    if (wrChart[0]) bucket.push(wrChart[0]);
-    if (wrChart[1]) bucket.push(wrChart[1]);
-  } else if (depth === PassDepth.INTERMEDIATE) {
-    if (wrChart[0]) bucket.push(wrChart[0]);
-    if (wrChart[1]) bucket.push(wrChart[1]);
-    if (teChart[0]) bucket.push(teChart[0]);
-  } else {
-    // DEEP
-    if (wrChart[0]) bucket.push(wrChart[0]);
-    if (wrChart[1]) bucket.push(wrChart[1]);
-    if (wrChart[2]) bucket.push(wrChart[2]);
+  
+  // Box-Muller using provided rng
+  function sampleNormal01(rng) {
+    let u = 0, v = 0;
+    while (u === 0) u = rng.next();
+    while (v === 0) v = rng.next();
+    const mag = Math.sqrt(-2.0 * Math.log(u));
+    return mag * Math.cos(2 * Math.PI * v);
   }
-
-  if (!bucket.length) {
-    // Fallback: first WR or any offensive player
-    if (wrChart[0]) return wrChart[0];
-    const all = offenseTeam.roster || [];
-    return all.length ? all[0] : null;
+  
+  function sampleNormal(rng, mean = 0, std = 1) {
+    return mean + std * sampleNormal01(rng);
   }
-
-  // Pick one uniformly for now
-  const idx = Math.floor(rng.next() * bucket.length);
-  return bucket[idx];
-}
-
-function choosePrimaryCoverageDefender(defenseTeam, target, rng) {
-  // Very simple assignment:
-  //   - If target is WR => CB
-  //   - If target is TE => S or LB
-  //   - If target is RB => LB
-  //
-  // For now, just pick the "starter-ish" defender at that role.
-  if (!target) return null;
-  const pos = target.position;
-  let candidates = [];
-
-  if (pos === "WR") {
-    candidates = getDepthChart(defenseTeam, "CB");
-  } else if (pos === "TE") {
-    candidates = [
-      ...getDepthChart(defenseTeam, "S"),
-      ...getDepthChart(defenseTeam, "LB"),
-    ];
-  } else if (pos === "RB" || pos === "FB") {
-    candidates = getDepthChart(defenseTeam, "LB");
-  } else {
-    // Fallback: best available DB
-    candidates = [
-      ...getDepthChart(defenseTeam, "CB"),
-      ...getDepthChart(defenseTeam, "S"),
-    ];
-  }
-
-  if (!candidates.length) return null;
-  const idx = Math.floor(rng.next() * Math.min(3, candidates.length)); // top 3 at most
-  return candidates[idx];
-}
-
-// -----------------------------------------------------------------------------
-// Core submodels: PASS PLAY
-// -----------------------------------------------------------------------------
-
-/**
- * Compute time-to-pressure distribution outcome.
- *
- * Uses:
- *   - Offense unit pass protection (0..100)
- *   - Defense unit pass rush (0..100)
- *   - Defense blitzAggression (0..1)
- *   - Momentum (gameState.momentum, -1..1)
- */
-function modelPassRush(offenseTeam, defenseTeam, gameState, playCall, rng) {
-  const offProfile = (offenseTeam.unitProfiles && offenseTeam.unitProfiles.offense) || {};
-  const defProfile = (defenseTeam.unitProfiles && defenseTeam.unitProfiles.defense) || {};
-
-  const protection = (offProfile.protection ?? 50) / 100;
-  const passRush = (defProfile.passRush ?? 50) / 100;
-  const blitzAgg = defProfile.blitzAggression ?? 0.5;
-  const momentum = gameState.momentum ?? 0; // offense positive, defense negative
-
-  // Base mean time to pressure in seconds.
-  let baseMu = 2.6;
-  let baseSigma = 0.4;
-
-  // Protection vs pass rush differential.
-  const diff = protection - passRush; // -1..1
-  baseMu += 0.7 * diff; // good OL vs bad rush => +0.7s
-  // More aggressive blitz shortens mean time but widens tails.
-  baseMu -= 0.25 * blitzAgg;
-  baseSigma += 0.25 * blitzAgg;
-
-  // Momentum: if defense is "hot" (negative momentum), we reduce time to pressure.
-  baseMu -= 0.25 * clamp01(-momentum);
-
-  // Play-call effect: play-action slightly bumps time to pressure, quick game reduces.
-  const concept = playCall.concept || "STANDARD";
-  if (concept === "PLAY_ACTION") {
-    baseMu += 0.15;
-  } else if (concept === "SCREEN" || playCall.depth === PassDepth.SHORT) {
-    baseMu -= 0.2;
-  }
-
-  // Sample from normal and clamp to a reasonable range.
-  const tPressure = Math.max(0.7, Math.min(5.0, rng.normal(baseMu, baseSigma)));
-
-  // Pressure "intensity" – longer time reduces intensity.
-  const pressureLevel = clamp01(1.2 - (tPressure / 3.0)); // ~1 at instant, ~0 by 3.6s+
-
-  return { tPressure, pressureLevel };
-}
-
-/**
- * Compute the QB's time-to-throw and pressure context.
- */
-function modelQBDecisionAndDropback(qb, playCall, rush, rng) {
-  const depth = playCall.depth || PassDepth.INTERMEDIATE;
-  let baseTThrow;
-
-  if (depth === PassDepth.SHORT) baseTThrow = 2.1;
-  else if (depth === PassDepth.INTERMEDIATE) baseTThrow = 2.6;
-  else baseTThrow = 3.0; // DEEP
-
-  const proc = qb.latent.C.get("qbProcessing", 0.5);
-  const riskTol = qb.latent.P.get("riskTolerance", 0.5);
-
-  // Faster processor => earlier throw.
-  baseTThrow -= 0.5 * (proc - 0.5);
-  // Risky QBs hold the ball more.
-  baseTThrow += 0.4 * (riskTol - 0.5);
-
-  const sigma = 0.25;
-  let tThrow = rng.normal(baseTThrow, sigma);
-  tThrow = Math.max(1.0, Math.min(4.5, tThrow));
-
-  // Compare with time to pressure.
-  const { tPressure, pressureLevel } = rush;
-  let underPressure = false;
-
-  if (tPressure < 0.6) {
-    // Instant pressure – most likely sack / panic.
-    underPressure = true;
-  } else if (tPressure < tThrow) {
-    underPressure = true;
-    // QB may speed up throw if pressure arrives early.
-    const hurryFactor = clamp01((tThrow - tPressure) / 1.5);
-    tThrow = lerp(tThrow, tPressure, hurryFactor);
-  }
-
-  // Pressure severity: combine rush intensity + whether throw comes after pressure.
-  let pressureSeverity = rush.pressureLevel;
-  if (underPressure) {
-    pressureSeverity = clamp01(0.5 + 0.5 * rush.pressureLevel);
-  } else {
-    pressureSeverity *= 0.4;
-  }
-
-  return { tThrow, tPressure, underPressure, pressureSeverity };
-}
-
-/**
- * Model receiver separation vs coverage at target depth.
- *
- * Returns separation in yards (can be negative if DB is in phase).
- */
-function modelSeparation(offenseTeam, defenseTeam, target, coverageDef, playCall, rng) {
-  if (!target) {
-    return { separationYds: 0.0, sepScoreOff: 0.5, sepScoreDef: 0.5 };
-  }
-
-  // Offensive separation ability
-  const routeCraft = target.latent.T.get("routeCraft", 0.5);
-  const hands = target.latent.T.get("hands", 0.5);
-  const agility = target.latent.A.get("agility", 0.5);
-  const speedLong = target.latent.A.get("speedLong", 0.5);
-
-  let sepOff = 0.25 * routeCraft + 0.25 * agility + 0.25 * speedLong + 0.25 * hands;
-
-  // Depth modifiers: deeper routes reward long speed & route craft more.
-  const depth = playCall.depth || PassDepth.INTERMEDIATE;
-  if (depth === PassDepth.DEEP) {
-    sepOff = clamp01(sepOff + 0.15 * (speedLong - 0.5));
-  } else if (depth === PassDepth.SHORT) {
-    sepOff = clamp01(sepOff + 0.12 * (agility - 0.5));
-  }
-
-  // Defensive coverage ability
-  let covDef = 0.5;
-  if (coverageDef) {
-    const covAwareness = coverageDef.latent.C.get("coverageAwareness", 0.5);
-    const covPattern = coverageDef.latent.C.get("patternIQ", 0.5);
-    const cod = coverageDef.latent.A.get("changeOfDirection", 0.5);
-    const speed = coverageDef.latent.A.get("speedLong", 0.5);
-
-    covDef =
-      0.35 * covAwareness + 0.25 * covPattern + 0.2 * cod + 0.2 * speed;
-  } else {
-    // Fallback: team-level coverage profile
-    const defProfile =
-      (defenseTeam.unitProfiles && defenseTeam.unitProfiles.defense) || {};
-    covDef = (defProfile.coverage ?? 50) / 100;
-  }
-
-  // Team profile modifiers.
-  const offProfile =
-    (offenseTeam.unitProfiles && offenseTeam.unitProfiles.offense) || {};
-  const defProfile =
-    (defenseTeam.unitProfiles && defenseTeam.unitProfiles.defense) || {};
-
-  const teamPass = (offProfile.pass ?? 50) / 100;
-  const teamCoverage = (defProfile.coverage ?? 50) / 100;
-
-  // Base separation in yards.
-  let baseSepYds = 1.5; // nominal NFL separation
-  const diff = (sepOff + teamPass - (covDef + teamCoverage)) * 0.5; // roughly -1..1
-  baseSepYds += 1.3 * diff;
-
-  // Depth scaling.
-  if (depth === PassDepth.DEEP) {
-    baseSepYds += 0.2; // more chance for separation deep
-  } else if (depth === PassDepth.SHORT) {
-    baseSepYds -= 0.1; // often tighter
-  }
-
-  // Noise ~ N(0, 0.7)
-  const sepNoise = rng.normal(0, 0.7);
-  let sepYds = baseSepYds + sepNoise;
-
-  // Clamp to [-2, 5] yards for sanity.
-  sepYds = Math.max(-2.0, Math.min(5.0, sepYds));
-
-  return {
-    separationYds: sepYds,
-    sepScoreOff: sepOff,
-    sepScoreDef: covDef,
-  };
-}
-
-/**
- * Model QB ball placement error (radial, in yards) as a function of:
- *   - QB processing & under-pressure accuracy
- *   - pressureSeverity
- *   - throw depth
- */
-function modelBallPlacement(qb, playCall, pressureContext, rng) {
-  const depth = playCall.depth || PassDepth.INTERMEDIATE;
-  const proc = qb.latent.C.get("qbProcessing", 0.5);
-  const underPressureSkill = qb.latent.T.get("qbUnderPressure", 0.5);
-  const pocketSkill = qb.latent.T.get("qbPocket", 0.5);
-  const emotional = qb.latent.P.get("emotionalStability", 0.5);
-
-  // Base accuracy skill scalar
-  const baseAcc =
-    0.4 * proc +
-    0.25 * underPressureSkill +
-    0.25 * pocketSkill +
-    0.1 * emotional;
-
-  const pressureSeverity = pressureContext.pressureSeverity;
-
-  // Degrade accuracy under pressure.
-  const effectiveAcc = clamp01(baseAcc - 0.3 * pressureSeverity);
-
-  // Map effectiveAcc -> mean radial error in yards.
-  //   acc ~0.5 => ~1.8yd mean
-  //   acc ~0.8 => ~0.9yd
-  //   acc ~0.3 => ~2.5yd
-  const meanErr = 2.5 - 2.0 * effectiveAcc;
-  const sigmaErr = 0.7 - 0.3 * effectiveAcc;
-
-  // Deeper throws naturally have more error.
-  let depthMultiplier = 1.0;
-  if (depth === PassDepth.DEEP) depthMultiplier = 1.5;
-  else if (depth === PassDepth.INTERMEDIATE) depthMultiplier = 1.2;
-
-  const mu = meanErr * depthMultiplier;
-  const sigma = sigmaErr * depthMultiplier;
-
-  let radialError = Math.abs(rng.normal(mu, sigma));
-  radialError = Math.min(radialError, 8.0); // cap extremes
-
-  return { radialError, effectiveAcc, baseAcc };
-}
-
-/**
- * Resolve catch vs incompletion vs interception using:
- *   - separationYds (can be negative)
- *   - radialError (ball placement)
- *   - WR hands / DB ball skills
- *   - defensive chaos
- */
-function resolveCatchPoint(
-  target,
-  coverageDef,
-  separationYds,
-  radialError,
-  defenseTeam,
-  rng
-) {
-  if (!target) {
-    // No real target; almost always incomplete.
-    return {
-      outcome: PlayOutcomeType.PASS_INCOMPLETE,
-      probCatch: 0.05,
-      probInt: 0.0,
-    };
-  }
-
-  const wrHands = target.latent.T.get("hands", 0.5);
-  const wrBallSec = target.latent.T.get("ballSecurity", 0.5);
-
-  let dbBallSkills = 0.5;
-  if (coverageDef) {
-    dbBallSkills = coverageDef.latent.C.get("coverageAwareness", 0.5);
-  }
-
-  const defProfile =
-    (defenseTeam.unitProfiles && defenseTeam.unitProfiles.defense) || {};
-  const chaosPlays = (defProfile.chaosPlays ?? 50) / 100;
-
-  // Effective separation after ball placement error.
-  // More error shrinks effective separation.
-  const effectiveSep = separationYds - 0.6 * radialError;
-
-  // Map effectiveSep -> base catch probability via logistic.
-  //   sep = 0 => ~0.5 base
-  //   sep = +2 => high
-  //   sep = -1 => low
-  const baseCatch = logistic(-0.2 + 0.9 * effectiveSep);
-
-  // WR hands & ball security shape catch reliability.
-  const handsBoost = (wrHands + wrBallSec) / 2;
-  const catchProbPreClamp = baseCatch * (0.7 + 0.6 * (handsBoost - 0.5));
-
-  // INT base from negative effectiveSep & DB ball skills.
-  const baseInt =
-    logistic(-1.4 - 0.9 * effectiveSep) * (0.6 + 0.8 * (dbBallSkills - 0.5));
-
-  // Defensive chaos increases INT tails.
-  const intProbPreClamp = baseInt * (0.7 + 0.6 * chaosPlays);
-
-  let probCatch = clamp01(catchProbPreClamp);
-  let probInt = clamp01(intProbPreClamp);
-
-  // Renormalize so total <= 0.95, with remaining as incompletion.
-  const total = probCatch + probInt;
-  const maxTotal = 0.95;
-  if (total > maxTotal) {
-    probCatch *= maxTotal / total;
-    probInt *= maxTotal / total;
-  }
-  const probIncomp = clamp01(1 - probCatch - probInt);
-
-  const r = rng.next();
-  let outcome = PlayOutcomeType.PASS_INCOMPLETE;
-  if (r < probInt) {
-    outcome = PlayOutcomeType.INTERCEPTION;
-  } else if (r < probInt + probCatch) {
-    outcome = PlayOutcomeType.PASS_COMPLETE;
-  } else {
-    outcome = PlayOutcomeType.PASS_INCOMPLETE;
-  }
-
-  return {
-    outcome,
-    probCatch,
-    probInt,
-    probIncomp,
-    effectiveSep,
-  };
-}
-
-/**
- * YAC model:
- *   - Ball carrier's elusiveness + power vs defense tackling / pursuit.
- *   - Use log-normal-ish distribution to allow rare long YAC.
- */
-function modelYAC(ballCarrier, defenseTeam, rng) {
-  if (!ballCarrier) return { yac: 0, yacMean: 0 };
-
-  const agility = ballCarrier.latent.A.get("agility", 0.5);
-  const speed = ballCarrier.latent.A.get("speedShort", 0.5);
-  const power = ballCarrier.latent.A.get("power", 0.5);
-  const tacklingDef =
-    ((defenseTeam.unitProfiles &&
-      defenseTeam.unitProfiles.defense &&
-      defenseTeam.unitProfiles.defense.tackling) ??
-      60) / 100;
-
-  const chaosDef =
-    ((defenseTeam.unitProfiles &&
-      defenseTeam.unitProfiles.defense &&
-      defenseTeam.unitProfiles.defense.chaosPlays) ??
-      50) / 100;
-
-  const elusiveness = (agility + speed) / 2;
-  const yacSkill = 0.6 * elusiveness + 0.4 * power;
-
-  // Base mean YAC (before tackling) in yards.
-  let meanYac = 3.0 + 5.0 * (yacSkill - tacklingDef);
-
-  // Defensive chaos: more chaos slightly increases tails (both big YAC and big TFL).
-  const chaosFactor = 1 + 0.4 * (chaosDef - 0.5);
-
-  // Log-normal style: sample from normal on log-space.
-  const mu = Math.log(Math.max(0.5, meanYac * 0.6));
-  const sigma = 0.6 * chaosFactor;
-
-  const z = rng.normal(mu, sigma);
-  let yac = Math.exp(z) - 0.5; // shift back
-  if (!isFinite(yac)) yac = 0;
-
-  // Some plays are dead on catch: scale by chance of immediate tackle.
-  const immTackleProb = clamp01(tacklingDef * 0.7);
-  if (rng.next() < immTackleProb) {
-    yac *= 0.2;
-  }
-
-  // Clamp YAC to [-2, 80] for sanity; negative YAC = tackled behind catch spot.
-  if (yac < -2) yac = -2;
-  if (yac > 80) yac = 80;
-
-  return { yac, yacMean: meanYac };
-}
-
-/**
- * Fumble model:
- *   - Uses ball carrier ballSecurity vs defense chaos & tackling.
- *   - Returns { isFumble, lost, yardsAfterFumble } – yardsAfterFumble is
- *     additional yards beyond the main run/pass result (often 0).
- */
-function maybeFumble(ballCarrier, defenseTeam, rng) {
-  if (!ballCarrier) {
-    return {
-      isFumble: false,
-      lost: false,
-      yardsAfterFumble: 0,
-    };
-  }
-
-  const ballSec = ballCarrier.latent.T.get("ballSecurity", 0.5);
-  const emotional = ballCarrier.latent.P.get("emotionalStability", 0.5);
-  const chaosDef =
-    ((defenseTeam.unitProfiles &&
-      defenseTeam.unitProfiles.defense &&
-      defenseTeam.unitProfiles.defense.chaosPlays) ??
-      50) / 100;
-  const tacklingDef =
-    ((defenseTeam.unitProfiles &&
-      defenseTeam.unitProfiles.defense &&
-      defenseTeam.unitProfiles.defense.tackling) ??
-      60) / 100;
-
-  const securityComposite = 0.6 * ballSec + 0.4 * emotional;
-  // Base fumble rate (per touch) ~1.5% in NFL; modulated by security vs chaos.
-  let baseRate = 0.015;
-  baseRate *= 1 + 1.2 * (chaosDef - securityComposite) + 0.6 * (tacklingDef - 0.5);
-  baseRate = clamp01(baseRate);
-
-  const isFumble = rng.next() < baseRate;
-  if (!isFumble) {
-    return { isFumble: false, lost: false, yardsAfterFumble: 0 };
-  }
-
-  // Lost fumble vs recovered – about 50/50, nudged by chaos.
-  const lostProb = clamp01(0.5 + 0.15 * (chaosDef - 0.5));
-  const lost = rng.next() < lostProb;
-
-  // Extra yards from fumble return; can be negative (offense recovers behind spot).
-  let yardsAfterFumble = 0;
-  if (lost) {
-    // Defensive return; mildly skewed positive.
-    yardsAfterFumble = Math.round(rng.normal(5, 10));
-  } else {
-    // Scramble recovery; mild negative.
-    yardsAfterFumble = Math.round(rng.normal(-2, 4));
-  }
-
-  yardsAfterFumble = Math.max(-15, Math.min(60, yardsAfterFumble));
-
-  return { isFumble: true, lost, yardsAfterFumble };
-}
-
-// -----------------------------------------------------------------------------
-// Run-play submodel
-// -----------------------------------------------------------------------------
-
-function modelRunYardage(offenseTeam, defenseTeam, ballCarrier, playCall, rng) {
-  const offProfile =
-    (offenseTeam.unitProfiles && offenseTeam.unitProfiles.offense) || {};
-  const defProfile =
-    (defenseTeam.unitProfiles && defenseTeam.unitProfiles.defense) || {};
-
-  const runOff = (offProfile.run ?? 60) / 100;
-  const explosiveness = (offProfile.explosiveness ?? 60) / 100;
-  const runFit = (defProfile.runFit ?? 60) / 100;
-  const tackling = (defProfile.tackling ?? 60) / 100;
-  const chaos = (defProfile.chaosPlays ?? 50) / 100;
-
-  let rbElusiveness = 0.5;
-  let rbPower = 0.5;
-  if (ballCarrier) {
-    rbElusiveness = ballCarrier.latent.A.get("agility", 0.5);
-    rbPower = ballCarrier.latent.A.get("power", 0.5);
-  }
-
-  const runSkill = 0.5 * runOff + 0.25 * rbElusiveness + 0.25 * rbPower;
-  const defSkill = 0.45 * runFit + 0.3 * tackling + 0.25 * (1 - chaos);
-
-  const diff = clamp01(runSkill - defSkill + 0.5) - 0.5; // roughly -0.5..0.5
-
-  // Base mean yards and variance for NFL runs.
-  let meanYds = 2.8 + 4.0 * diff;
-  let sigmaYds = 2.1 + 1.2 * Math.abs(diff);
-
-  // Direction effects.
-  const direction = playCall.direction || RunDirection.INSIDE;
-  if (direction === RunDirection.OUTSIDE) {
-    meanYds += 0.2;
-    sigmaYds += 0.3;
-  }
-
-  // Chaos: more chaos => more extremes.
-  sigmaYds *= 1 + 0.6 * (chaos - 0.5);
-
-  let yards = rng.normal(meanYds, sigmaYds);
-  // Clamp to [-5, 80]
-  yards = Math.max(-5, Math.min(80, yards));
-
-  return { yards, meanYds, sigmaYds };
-}
-
-// -----------------------------------------------------------------------------
-// Penalties
-// -----------------------------------------------------------------------------
-
-/**
- * Penalty model:
- *   - Looks at offense & defense discipline/aggression.
- *   - Can attach to an otherwise normal play OR be pre-snap (PENALTY_ONLY).
- *
- * Returns:
- *   {
- *     hasPenalty,
- *     type,
- *     onOffense,
- *     yards,
- *     automaticFirstDown,
- *     spotFoul,
- *     isPreSnap
- *   }
- */
-function maybePenalty(offenseTeam, defenseTeam, gameState, playType, rng) {
-  const offenseDisc = teamPsychMean(offenseTeam, "discipline");
-  const defenseDisc = teamPsychMean(defenseTeam, "discipline");
-  const offenseAgg = teamPsychMean(offenseTeam, "aggression");
-  const defenseAgg = teamPsychMean(defenseTeam, "aggression");
-
-  // Base penalty rate per play ~ 0.03, modulated by discipline & aggression.
-  const avgDisc = (offenseDisc + defenseDisc) / 2;
-  const avgAgg = (offenseAgg + defenseAgg) / 2;
-
-  let baseRate = 0.03;
-  baseRate *= 1 + 0.8 * (avgAgg - 0.5) - 0.7 * (avgDisc - 0.5);
-  baseRate = clamp01(baseRate);
-
-  const hasPenalty = rng.next() < baseRate;
-  if (!hasPenalty) {
-    return {
-      hasPenalty: false,
-      type: PenaltyType.NONE,
-      onOffense: false,
-      yards: 0,
-      automaticFirstDown: false,
-      spotFoul: false,
-      isPreSnap: false,
-    };
-  }
-
-  // Decide if it is pre-snap vs live-ball.
-  const isPreSnap = rng.next() < 0.3;
-
-  // Choose side and type.
-  let onOffense = rng.next() < 0.55; // slightly more offensive penalties
-
-  let type = PenaltyType.OFF_HOLDING;
-  let yards = -10;
-  let autoFirst = false;
-  let spotFoul = false;
-
-  if (isPreSnap) {
-    // False start vs offsides/encroachment.
-    const offsides = rng.next() < 0.4;
-    if (offsides) {
-      onOffense = false;
-      type = PenaltyType.DEF_HOLDING; // approximate "offsides"
-      yards = 5;
-    } else {
-      onOffense = true;
-      type = PenaltyType.FALSE_START;
-      yards = -5;
+  
+  // Simple mixture "occasionally big tail" helper
+  function sampleWithOccasionalTail(rng, baseMean, baseStd, tailProb, tailBoostMin, tailBoostMax) {
+    let v = sampleNormal(rng, baseMean, baseStd);
+    if (rng.next() < tailProb) {
+      v += tailBoostMin + (tailBoostMax - tailBoostMin) * rng.next();
     }
-    autoFirst = false;
-    spotFoul = false;
-  } else if (playType === PlayType.PASS) {
-    // PI/holding/roughness etc.
-    const r = rng.next();
-    if (r < 0.4) {
-      // Offensive holding
-      onOffense = true;
-      type = PenaltyType.OFF_HOLDING;
-      yards = -10;
-    } else if (r < 0.7) {
-      // Defensive holding
-      onOffense = false;
-      type = PenaltyType.DEF_HOLDING;
-      yards = 5;
-      autoFirst = true;
-    } else if (r < 0.9) {
-      // DPI – spot-ish foul, treat as 15yd+auto first for now
-      onOffense = false;
-      type = PenaltyType.DEF_PI;
-      yards = 15;
-      autoFirst = true;
-      spotFoul = true;
-    } else {
-      // Personal foul / roughing
-      onOffense = false;
-      type = PenaltyType.PERSONAL_FOUL;
-      yards = 15;
-      autoFirst = true;
-    }
-  } else {
-    // Run plays: holding, face mask, etc.
-    const r = rng.next();
-    if (r < 0.55) {
-      onOffense = true;
-      type = PenaltyType.OFF_HOLDING;
-      yards = -10;
-    } else if (r < 0.85) {
-      onOffense = false;
-      type = PenaltyType.PERSONAL_FOUL;
-      yards = 15;
-      autoFirst = true;
-    } else {
-      onOffense = false;
-      type = PenaltyType.DEF_HOLDING;
-      yards = 5;
-      autoFirst = false;
-    }
+    return v;
   }
-
-  return {
-    hasPenalty: true,
-    type,
-    onOffense,
-    yards,
-    automaticFirstDown: autoFirst,
-    spotFoul,
-    isPreSnap,
-  };
-}
-
-function teamPsychMean(team, key) {
-  const vals = [];
-  const roster = team.roster || [];
-  for (const p of roster) {
-    if (!p.latent || !p.latent.P) continue;
-    vals.push(p.latent.P.get(key, 0.5));
+  
+  // Scale a rating [0, 100] to a centered value around 0
+  function centerRating(rating, pivot = 60) {
+    return (rating - pivot) / 10; // 10 rating points ~ 1 "unit"
   }
-  if (!vals.length) return 0.5;
-  let sum = 0;
-  for (const v of vals) sum += v;
-  return sum / vals.length;
-}
-
-// -----------------------------------------------------------------------------
-// Public: PASS & RUN micro-sim
-// -----------------------------------------------------------------------------
-
-function simulatePassPlayMicro({
-  gameState,
-  playCall,
-  offenseTeam,
-  defenseTeam,
-  rngPlay,
-}) {
-  const rng = rngPlay;
-  const qb = getStarter(offenseTeam, "QB");
-  const target = chooseTargetReceiver(offenseTeam, playCall, rng);
-  const coverageDef = choosePrimaryCoverageDefender(defenseTeam, target, rng);
-
-  const rush = modelPassRush(offenseTeam, defenseTeam, gameState, playCall, rng);
-  const qbCtx = modelQBDecisionAndDropback(qb, playCall, rush, rng);
-  const sep = modelSeparation(
-    offenseTeam,
-    defenseTeam,
-    target,
-    coverageDef,
-    playCall,
-    rng
-  );
-  const ballPlacement = modelBallPlacement(qb, playCall, qbCtx, rng);
-  const catchOutcome = resolveCatchPoint(
-    target,
-    coverageDef,
-    sep.separationYds,
-    ballPlacement.radialError,
-    defenseTeam,
-    rng
-  );
-
-  // If interception, treat as 0 yards for offense; game_engine will flip possession.
-  if (catchOutcome.outcome === PlayOutcomeType.INTERCEPTION) {
+  
+  // -----------------------------------------------------------------------------
+  // Coverage / separation micro-model
+  // -----------------------------------------------------------------------------
+  
+  /**
+   * Sample WR vs DB coverage matchup.
+   *
+   * @param {Object} params
+   *  - wrRouteRating: WR route-craft rating (0-100)
+   *  - wrReleaseRating: WR release vs press (0-100)
+   *  - wrSpeedRating: WR speed/deep threat (0-100)
+   *  - dbManRating: DB man coverage (0-100)
+   *  - dbZoneRating: DB zone coverage (0-100)
+   *  - dbPressRating: DB press ability (0-100)
+   *  - dbSpeedRating: DB speed/range (0-100)
+   *  - coverageType: 'man' | 'zone' | 'mixed'
+   *  - leverage: -1 (inside) | 0 (balanced) | 1 (outside)
+   *  - targetDepth: yards downfield (e.g. 5/10/20)
+   *
+   * @returns {Object}
+   *  - separation: separation at catch point in yards (positive = WR open)
+   *  - contestFactor: 0..1, 0=open window, 1=tightly contested
+   *  - dbBeatenClean: boolean
+   */
+  export function sampleCoverageMatchup(params, rng) {
+    const {
+      wrRouteRating = 60,
+      wrReleaseRating = 60,
+      wrSpeedRating = 60,
+      dbManRating = 60,
+      dbZoneRating = 60,
+      dbPressRating = 60,
+      dbSpeedRating = 60,
+      coverageType = 'mixed',
+      leverage = 0,
+      targetDepth = 10,
+    } = params || {};
+  
+    // Effective coverage rating given the call
+    let dbCoverageEff;
+    switch (coverageType) {
+      case 'man':
+        dbCoverageEff = (dbManRating * 0.7 + dbPressRating * 0.3);
+        break;
+      case 'zone':
+        dbCoverageEff = (dbZoneRating * 0.7 + dbSpeedRating * 0.3);
+        break;
+      default: // mixed
+        dbCoverageEff = (dbManRating * 0.4 + dbZoneRating * 0.4 + dbSpeedRating * 0.2);
+        break;
+    }
+  
+    const routeCraft = wrRouteRating;
+    const release = wrReleaseRating;
+    const speedDelta = wrSpeedRating - dbSpeedRating;
+  
+    const leverageBonus =
+      leverage > 0
+        ? 0.1 // WR has outside leverage for typical sideline routes
+        : leverage < 0
+        ? -0.1
+        : 0;
+  
+    // Separation mean in yards
+    const ratingDelta = (routeCraft * 0.6 + release * 0.4) - dbCoverageEff;
+    const depthFactor = clamp(targetDepth / 15, 0.6, 1.6); // deeper route -> more spread
+    const meanSep = (ratingDelta / 20) * depthFactor + leverageBonus; // ~ +/- 1.5 yards typical
+    const stdSep = 0.7 * depthFactor + 0.2 * Math.abs(speedDelta) / 30;
+  
+    let separation = sampleNormal(rng, meanSep, stdSep);
+    separation = clamp(separation, -3.5, 4.0);
+  
+    // contestFactor: near 0 if >2.5 yards open, near 1 if glued
+    const contestFactor = clamp(1 - (separation + 3.5) / (4.0 + 3.5), 0, 1);
+  
+    const dbBeatenClean = separation > 2.0;
+  
     return {
-      playType: PlayType.PASS,
-      outcome: PlayOutcomeType.INTERCEPTION,
-      yards: 0,
-      airYards: 0,
-      yac: 0,
-      turnover: TurnoverType.INTERCEPTION,
-      timeElapsedSec: DEFAULT_PASS_PLAY_TIME,
-      penalty: null,
-      debug: {
-        rush,
-        qbCtx,
-        sep,
-        ballPlacement,
-        catchOutcome,
-      },
+      separation,
+      contestFactor,
+      dbBeatenClean,
     };
   }
-
-  // Sack possibility: if pressure extremely fast and underPressure + big error
-  let isSack = false;
-  let sackYards = 0;
-  if (
-    qbCtx.underPressure &&
-    qbCtx.tPressure < qbCtx.tThrow * 0.8 &&
-    ballPlacement.radialError > 3.0 &&
-    Math.random() < 0.5 // small global check; you can replace with rng
-  ) {
-    isSack = true;
-    sackYards = Math.round(-Math.abs(rng.normal(5, 3)));
-    sackYards = Math.max(-15, sackYards);
-  }
-
-  if (isSack) {
+  
+  // -----------------------------------------------------------------------------
+  // Pressure / time-to-throw micro-model
+  // -----------------------------------------------------------------------------
+  
+  /**
+   * Sample time to pressure for a pass play.
+   *
+   * @param {Object} params
+   *  - olPassBlockRating: OL unit pass block (0-100)
+   *  - dlPassRushRating: front/edge pass rush (0-100)
+   *  - qbPocketMovementRating: QB pocket nav (0-100)
+   *  - qbSackAvoidanceRating: QB sack avoidance / processing (0-100)
+   *  - situationalAggression: 0..1, higher means more attackers (blitz/etc.)
+   *
+   * @returns {Object}
+   *  - timeToPressure: seconds until significant pressure
+   *  - cleanDrop: boolean (true if >3.0s)
+   */
+  export function samplePressureTime(params, rng) {
+    const {
+      olPassBlockRating = 60,
+      dlPassRushRating = 60,
+      qbPocketMovementRating = 60,
+      qbSackAvoidanceRating = 60,
+      situationalAggression = 0.5,
+    } = params || {};
+  
+    // Effective OL vs DL differential
+    const passBlockScore = olPassBlockRating * 0.7 + qbPocketMovementRating * 0.3;
+    const rushScore = dlPassRushRating * 0.7 + (50 + 50 * situationalAggression) * 0.3;
+    const qbSave = qbSackAvoidanceRating;
+  
+    const delta = (passBlockScore + qbSave * 0.4) - rushScore;
+  
+    // Map delta to base time to pressure
+    // ~2.2s for even, ~3.2s if OL dominates, ~1.5s if rush dominates
+    const baseTime = 2.2 + clamp(delta / 30, -0.7, 1.0);
+  
+    const stdTime = 0.35 + 0.15 * Math.abs(delta) / 25;
+  
+    let timeToPressure = sampleWithOccasionalTail(
+      rng,
+      baseTime,
+      stdTime,
+      0.07, // occasionally hold up forever / instant win
+      -0.7,
+      1.2
+    );
+  
+    timeToPressure = clamp(timeToPressure, 0.7, 5.0);
+  
     return {
-      playType: PlayType.PASS,
-      outcome: PlayOutcomeType.SACK,
-      yards: sackYards,
-      airYards: 0,
-      yac: 0,
-      turnover: TurnoverType.NONE,
-      timeElapsedSec: DEFAULT_PASS_PLAY_TIME,
-      penalty: null,
-      debug: {
-        rush,
-        qbCtx,
-        sep,
-        ballPlacement,
-        catchOutcome,
-      },
+      timeToPressure,
+      cleanDrop: timeToPressure >= 3.0,
     };
   }
-
-  if (catchOutcome.outcome === PlayOutcomeType.PASS_INCOMPLETE) {
-    return {
-      playType: PlayType.PASS,
-      outcome: PlayOutcomeType.PASS_INCOMPLETE,
-      yards: 0,
-      airYards: 0,
-      yac: 0,
-      turnover: TurnoverType.NONE,
-      timeElapsedSec: DEFAULT_PASS_PLAY_TIME,
-      penalty: null,
-      debug: {
-        rush,
-        qbCtx,
-        sep,
-        ballPlacement,
-        catchOutcome,
-      },
-    };
-  }
-
-  // Completed pass: determine airYards based on depth + separation + error.
-  const depth = playCall.depth || PassDepth.INTERMEDIATE;
-  let baseAirYds = 0;
-  if (depth === PassDepth.SHORT) baseAirYds = rng.normal(4, 3);
-  else if (depth === PassDepth.INTERMEDIATE) baseAirYds = rng.normal(10, 4);
-  else baseAirYds = rng.normal(18, 6);
-
-  // Very bad ball placement reduces realized air yards.
-  baseAirYds -= 0.5 * ballPlacement.radialError;
-  baseAirYds += 0.5 * sep.separationYds;
-
-  let airYards = Math.round(Math.max(-5, Math.min(35, baseAirYds)));
-
-  const yacModel = modelYAC(target, defenseTeam, rng);
-  const totalYds = airYards + yacModel.yac;
-
-  const fumble = maybeFumble(target, defenseTeam, rng);
-
-  let finalYards = totalYds;
-  let outcome = PlayOutcomeType.PASS_COMPLETE;
-  let turnover = TurnoverType.NONE;
-
-  if (fumble.isFumble) {
-    finalYards += fumble.yardsAfterFumble;
-    if (fumble.lost) {
-      turnover = TurnoverType.FUMBLE;
-      outcome = PlayOutcomeType.FUMBLE_LOST;
-    } else {
-      outcome = PlayOutcomeType.FUMBLE_OUT_OF_BOUNDS;
+  
+  // -----------------------------------------------------------------------------
+  // Catch point / ball skills micro-model
+  // -----------------------------------------------------------------------------
+  
+  /**
+   * Compute catch vs incompletion vs interception at catch point.
+   *
+   * @param {Object} params
+   *  - separation: yards (output of sampleCoverageMatchup)
+   *  - ballPlacementStd: positional error in yards (0.3-3.0)
+   *  - wrHands: WR hands rating (0-100)
+   *  - wrContestedCatch: WR contested catch skill (0-100)
+   *  - dbBallSkills: DB ball skills rating (0-100)
+   *  - throwAggressiveness: 0..1 (higher = more throws into tight windows)
+   *
+   * @returns {Object}
+   *  - pCatch, pIncomp, pInt (sum ~1)
+   */
+  export function sampleCatchPointOutcome(params, rng) {
+    const {
+      separation = 0,
+      ballPlacementStd = 1.0,
+      wrHands = 60,
+      wrContestedCatch = 60,
+      dbBallSkills = 60,
+      throwAggressiveness = 0.5,
+    } = params || {};
+  
+    const sepClamped = clamp(separation, -3, 4);
+    const windowTightness = clamp(1.5 - sepClamped, 0.1, 2.5);
+    const placementPenalty = clamp((ballPlacementStd - 1.0) / 1.5, -0.4, 0.8);
+  
+    const wrSoftHands = centerRating(wrHands, 65);
+    const wrCT = centerRating(wrContestedCatch, 65);
+    const dbBS = centerRating(dbBallSkills, 65);
+  
+    // Base logistic "catch score"
+    const openBonus = sepClamped > 1.5 ? 0.7 : sepClamped > 0.5 ? 0.3 : 0;
+    const tightPenalty = sepClamped < 0 ? -0.4 * windowTightness : 0;
+  
+    const catchScore =
+      0.4 * wrSoftHands +
+      0.3 * wrCT -
+      0.4 * dbBS -
+      0.5 * placementPenalty +
+      openBonus +
+      tightPenalty;
+  
+    let pCatch = logistic(catchScore);
+  
+    // Interception probability grows with tightness and DB skill
+    const baseInt = 0.02 + 0.04 * windowTightness * logistic(dbBS / 1.2);
+    const aggFactor = 0.5 + throwAggressiveness * 1.2;
+    let pInt = clamp(baseInt * aggFactor, 0.001, 0.30);
+  
+    // If WR is much better than DB / lots of separation, suppress INT
+    if (sepClamped > 1.5 && wrCT > dbBS + 0.5) {
+      pInt *= 0.4;
     }
+  
+    // Normalize to 1
+    let pIncomp = 1 - pCatch - pInt;
+    if (pIncomp < 0) {
+      const total = pCatch + pInt;
+      pCatch /= total;
+      pInt /= total;
+      pIncomp = 0;
+    }
+  
+    return { pCatch, pIncomp, pInt };
   }
-
-  finalYards = Math.round(Math.max(-15, Math.min(80, finalYards)));
-
-  return {
-    playType: PlayType.PASS,
-    outcome,
-    yards: finalYards,
-    airYards,
-    yac: yacModel.yac,
-    turnover,
-    timeElapsedSec: DEFAULT_PASS_PLAY_TIME,
-    penalty: null,
-    debug: {
-      rush,
-      qbCtx,
-      sep,
-      ballPlacement,
-      catchOutcome,
-      yacModel,
+  
+  // -----------------------------------------------------------------------------
+  // YAC / tackling micro-model
+  // -----------------------------------------------------------------------------
+  
+  /**
+   * Sample tackle outcome + YAC given ball carrier and tackler profiles.
+   *
+   * @param {Object} params
+   *  - carrierPower: ball-carrier power/functional strength (0-100)
+   *  - carrierElusiveness: elusiveness / short-area quickness (0-100)
+   *  - carrierBalance: balance / contact balance (0-100)
+   *  - carrierSpeed: long-speed (0-100)
+   *  - tacklerTackling: form tackling / strength (0-100)
+   *  - tacklerPursuit: pursuit angles (0-100)
+   *  - tacklerAgility: COD / ability to mirror (0-100)
+   *  - numDefendersInvolved: integer
+   *  - sidelineFactor: 0..1 (1 = near sideline, easier to force OOB)
+   *  - openFieldFactor: 0..1 (1 = truly open field)
+   *
+   * @returns {Object}
+   *  - yac: yards after contact (>= 0)
+   *  - brokenTackles: count
+   *  - forcedMiss: boolean
+   */
+  export function sampleTackleOutcome(params, rng) {
+    const {
+      carrierPower = 60,
+      carrierElusiveness = 60,
+      carrierBalance = 60,
+      carrierSpeed = 60,
+      tacklerTackling = 60,
+      tacklerPursuit = 60,
+      tacklerAgility = 60,
+      numDefendersInvolved = 1,
+      sidelineFactor = 0.3,
+      openFieldFactor = 0.5,
+    } = params || {};
+  
+    const ballSkill =
+      carrierPower * 0.35 +
+      carrierElusiveness * 0.35 +
+      carrierBalance * 0.2 +
+      carrierSpeed * 0.1;
+  
+    const tackleSkill =
+      tacklerTackling * 0.5 +
+      tacklerPursuit * 0.3 +
+      tacklerAgility * 0.2;
+  
+    // More defenders = scale up tackleSkill
+    const multiplier = 1 + 0.25 * (numDefendersInvolved - 1);
+    const effTackle = tackleSkill * multiplier;
+  
+    const delta = (ballSkill - effTackle) / 15;
+  
+    // Base YAC mean
+    const openFieldBonus = 2.0 * openFieldFactor - 1.0; // -1..+1
+    const sidelinePenalty = sidelineFactor * 0.7;
+    const meanYAC = 2.0 + 1.2 * delta + openFieldBonus - sidelinePenalty;
+    const stdYAC = 1.2 + 0.6 * Math.abs(delta);
+  
+    let rawYAC = sampleWithOccasionalTail(
+      rng,
+      meanYAC,
+      stdYAC,
+      0.12, // occasional huge YAC
+      3,
+      20
+    );
+  
+    rawYAC = Math.max(0, rawYAC);
+  
+    // Break-tackle probability
+    const baseMiss = logistic(delta); // ~0.5 when even
+    const forcedMissProb = clamp(baseMiss * (0.4 + 0.6 * openFieldFactor), 0.05, 0.7);
+    const forcedMiss = rng.next() < forcedMissProb;
+  
+    let brokenTackles = 0;
+    if (forcedMiss) brokenTackles += 1;
+    if (rawYAC > 10 && rng.next() < 0.3) brokenTackles += 1;
+  
+    return {
+      yac: rawYAC,
+      brokenTackles,
+      forcedMiss,
+    };
+  }
+  
+  // -----------------------------------------------------------------------------
+  // Run play micro-model
+  // -----------------------------------------------------------------------------
+  
+  /**
+   * Sample run play outcome at micro level.
+   *
+   * @param {Object} params
+   *  - olRunBlockRating: OL run-block rating (0-100)
+   *  - rbVisionRating: RB vision (inside/screen/cutback composite) (0-100)
+   *  - rbPowerRating: RB power/functional_strength_run (0-100)
+   *  - rbElusivenessRating: RB elusiveness/short-area quickness (0-100)
+   *  - frontRunDefRating: DL/LB run defense (0-100)
+   *  - boxCount: number of defenders in box
+   *  - boxLightness: -1 (heavy box) .. +1 (light box)
+   *  - yardline: 0..100
+   *  - down: 1..4
+   *  - distance: yards to go
+   *
+   * @returns {Object}
+   *  - yardsGained
+   *  - timeToLine: seconds to LOS
+   *  - timeElapsed: total play time
+   *  - fumble: boolean
+   */
+  export function sampleRunOutcome(params, rng) {
+    const {
+      olRunBlockRating = 60,
+      rbVisionRating = 60,
+      rbPowerRating = 60,
+      rbElusivenessRating = 60,
+      frontRunDefRating = 60,
+      boxCount = 7,
+      boxLightness = 0,
+      yardline = 25,
+      down = 1,
+      distance = 10,
+    } = params || {};
+  
+    const runBlock = olRunBlockRating;
+    const rbSkill = rbVisionRating * 0.5 + rbPowerRating * 0.25 + rbElusivenessRating * 0.25;
+    const defRun = frontRunDefRating;
+  
+    const baseBox = 7;
+    const boxDelta = boxCount - baseBox; // +2 heavy, -1 light
+    const boxPenalty = -0.7 * boxDelta + 1.0 * boxLightness;
+  
+    const ratingDelta = (runBlock + rbSkill - defRun * 1.1) / 20;
+  
+    // Expected yards before contact
+    const beforeContactMean = 1.8 + 1.0 * ratingDelta + boxPenalty * 0.4;
+    const beforeContactStd = 1.0 + 0.3 * Math.abs(ratingDelta);
+  
+    let yardsBeforeContact = sampleNormal(rng, beforeContactMean, beforeContactStd);
+    yardsBeforeContact = clamp(yardsBeforeContact, -4, 8);
+  
+    // Tackle / YAC micro-model
+    const tackleParams = {
+      carrierPower: rbPowerRating,
+      carrierElusiveness: rbElusivenessRating,
+      carrierBalance: (rbPowerRating + rbElusivenessRating) / 2,
+      carrierSpeed: rbVisionRating, // crude placeholder
+      tacklerTackling: defRun,
+      tacklerPursuit: defRun,
+      tacklerAgility: defRun,
+      numDefendersInvolved: boxCount >= 7 ? 2 : 1,
+      sidelineFactor: clamp((yardline < 10 || yardline > 90) ? 0.7 : 0.2, 0, 1),
+      openFieldFactor: clamp(1 - boxCount / 8, 0.2, 0.9),
+    };
+  
+    const tackleOutcome = sampleTackleOutcome(tackleParams, rng);
+  
+    let totalYards = yardsBeforeContact + tackleOutcome.yac;
+  
+    // Short-yardage boost: on 3rd/4th & short, RBs sell out
+    if (distance <= 2 && down >= 3) {
+      totalYards += 0.5 * centerRating(rbPowerRating, 65);
+    }
+  
+    // Goal-line squeezing
+    if (yardline > 90) {
+      totalYards -= (yardline - 90) * 0.2;
+    }
+  
+    totalYards = Math.round(totalYards);
+  
+    // Fumble probability: use ball security conceptually; here use rbVision as a proxy if not passed
+    const ballSecurityRating = rbVisionRating; // you can sub rating_RB_ball_security here
+    const ballSecurityCentered = centerRating(ballSecurityRating, 65);
+    const baseFumble = 0.012;
+    let fumbleProb = baseFumble * (1.2 - 0.2 * tackledInTraffic(boxCount));
+    fumbleProb *= 1 - 0.15 * ballSecurityCentered;
+    fumbleProb = clamp(fumbleProb, 0.003, 0.05);
+    const fumble = rng.next() < fumbleProb;
+  
+    const timeToLine = clamp(0.6 + 0.1 * (70 - rbElusivenessRating) / 10, 0.4, 1.0);
+    const timeElapsed = timeToLine + 1.0 + Math.abs(totalYards) * 0.1;
+  
+    return {
+      yardsGained: totalYards,
+      timeToLine,
+      timeElapsed,
       fumble,
-    },
-  };
-}
-
-function simulateRunPlayMicro({
-  gameState,
-  playCall,
-  offenseTeam,
-  defenseTeam,
-  rngPlay,
-}) {
-  const rng = rngPlay;
-  const rb = getStarter(offenseTeam, "RB") || getStarter(offenseTeam, "FB");
-
-  const yardage = modelRunYardage(
-    offenseTeam,
-    defenseTeam,
-    rb,
-    playCall,
-    rng
-  );
-
-  const fumble = maybeFumble(rb, defenseTeam, rng);
-
-  let finalYards = yardage.yards;
-  let outcome = PlayOutcomeType.RUN;
-  let turnover = TurnoverType.NONE;
-
-  if (fumble.isFumble) {
-    finalYards += fumble.yardsAfterFumble;
-    if (fumble.lost) {
-      outcome = PlayOutcomeType.FUMBLE_LOST;
-      turnover = TurnoverType.FUMBLE;
-    } else {
-      outcome = PlayOutcomeType.FUMBLE_OUT_OF_BOUNDS;
+      tackleOutcome,
+    };
+  }
+  
+  function tackledInTraffic(boxCount) {
+    return boxCount >= 7 ? 1 : boxCount >= 6 ? 0.6 : 0.3;
+  }
+  
+  // -----------------------------------------------------------------------------
+  // Pass play micro-model
+  // -----------------------------------------------------------------------------
+  
+  /**
+   * Sample pass play outcome at micro level.
+   *
+   * This function glues together:
+   *  - pressure time
+   *  - coverage/separation
+   *  - ball placement
+   *  - catch point resolution
+   *  - YAC
+   *  - interception/sack/fumble flags
+   *
+   * @param {Object} params
+   *  - qbAccuracyRating
+   *  - qbProcessingRating
+   *  - qbUnderPressureRating
+   *  - olPassBlockRating
+   *  - dlPassRushRating
+   *  - wrRouteRating
+   *  - wrReleaseRating
+   *  - wrSpeedRating
+   *  - wrHandsRating
+   *  - wrContestedCatchRating
+   *  - dbManRating
+   *  - dbZoneRating
+   *  - dbPressRating
+   *  - dbSpeedRating
+   *  - dbBallSkillsRating
+   *  - yardline
+   *  - down
+   *  - distance
+   *  - coverageType: 'man' | 'zone' | 'mixed'
+   *  - situationalAggression: 0..1
+   *  - throwAggressiveness: 0..1
+   *
+   * @returns {Object}
+   *  - yardsGained
+   *  - timeToThrow
+   *  - timeElapsed
+   *  - completion: boolean
+   *  - interception: boolean
+   *  - sack: boolean
+   *  - fumble: boolean (strip sack etc.)
+   */
+  export function samplePassOutcome(params, rng) {
+    const {
+      qbAccuracyRating = 60,
+      qbProcessingRating = 60,
+      qbUnderPressureRating = 60,
+      olPassBlockRating = 60,
+      dlPassRushRating = 60,
+      wrRouteRating = 60,
+      wrReleaseRating = 60,
+      wrSpeedRating = 60,
+      wrHandsRating = 60,
+      wrContestedCatchRating = 60,
+      dbManRating = 60,
+      dbZoneRating = 60,
+      dbPressRating = 60,
+      dbSpeedRating = 60,
+      dbBallSkillsRating = 60,
+      yardline = 25,
+      down = 1,
+      distance = 10,
+      coverageType = 'mixed',
+      situationalAggression = 0.5,
+      throwAggressiveness = 0.5,
+    } = params || {};
+  
+    // 1. Time to pressure
+    const pressure = samplePressureTime(
+      {
+        olPassBlockRating,
+        dlPassRushRating,
+        qbPocketMovementRating: qbUnderPressureRating,
+        qbSackAvoidanceRating: qbProcessingRating,
+        situationalAggression,
+      },
+      rng
+    );
+  
+    // 2. Decide target depth (very simplified: based on distance/down)
+    const targetDepth = chooseTargetDepth(distance, down, throwAggressiveness, rng);
+  
+    // 3. Coverage / separation
+    const coverage = sampleCoverageMatchup(
+      {
+        wrRouteRating,
+        wrReleaseRating,
+        wrSpeedRating,
+        dbManRating,
+        dbZoneRating,
+        dbPressRating,
+        dbSpeedRating,
+        coverageType,
+        leverage: 0,
+        targetDepth,
+      },
+      rng
+    );
+  
+    // 4. Decide if pressure forces early throw or sack
+    const intendedTT = baseTimeToThrow(qbProcessingRating, targetDepth, throwAggressiveness);
+    let timeToThrow = intendedTT;
+  
+    let sack = false;
+    if (pressure.timeToPressure < intendedTT) {
+      // Under heavy pressure before intended release
+      const saveProb = clamp(
+        logistic((qbUnderPressureRating - dlPassRushRating) / 15),
+        0.15,
+        0.85
+      );
+      if (rng.next() > saveProb) {
+        // Sack
+        sack = true;
+        timeToThrow = pressure.timeToPressure;
+      } else {
+        // QB forced to hurry throw: increase ball-placement variance
+        timeToThrow = pressure.timeToPressure + 0.05; // just getting it out
+      }
     }
-  }
-
-  finalYards = Math.round(Math.max(-10, Math.min(80, finalYards)));
-
-  return {
-    playType: PlayType.RUN,
-    outcome,
-    yards: finalYards,
-    turnover,
-    timeElapsedSec: DEFAULT_RUN_PLAY_TIME,
-    penalty: null,
-    debug: {
-      yardage,
+  
+    if (sack) {
+      const sackYards = -Math.round(5 + (rng.next() * 5));
+      const timeElapsed = timeToThrow + 0.4;
+      // Strip-sack chance
+      const stripProb = clamp(0.02 + 0.01 * centerRating(dlPassRushRating), 0.01, 0.12);
+      const fumble = rng.next() < stripProb;
+  
+      return {
+        yardsGained: sackYards,
+        timeToThrow,
+        timeElapsed,
+        completion: false,
+        interception: false,
+        sack: true,
+        fumble,
+      };
+    }
+  
+    // 5. Ball placement variance (depends on accuracy and pressure)
+    const accCentered = centerRating(qbAccuracyRating, 70);
+    const pressurePenalty = clamp(
+      (pressure.timeToPressure - timeToThrow) / 2,
+      -0.6,
+      0.5
+    ); // <0 => rushed / under pressure
+    const baseStd = 1.1 - 0.25 * accCentered + 0.8 * Math.max(-pressurePenalty, 0);
+    const ballPlacementStd = clamp(baseStd, 0.4, 3.0);
+  
+    // 6. Catch point resolution
+    const catchOutcome = sampleCatchPointOutcome(
+      {
+        separation: coverage.separation,
+        ballPlacementStd,
+        wrHands: wrHandsRating,
+        wrContestedCatch: wrContestedCatchRating,
+        dbBallSkills: dbBallSkillsRating,
+        throwAggressiveness,
+      },
+      rng
+    );
+  
+    const roll = rng.next();
+    let completion = false;
+    let interception = false;
+  
+    if (roll < catchOutcome.pCatch) {
+      completion = true;
+    } else if (roll < catchOutcome.pCatch + catchOutcome.pInt) {
+      interception = true;
+    }
+  
+    // 7. Yards gained
+    let yardsGained = 0;
+    let timeAfterCatch = 0.0;
+  
+    if (completion) {
+      // Air yards ~ target depth +/- noise
+      const airYards = clamp(Math.round(sampleNormal(rng, targetDepth, 2.0)), 0, 60);
+  
+      // YAC using tackle model
+      const yacOutcome = sampleTackleOutcome(
+        {
+          carrierPower: wrContestedCatchRating, // as a stand-in
+          carrierElusiveness: wrSpeedRating,
+          carrierBalance: (wrHandsRating + wrContestedCatchRating) / 2,
+          carrierSpeed: wrSpeedRating,
+          tacklerTackling: dbManRating,
+          tacklerPursuit: dbZoneRating,
+          tacklerAgility: dbSpeedRating,
+          numDefendersInvolved: coverage.dbBeatenClean ? 1 : 2,
+          sidelineFactor: clamp(
+            yardsToSidelineFactor(yardline),
+            0,
+            1
+          ),
+          openFieldFactor: coverage.separation > 1.5 ? 0.8 : 0.4,
+        },
+        rng
+      );
+  
+      yardsGained = Math.round(airYards + yacOutcome.yac);
+      timeAfterCatch = 1.0 + 0.1 * Math.max(0, yardsGained);
+    } else if (interception) {
+      // Small swing in yardage around LOS (return modeled by macro-level for now)
+      yardsGained = Math.round(sampleNormal(rng, -2, 6));
+    } else {
+      // Incompletion
+      yardsGained = 0;
+    }
+  
+    const timeElapsed = timeToThrow + (completion ? timeAfterCatch : 0.4);
+  
+    // Interception fumble extremely rare; we ignore for now.
+    const fumble = false;
+  
+    return {
+      yardsGained,
+      timeToThrow,
+      timeElapsed,
+      completion,
+      interception,
+      sack: false,
       fumble,
-    },
-  };
-}
-
-// -----------------------------------------------------------------------------
-// Public: main entrypoint for micro-engine
-// -----------------------------------------------------------------------------
-
-/**
- * Simulate a single play at the micro level.
- *
- * Inputs:
- *   - gameState: an object with at least:
- *       {
- *         quarter,
- *         clockSec,
- *         down,
- *         distance,
- *         yardsToEndZone,
- *         fieldPosition, // 0..100 from offense perspective
- *         momentum        // -1..1 (offense positive)
- *       }
- *   - playCall: object describing the call, e.g.:
- *       {
- *         type: "PASS" | "RUN",
- *         depth: PassDepth (for PASS),
- *         direction: RunDirection (for RUN),
- *         concept: "STANDARD" | "PLAY_ACTION" | "SCREEN" | ...,
- *         targetId?: playerId (optional override)
- *       }
- *   - offenseTeam: Team (with roster & unitProfiles)
- *   - defenseTeam: Team
- *   - rngPlay: RNG instance to use for this play
- *
- * Returns a PlayMicroResult:
- *   {
- *     playType,
- *     outcome,
- *     yards,
- *     airYards?,   // for passes
- *     yac?,        // for passes
- *     turnover: TurnoverType,
- *     timeElapsedSec,
- *     penalty: {
- *       hasPenalty,
- *       type,
- *       onOffense,
- *       yards,
- *       automaticFirstDown,
- *       spotFoul,
- *       isPreSnap
- *     } | null,
- *     debug: { ...submodel outputs... }
- *   }
- */
-export function simulatePlayMicro({
-  gameState,
-  playCall,
-  offenseTeam,
-  defenseTeam,
-  rngPlay,
-  rngEnv,
-}) {
-  if (!playCall || !playCall.type) {
-    throw new Error("simulatePlayMicro requires playCall.type");
-  }
-
-  // 1) Penalty check
-  const penalty = maybePenalty(
-    offenseTeam,
-    defenseTeam,
-    gameState,
-    playCall.type,
-    rngEnv || rngPlay
-  );
-
-  if (penalty.hasPenalty && penalty.isPreSnap) {
-    // No play actually happens; yardage is just penalty.
-    return {
-      playType: playCall.type,
-      outcome: PlayOutcomeType.PENALTY_ONLY,
-      yards: penalty.yards,
-      turnover: TurnoverType.NONE,
-      timeElapsedSec: 0, // pre-snap
-      penalty,
-      debug: {
-        note: "Pre-snap penalty; no play simulated.",
-      },
     };
   }
-
-  // 2) Simulate the core play (pass or run).
-  let baseResult;
-  if (playCall.type === PlayType.PASS) {
-    baseResult = simulatePassPlayMicro({
-      gameState,
-      playCall,
-      offenseTeam,
-      defenseTeam,
-      rngPlay,
-    });
-  } else {
-    baseResult = simulateRunPlayMicro({
-      gameState,
-      playCall,
-      offenseTeam,
-      defenseTeam,
-      rngPlay,
-    });
+  
+  function baseTimeToThrow(qbProcessingRating, targetDepth, aggressiveness) {
+    const procCentered = centerRating(qbProcessingRating, 65);
+    const depthFactor = clamp(targetDepth / 10, 0.7, 1.6);
+    const base = 2.2 * depthFactor - 0.15 * procCentered - 0.25 * aggressiveness;
+    return clamp(base, 1.5, 4.2);
   }
-
-  // 3) Attach live-ball penalty if any (post-snap).
-  if (penalty.hasPenalty && !penalty.isPreSnap) {
-    // Penalty yards stack on top of play result, but direction depends on side.
-    const penaltyYards =
-      penalty.onOffense ? penalty.yards : -penalty.yards;
-
-    const finalYards = baseResult.yards + penaltyYards;
-
+  
+  function chooseTargetDepth(distance, down, aggressiveness, rng) {
+    const shortBias = distance <= 3 ? 0.7 : distance <= 6 ? 0.5 : 0.3;
+    const deepBias = aggressiveness * 0.5 + (down === 3 ? 0.2 : 0);
+  
+    const r = rng.next();
+    if (r < shortBias) return 5 + 2 * rng.next(); // short
+    if (r < shortBias + deepBias) return 18 + 6 * rng.next(); // deep
+    return 10 + 4 * rng.next(); // intermediate
+  }
+  
+  function yardsToSidelineFactor(yardline) {
+    // Yardline in 0..100, assume ball is on hash; crude: more extreme near 0 or 100
+    const distToGoal = Math.min(yardline, 100 - yardline);
+    return clamp((10 - distToGoal) / 10, 0, 1);
+  }
+  
+  // -----------------------------------------------------------------------------
+  // Penalty micro-model
+  // -----------------------------------------------------------------------------
+  
+  /**
+   * Sample whether a penalty occurs and on which side.
+   *
+   * @param {Object} params
+   *  - offenseDisciplineRating: higher -> fewer penalties (0-100)
+   *  - defenseDisciplineRating: higher -> fewer penalties (0-100)
+   *  - aggressionRatingOff: offensive aggression (0-100)
+   *  - aggressionRatingDef: defensive aggression (0-100)
+   *  - playType: 'run' | 'pass' | 'kick' | 'punt'
+   *
+   * @returns {Object}
+   *  - hasPenalty: boolean
+   *  - onOffense: boolean | null
+   *  - yards: penalty yards (positive against offense, negative against defense)
+   *  - type: string | null
+   */
+  export function samplePenaltyOutcome(params, rng) {
+    const {
+      offenseDisciplineRating = 60,
+      defenseDisciplineRating = 60,
+      aggressionRatingOff = 60,
+      aggressionRatingDef = 60,
+      playType = 'pass',
+    } = params || {};
+  
+    const baseRate =
+      playType === 'kick' || playType === 'punt'
+        ? 0.22
+        : playType === 'run'
+        ? 0.13
+        : 0.17;
+  
+    const offDiscCentered = centerRating(offenseDisciplineRating, 65);
+    const defDiscCentered = centerRating(defenseDisciplineRating, 65);
+    const offAggCentered = centerRating(aggressionRatingOff, 55);
+    const defAggCentered = centerRating(aggressionRatingDef, 65);
+  
+    const offProb = clamp(
+      baseRate * (1 + 0.4 * (-offDiscCentered) + 0.25 * offAggCentered),
+      0.03,
+      0.25
+    );
+    const defProb = clamp(
+      baseRate * (1 + 0.4 * (-defDiscCentered) + 0.35 * defAggCentered),
+      0.03,
+      0.30
+    );
+  
+    const totalProb = offProb + defProb;
+    const hasPenalty = rng.next() < totalProb;
+    if (!hasPenalty) {
+      return {
+        hasPenalty: false,
+        onOffense: null,
+        yards: 0,
+        type: null,
+      };
+    }
+  
+    const rollSide = rng.next();
+    const onOffense = rollSide < offProb / totalProb;
+  
+    // Choose penalty type & yards
+    // Very simplified: mostly 5 or 10, rare 15
+    const r = rng.next();
+    let yards;
+    let type;
+    if (r < 0.5) {
+      yards = 5;
+      type = onOffense ? 'false_start_or_illegal' : 'offsides';
+    } else if (r < 0.92) {
+      yards = 10;
+      type = onOffense ? 'holding' : 'defensive_holding';
+    } else {
+      yards = 15;
+      type = onOffense ? 'personal_foul_off' : 'personal_foul_def';
+    }
+  
+    // For defense, we make yards negative so macro layer can apply direction
+    const signedYards = onOffense ? -yards : yards;
+  
     return {
-      ...baseResult,
-      yards: finalYards,
-      penalty,
-      debug: {
-        ...baseResult.debug,
-        penaltyApplied: true,
-      },
+      hasPenalty: true,
+      onOffense,
+      yards: signedYards,
+      type,
     };
   }
-
-  return {
-    ...baseResult,
-    penalty: null,
-  };
-}
+  
