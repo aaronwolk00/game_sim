@@ -206,6 +206,8 @@ class RNG {
       typeof options.seed === "number"
         ? options.seed
         : (Date.now() & 0xffffffff) ^ Math.floor(Math.random() * 1e9);
+
+    cfg.seed = seed;
     const rng = new RNG(seed);
   
     const state = createInitialGameState(homeTeam, awayTeam, cfg, rng);
@@ -1160,11 +1162,78 @@ class RNG {
   // -----------------------------------------------------------------------------
   // Result object & summary
   // -----------------------------------------------------------------------------
+
+  function computeTeamStats(state) {
+    const stats = {
+      home: {
+        plays: 0,
+        yardsTotal: 0,
+        rushYards: 0,
+        passYards: 0,
+        turnovers: 0,
+        epa: 0, // placeholder – currently zero
+      },
+      away: {
+        plays: 0,
+        yardsTotal: 0,
+        rushYards: 0,
+        passYards: 0,
+        turnovers: 0,
+        epa: 0,
+      },
+    };
+  
+    for (const p of state.plays) {
+      const side = p.offense === "home" ? "home" :
+                   p.offense === "away" ? "away" : null;
+      if (!side) continue;
+  
+      const s = stats[side];
+      const y = Number.isFinite(p.yardsGained) ? p.yardsGained : 0;
+  
+      s.plays += 1;
+      s.yardsTotal += y;
+  
+      if (p.playType === "run") {
+        s.rushYards += y;
+      } else if (p.playType === "pass") {
+        s.passYards += y;
+      }
+  
+      if (p.turnover) {
+        s.turnovers += 1;
+      }
+    }
+  
+    // Derived metrics
+    ["home", "away"].forEach((side) => {
+      const s = stats[side];
+      s.yardsPerPlay = s.plays > 0 ? s.yardsTotal / s.plays : 0;
+    });
+  
+    return stats;
+  }
+  
+
+
   function buildGameResult(state) {
     const { homeTeam, awayTeam, score } = state;
     const diff = score.home - score.away;
     const winner =
       diff > 0 ? "home" : diff < 0 ? "away" : null;
+  
+    const teamStats = computeTeamStats(state);
+  
+    const gameStateEnd = {
+      quarter: state.quarter,
+      clock: formatClockFromSec(state.clockSec),
+    };
+  
+    const meta = {
+      seed: state.cfg && typeof state.cfg.seed !== "undefined"
+        ? state.cfg.seed
+        : undefined,
+    };
   
     return {
       homeTeamId: homeTeam.teamId,
@@ -1177,8 +1246,12 @@ class RNG {
       drives: state.drives,
       plays: state.plays,
       events: state.events,
+      teamStats,        // <-- what simulation.html is looking for
+      gameStateEnd,     // <-- used by getScoreFromResult for quarter/clock
+      meta,             // <-- seed shows up in the debug line
     };
   }
+  
   
   function formatGameSummary(result) {
     const {
