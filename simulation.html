@@ -927,6 +927,8 @@
     import { loadLeague } from './data_models.js';
     import { simulateGame } from './game_engine.js';
 
+    const CSV_URL = 'https://raw.githubusercontent.com/aaronwolk00/game_sim/main/layer3_rosters.csv';
+
     // ----- DOM LOOKUPS -------------------------------------------------------
     const dom = {
       engineStatus: document.getElementById('sim-engine-status'),
@@ -981,6 +983,49 @@
     };
 
     // ----- SMALL HELPERS -----------------------------------------------------
+      // Quick CSV probe: fetch raw text, count rows/cols, show a few team ids.
+    async function probeCSV(url) {
+        try {
+        const res = await fetch(url, { cache: 'no-store' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const text = await res.text();
+        const lines = text.trim().split(/\r?\n/);
+        const header = lines[0] || '';
+        const cols = header.split(',');
+        const rowCount = Math.max(0, lines.length - 1);
+
+        // Find indices so we don’t assume column order.
+        const idxTeam = cols.indexOf('team_id');
+        const idxName = cols.indexOf('team_name');
+
+        // Collect a few unique teams to display.
+        const seen = new Set();
+        const sample = [];
+        for (let i = 1; i < Math.min(lines.length, 200); i++) {
+            const cells = lines[i].split(',');
+            const id = cells[idxTeam] || '';
+            const name = cells[idxName] || '';
+            if (id && !seen.has(id)) {
+            sample.push(name ? `${id} (${name})` : id);
+            seen.add(id);
+            if (sample.length >= 6) break;
+            }
+        }
+
+        const msg = `CSV OK: ${rowCount.toLocaleString()} rows • ${cols.length} cols • sample teams: ${sample.join(', ')}`;
+        const div = document.createElement('div');
+        div.className = 'text-muted';
+        div.textContent = msg;
+        document.getElementById('debug-meta-body')?.appendChild(div);
+        } catch (e) {
+        const div = document.createElement('div');
+        div.className = 'text-muted';
+        div.textContent = `CSV load failed: ${e.message}`;
+        document.getElementById('debug-meta-body')?.appendChild(div);
+        }
+    }
+
+
     function setEngineStatus(state, message) {
       // state: 'pending' | 'ready' | 'error'
       const pill = dom.engineStatus;
@@ -1589,6 +1634,9 @@
             league.teams.length
           } teams from layer3_rosters.csv.`;
         }
+
+        await probeCSV(CSV_URL);
+
       } catch (err) {
         console.error('loadLeague error', err);
         setEngineStatus('error', 'Failed to load league');
