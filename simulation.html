@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>DNA Football Simulation</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <style>
+    :root {
+      --bg: #050815;
+      --bg-alt: #0b1020;
+      --panel-bg: #10152a;
+      --panel-bg-alt: #131933;
+      --accent: #3ea6ff;
+      --accent-soft: rgba(62, 166, 255, 0.16);
+      --accent-strong: rgba(62, 166, 255, 0.4);
+      --text: #f5f7ff;
+      --text-soft: #a9b3d9;
+      --danger: #ff4b6a;
+      --success: #3dd68c;
+      --border-subtle: rgba(255, 255, 255, 0.06);
+      --radius-lg: 12px;
+      --radius-md: 8px;
+      --radius-sm: 4px;
+      --shadow-soft: 0 18px 45px rgba(0, 0, 0, 0.55);
+      --shadow-sm: 0 6px 20px rgba(0, 0, 0, 0.45);
+      --transition-fast: 140ms ease-out;
+      --transition-med: 200ms ease-out;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+        sans-serif;
+      background: radial-gradient(circle at top, #121b3b 0, #050815 40%, #02010a 100%);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    main {
+      padding: 16px 5vw 24px;
+      max-width: 1400px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    header .title-block {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 1.6rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .pill {
+      font-size: 0.7rem;
+      padding: 2px 8px;
+      border-radius: 999px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      border: 1px solid var(--accent-soft);
+      color: var(--accent);
+      background: linear-gradient(
+        90deg,
+        rgba(62, 166, 255, 0.1),
+        rgba(62, 166, 255, 0.02)
+      );
+    }
+
+    header p {
+      margin: 0;
+      font-size: 0.85rem;
+      color: var(--text-soft);
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    button,
+    select {
+      font-family: inherit;
+    }
+
+    .btn {
+      border-radius: 999px;
+      border: 1px solid var(--border-subtle);
+      background: rgba(10, 16, 35, 0.95);
+      color: var(--text);
+      padding: 6px 12px;
+      font-size: 0.8rem;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background var(--transition-fast),
+        border-color var(--transition-fast),
+        transform var(--transition-fast),
+        box-shadow var(--transition-fast);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .btn-primary {
+      background: linear-gradient(
+        135deg,
+        rgba(62, 166, 255, 0.1),
+        rgba(62, 166, 255, 0.7)
+      );
+      border-color: var(--accent);
+    }
+
+    .btn-ghost {
+      background: rgba(15, 20, 40, 0.9);
+    }
+
+    .btn:disabled {
+      opacity: 0.4;
+      cursor: default;
+      box-shadow: none;
+    }
+
+    .btn:hover:not(:disabled) {
+      border-color: var(--accent);
+      background: radial-gradient(circle at top left, var(--accent-soft), #0b1020);
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .btn-icon {
+      padding-inline: 8px;
+    }
+
+    .layout-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.3fr);
+      gap: 16px;
+      align-items: flex-start;
+    }
+
+    @media (max-width: 960px) {
+      .layout-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
+    .panel {
+      background: radial-gradient(circle at top left, rgba(255, 255, 255, 0.06), transparent 55%),
+        linear-gradient(145deg, var(--panel-bg), var(--panel-bg-alt));
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border-subtle);
+      box-shadow: var(--shadow-soft);
+      padding: 12px 14px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .panel-title {
+      font-size: 0.9rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-soft);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .panel-title span.label {
+      font-weight: 600;
+    }
+
+    .panel-header-right {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.8rem;
+    }
+
+    .badge {
+      font-size: 0.7rem;
+      padding: 2px 6px;
+      border-radius: 999px;
+      border: 1px solid var(--border-subtle);
+      color: var(--text-soft);
+    }
+
+    .badge.badge-accent {
+      border-color: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    .badge-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 4px rgba(62, 166, 255, 0.25);
+    }
+
+    .control-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .field-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .field-group label {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-soft);
+    }
+
+    select,
+    input[type="number"],
+    input[type="text"] {
+      background: rgba(5, 10, 30, 0.95);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: var(--radius-md);
+      color: var(--text);
+      padding: 6px 8px;
+      font-size: 0.85rem;
+      min-width: 140px;
+      outline: none;
+      transition: border-color var(--transition-fast),
+        box-shadow var(--transition-fast),
+        background var(--transition-fast);
+    }
+
+    select:focus,
+    input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent-soft);
+      background: rgba(10, 15, 40, 0.98);
+    }
+
+    .radio-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      font-size: 0.8rem;
+    }
+
+    .radio-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--border-subtle);
+      cursor: pointer;
+      color: var(--text-soft);
+      background: rgba(10, 14, 30, 0.9);
+      transition: border-color var(--transition-fast),
+        background var(--transition-fast),
+        color var(--transition-fast);
+    }
+
+    .radio-pill input {
+      accent-color: var(--accent);
+    }
+
+    .radio-pill.active {
+      border-color: var(--accent);
+      background: radial-gradient(circle at top left, var(--accent-soft), #0b1020);
+      color: var(--accent);
+    }
+
+    .scoreboard {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .team-card {
+      padding: 8px 10px;
+      border-radius: var(--radius-md);
+      background: radial-gradient(circle at top, rgba(255, 255, 255, 0.06), transparent 55%);
+      border: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .team-card .team-label {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-soft);
+    }
+
+    .team-card .team-name {
+      font-size: 0.9rem;
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .team-card .team-meta {
+      font-size: 0.75rem;
+      color: var(--text-soft);
+    }
+
+    .score-main {
+      text-align: center;
+      padding: 6px 2px;
+      border-radius: var(--radius-md);
+      background: linear-gradient(
+        135deg,
+        rgba(62, 166, 255, 0.15),
+        rgba(55, 125, 255, 0.5)
+      );
+      border: 1px solid var(--accent);
+      box-shadow: 0 0 20px var(--accent-soft);
+    }
+
+    .score-main .scoreline {
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+    }
+
+    .score-main .scoreline span {
+      margin: 0 6px;
+    }
+
+    .score-main .score-meta {
+      font-size: 0.76rem;
+      color: #e3ecff;
+      margin-top: 3px;
+    }
+
+    .game-state-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+
+    .state-pill {
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(8, 13, 32, 0.9);
+      border: 1px solid var(--border-subtle);
+      font-size: 0.78rem;
+      color: var(--text-soft);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .state-pill strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .subtle-label {
+      font-size: 0.76rem;
+      color: var(--text-soft);
+    }
+
+    .flex-spacer {
+      flex: 1;
+    }
+
+    .stack {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .horizontal-stack {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .section-divider {
+      margin: 8px -14px 8px;
+      border-top: 1px solid rgba(255, 255, 255, 0.04);
+    }
+
+    .table-wrapper {
+      max-height: 260px;
+      overflow: auto;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      background: rgba(5, 8, 20, 0.9);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+    }
+
+    th,
+    td {
+      padding: 4px 8px;
+      text-align: left;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      white-space: nowrap;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      background: rgba(5, 8, 20, 0.97);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 0.78rem;
+      color: var(--text-soft);
+      z-index: 1;
+    }
+
+    tbody tr:nth-child(even) {
+      background: rgba(255, 255, 255, 0.01);
+    }
+
+    tbody tr:hover {
+      background: rgba(62, 166, 255, 0.07);
+    }
+
+    .log-container {
+      max-height: 320px;
+      overflow: auto;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(5, 8, 20, 0.9);
+      padding: 6px 0;
+      font-size: 0.82rem;
+    }
+
+    .log-entry {
+      padding: 4px 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      display: flex;
+      gap: 6px;
+    }
+
+    .log-entry .log-meta {
+      min-width: 68px;
+      color: var(--text-soft);
+      font-size: 0.75rem;
+    }
+
+    .log-entry .log-text {
+      flex: 1;
+    }
+
+    .log-entry.key-play {
+      background: rgba(62, 166, 255, 0.08);
+    }
+
+    .log-entry.scoring {
+      border-left: 2px solid var(--accent);
+    }
+
+    .log-entry.turnover {
+      border-left: 2px solid var(--danger);
+    }
+
+    .tag {
+      font-size: 0.72rem;
+      padding: 1px 6px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      color: var(--text-soft);
+    }
+
+    .tag.tag-off {
+      border-color: rgba(62, 166, 255, 0.45);
+      color: var(--accent);
+    }
+
+    .tag.tag-def {
+      border-color: rgba(150, 255, 210, 0.4);
+      color: var(--success);
+    }
+
+    .tag.tag-st {
+      border-color: rgba(255, 220, 150, 0.4);
+      color: #ffd98d;
+    }
+
+    details.debug-panel {
+      margin-top: 12px;
+      border-radius: var(--radius-md);
+      border: 1px dashed rgba(255, 255, 255, 0.25);
+      background: rgba(6, 9, 20, 0.9);
+    }
+
+    details.debug-panel[open] {
+      background: rgba(10, 14, 30, 0.96);
+    }
+
+    details.debug-panel > summary {
+      list-style: none;
+      padding: 6px 10px;
+      cursor: pointer;
+      font-size: 0.8rem;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-soft);
+    }
+
+    details.debug-panel > summary::marker {
+      display: none;
+    }
+
+    details.debug-panel > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .debug-body {
+      padding: 6px 10px 10px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 0.78rem;
+      color: var(--text-soft);
+    }
+
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 4px;
+    }
+
+    .chip {
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: rgba(7, 11, 30, 0.95);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      font-size: 0.74rem;
+      color: var(--text-soft);
+    }
+
+    .pill-status {
+      font-size: 0.76rem;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      color: var(--text-soft);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .pill-status .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 0 3px rgba(61, 214, 140, 0.25);
+    }
+
+    .pill-status.pending .dot {
+      background: #f8b84a;
+      box-shadow: 0 0 0 3px rgba(248, 184, 74, 0.25);
+    }
+
+    .pill-status.error .dot {
+      background: var(--danger);
+      box-shadow: 0 0 0 3px rgba(255, 75, 106, 0.25);
+    }
+
+    .text-muted {
+      color: var(--text-soft);
+    }
+
+    footer {
+      margin-top: auto;
+      padding: 8px 5vw 12px;
+      font-size: 0.74rem;
+      color: var(--text-soft);
+      opacity: 0.7;
+      text-align: right;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div class="title-block">
+        <h1>
+          DNA Football Engine
+          <span class="pill">Layer 0–3 Driven</span>
+        </h1>
+        <p>
+          Single-game NFL-style simulation powered by multi-layer DNA data
+          (human → traits → ratings → rosters). This UI is a thin shell; core
+          logic lives in the JS modules.
+        </p>
+      </div>
+      <div class="header-actions">
+        <span id="sim-engine-status" class="pill-status pending">
+          <span class="dot"></span>
+          <span>Engine not initialized</span>
+        </span>
+        <button id="btn-random-matchup" class="btn btn-ghost" type="button">
+          🎲 Random Matchup
+        </button>
+        <button id="btn-run-sim" class="btn btn-primary" type="button" disabled>
+          ▶ Run Simulation
+        </button>
+      </div>
+    </header>
+
+    <section class="layout-grid" aria-label="Simulation controls and game summary">
+      <!-- LEFT: Controls + scoreboard + game state -->
+      <section class="panel" id="panel-controls">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span class="label">Matchup & Controls</span>
+          </div>
+          <div class="panel-header-right">
+            <span class="badge badge-accent">Layer 3 Teams</span>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <div class="field-group" style="flex: 1 1 160px;">
+            <label for="select-home-team">Home Team</label>
+            <select id="select-home-team"></select>
+          </div>
+          <div class="field-group" style="flex: 1 1 160px;">
+            <label for="select-away-team">Away Team</label>
+            <select id="select-away-team"></select>
+          </div>
+          <div class="field-group" style="flex: 0 0 110px;">
+            <label for="input-seed">Seed</label>
+            <input
+              id="input-seed"
+              type="number"
+              value=""
+              placeholder="Auto"
+              min="1"
+              step="1"
+            />
+          </div>
+        </div>
+
+        <div class="control-row">
+          <div class="field-group" style="flex: 1 1 220px;">
+            <label>Simulation Mode</label>
+            <div id="sim-mode-group" class="radio-group">
+              <label class="radio-pill active">
+                <input
+                  type="radio"
+                  name="sim-mode"
+                  value="full-game"
+                  checked
+                />
+                Full Game
+              </label>
+              <label class="radio-pill">
+                <input
+                  type="radio"
+                  name="sim-mode"
+                  value="drive-step"
+                />
+                Drive-by-drive
+              </label>
+              <label class="radio-pill">
+                <input
+                  type="radio"
+                  name="sim-mode"
+                  value="play-step"
+                />
+                Play-by-play
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <button id="btn-step-drive" class="btn btn-ghost" type="button" disabled>
+            ➤ Next Drive
+          </button>
+          <button id="btn-step-play" class="btn btn-ghost" type="button" disabled>
+            ▶ Next Play
+          </button>
+          <button id="btn-reset" class="btn btn-ghost" type="button" disabled>
+            ⟲ Reset
+          </button>
+          <span class="flex-spacer"></span>
+          <span class="subtle-label" id="sim-status-text">
+            Load teams to begin.
+          </span>
+        </div>
+
+        <div class="section-divider"></div>
+
+        <!-- Scoreboard -->
+        <div class="scoreboard" aria-label="Scoreboard">
+          <div class="team-card" id="home-team-card">
+            <div class="team-label">Home</div>
+            <div class="team-name" id="home-team-name">–</div>
+            <div class="team-meta" id="home-team-meta">
+              Ovr – | Off – | Def – | ST –
+            </div>
+          </div>
+          <div class="score-main">
+            <div class="scoreline">
+              <span id="score-away">0</span>
+              <span>•</span>
+              <span id="score-home">0</span>
+            </div>
+            <div class="score-meta" id="score-meta">
+              Q1 • 15:00 • 0–0
+            </div>
+          </div>
+          <div class="team-card" id="away-team-card">
+            <div class="team-label">Away</div>
+            <div class="team-name" id="away-team-name">–</div>
+            <div class="team-meta" id="away-team-meta">
+              Ovr – | Off – | Def – | ST –
+            </div>
+          </div>
+        </div>
+
+        <!-- Game state summary: down & distance, field pos, timeouts, momentum -->
+        <div class="stack">
+          <div class="game-state-row">
+            <div class="state-pill" id="state-down-distance">
+              <strong>Down &amp; Distance:</strong> –
+            </div>
+            <div class="state-pill" id="state-field-pos">
+              <strong>Field:</strong> –
+            </div>
+            <div class="state-pill" id="state-possession">
+              <strong>Ball:</strong> –
+            </div>
+          </div>
+
+          <div class="game-state-row">
+            <div class="state-pill" id="state-timeouts">
+              <strong>Timeouts:</strong>
+              <span>Home 3</span> | <span>Away 3</span>
+            </div>
+            <div class="state-pill" id="state-momentum">
+              <strong>Momentum:</strong> Neutral
+            </div>
+          </div>
+        </div>
+
+        <details class="debug-panel" id="debug-meta-panel">
+          <summary>
+            <span>Diagnostics</span>
+            <span class="badge">Engine</span>
+          </summary>
+          <div class="debug-body" id="debug-meta-body">
+            <div class="chip-row">
+              <span class="chip" id="chip-layer-meta">
+                Layers: 0 → 1 → 2 → 3 → Sim
+              </span>
+              <span class="chip" id="chip-sim-mode-meta">
+                Mode: Full Game
+              </span>
+            </div>
+            <div class="stack">
+              <span class="text-muted" id="debug-engine-line">
+                Engine logs and sanity checks will appear here.
+              </span>
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <!-- RIGHT: Drives / stats / log -->
+      <section class="panel" id="panel-analytics">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span class="label">Game Flow & Analytics</span>
+          </div>
+          <div class="panel-header-right">
+            <span class="badge">Play-by-play</span>
+          </div>
+        </div>
+
+        <div class="stack">
+          <!-- Drive summary & team stats -->
+          <div class="horizontal-stack">
+            <div class="field-group" style="flex: 1 1 220px;">
+              <label>Drive Summary</label>
+              <div class="table-wrapper" id="drive-summary-wrapper">
+                <table id="drive-summary-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Team</th>
+                      <th>Result</th>
+                      <th>Plays</th>
+                      <th>Yards</th>
+                      <th>Time</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <!-- JS will populate drive rows -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="field-group" style="flex: 1 1 220px;">
+              <label>Team Stats (Live)</label>
+              <div class="table-wrapper" id="team-stats-wrapper">
+                <table id="team-stats-table">
+                  <thead>
+                    <tr>
+                      <th>Team</th>
+                      <th>Yards</th>
+                      <th>Y/P</th>
+                      <th>Rush</th>
+                      <th>Pass</th>
+                      <th>TO</th>
+                      <th>EPA*</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <!-- JS will populate team stat rows -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="section-divider"></div>
+
+          <!-- Play-by-play log -->
+          <div class="field-group">
+            <label>Play Log</label>
+            <div class="log-container" id="play-log-container" aria-live="polite">
+              <!-- JS will append .log-entry elements -->
+              <div class="log-entry">
+                <div class="log-meta">Pre-game</div>
+                <div class="log-text text-muted">
+                  Select teams and run a simulation to see detailed play-by-play
+                  output here.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <details class="debug-panel" id="debug-micro-panel">
+            <summary>
+              <span>Advanced Micro-Model Diagnostics</span>
+              <span class="badge badge-accent">Optional</span>
+            </summary>
+            <div class="debug-body">
+              <div class="chip-row">
+                <span class="chip">Pass rush vs OL: TTP distribution</span>
+                <span class="chip">WR/DB: separation &amp; contest</span>
+                <span class="chip">YAC &amp; tackling mismatch</span>
+                <span class="chip">Penalty &amp; chaos events</span>
+              </div>
+              <p class="text-muted" id="debug-micro-text">
+                The JS engine can emit summary statistics for key micro-models
+                (time to pressure, separation, ball placement error,
+                run-fit outcomes, etc.). Those summaries can be rendered here
+                in text or sparkline form without changing the core simulation
+                logic.
+              </p>
+            </div>
+          </details>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <footer>
+    Simulation shell only. Core logic is implemented in ES modules
+    (<code>config.js</code>, <code>data_models.js</code>,
+    <code>random_models.js</code>, <code>micro_engine.js</code>,
+    <code>game_engine.js</code>).
+  </footer>
+
+  <!-- Top-level module: imports other modules and wires up the UI. -->
+  <script type="module" src="./game_engine.js"></script>
+</body>
+</html>
