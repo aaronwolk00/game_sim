@@ -1616,7 +1616,7 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
     // ---------------- Base run/pass tendency ----------------
     // Pass advantage relative to coverage -> baseline pass probability
     const passAdv = (offPass - defCover) / 18;
-    let basePassProb = logistic(passAdv) - 0.06; // ~0.3–0.7 most of the time
+    let basePassProb = logistic(passAdv) - 0.09; // ~0.3–0.7 most of the time
   
     // Situation tweaks
     const isObviousPass =
@@ -2136,7 +2136,7 @@ function simulateKneelPlay(state, rng) {
     // Completion boost: occasionally turn an "incomplete" into a
     // short checkdown completion, mostly affecting % but not much yardage.
     if (incomplete && !sack && !interception && !fumble) {
-      const boost = 0.22; // tune 0.18–0.25 if needed
+      const boost = 0.24; // tune 0.18–0.25 if needed
       if (rng.next() < boost) {
         completion = true;
         incomplete = false;
@@ -2156,16 +2156,16 @@ function simulateKneelPlay(state, rng) {
     // --- Out-of-bounds modeling for completed passes ---
     let outOfBounds = false;
     if (completion && !touchdown && !safety) {
-      let pOOB = 0.18; // completions more likely OOB than runs
+      let pOOB = 0.21; // completions more likely OOB than runs
 
       const clockIntent = state.clockIntent?.[offenseSide] || null;
       const late =
         (state.quarter === 2 && state.clockSec <= 120) ||
         (state.quarter === 4 && state.clockSec <= 300);
 
-      if (late && scoreDiff <= 0) pOOB += 0.07;
+      if (late && scoreDiff <= 0) pOOB += 0.08;
       if (clockIntent && clockIntent.boundsPreference === "sideline") {
-        pOOB += 0.10;
+        pOOB += 0.15;
       }
 
       if (rng.next() < pOOB) outOfBounds = true;
