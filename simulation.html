@@ -37,6 +37,7 @@
       padding: 0;
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
         sans-serif;
+      font-size: clamp(14px, 0.95vw, 17px);
       background: radial-gradient(circle at top, #121b3b 0, #050815 40%, #02010a 100%);
       color: var(--text);
       min-height: 100vh;
@@ -45,9 +46,9 @@
     }
 
     main {
-      padding: 16px 5vw 24px;
-      max-width: 1400px;
-      width: 100%;
+      padding: 24px 4vw 32px;
+      max-width: 1760px;
+      width: 96vw;
       margin: 0 auto;
     }
 
@@ -67,7 +68,7 @@
 
     header h1 {
       margin: 0;
-      font-size: 1.6rem;
+      font-size: 1.9rem;
       letter-spacing: 0.04em;
       text-transform: uppercase;
       display: flex;
@@ -112,8 +113,8 @@
       border: 1px solid var(--border-subtle);
       background: rgba(10, 16, 35, 0.95);
       color: var(--text);
-      padding: 6px 12px;
-      font-size: 0.8rem;
+      padding: 8px 14px;
+      font-size: 0.9rem;
       letter-spacing: 0.05em;
       text-transform: uppercase;
       cursor: pointer;
@@ -159,9 +160,9 @@
 
     .layout-grid {
       display: grid;
-      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.3fr);
-      gap: 16px;
-      align-items: flex-start;
+      grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.35fr);
+      gap: 20px;
+      align-items: start;
     }
 
     @media (max-width: 960px) {
@@ -176,7 +177,7 @@
       border-radius: var(--radius-lg);
       border: 1px solid var(--border-subtle);
       box-shadow: var(--shadow-soft);
-      padding: 12px 14px;
+      padding: 16px 18px;
       position: relative;
       overflow: hidden;
     }
@@ -190,7 +191,7 @@
     }
 
     .panel-title {
-      font-size: 0.9rem;
+      font-size: 1.0rem;
       text-transform: uppercase;
       letter-spacing: 0.08em;
       color: var(--text-soft);
@@ -360,7 +361,7 @@
     }
 
     .score-main .scoreline {
-      font-size: 1.5rem;
+      font-size: 2.2rem;
       font-weight: 700;
       letter-spacing: 0.16em;
     }
@@ -370,9 +371,9 @@
     }
 
     .score-main .score-meta {
-      font-size: 0.76rem;
+      font-size: 0.9rem;
       color: #e3ecff;
-      margin-top: 3px;
+      margin-top: 4px;
     }
 
     .game-state-row {
@@ -427,11 +428,30 @@
     }
 
     .table-wrapper {
-      max-height: 260px;
+      max-height: clamp(320px, 38vh, 640px); /* was 260px */
       overflow: auto;
       border-radius: var(--radius-md);
       border: 1px solid rgba(255, 255, 255, 0.07);
       background: rgba(5, 8, 20, 0.9);
+    }
+
+    /* Player box score should be tall – it's the most scroll-heavy */
+    #player-stats-wrapper {
+      max-height: clamp(420px, 48vh, 780px);
+    }
+
+    /* Drive summary & team stats: give them more breathing room */
+    #drive-summary-wrapper,
+    #team-stats-wrapper {
+      max-height: clamp(320px, 34vh, 560px);
+    }
+
+    /* Play log: taller so you can read a lot at once */
+    #play-log-container,
+    .log-container {
+      max-height: clamp(420px, 50vh, 820px); /* was 320px */
+      font-size: 0.9rem;                     /* slightly larger log text */
+      line-height: 1.35;
     }
 
     table {
@@ -451,12 +471,14 @@
     th {
       position: sticky;
       top: 0;
-      background: rgba(5, 8, 20, 0.97);
+      background: linear-gradient(180deg, rgba(5, 8, 20, 0.98), rgba(5, 8, 20, 0.94));
       text-transform: uppercase;
       letter-spacing: 0.08em;
       font-size: 0.78rem;
       color: var(--text-soft);
-      z-index: 1;
+      z-index: 2;
+      backdrop-filter: blur(3px);
+      box-shadow: 0 2px 0 rgba(255,255,255,0.04);
     }
 
     tbody tr:nth-child(even) {
@@ -466,6 +488,16 @@
     tbody tr:hover {
       background: rgba(62, 166, 255, 0.07);
     }
+
+    /* Slightly larger rows for clickability */
+    tbody tr td { padding: 6px 10px; }
+
+    /* Make the D&D / state pills slightly larger */
+    .state-pill { font-size: 0.85rem; padding: 5px 10px; }
+
+    /* Buttons: a hair more presence */
+    .btn-ghost { background: rgba(15, 20, 40, 0.95); }
+
 
     .log-container {
       max-height: 320px;
@@ -623,6 +655,38 @@
       opacity: 0.7;
       text-align: right;
     }
+
+    /* ===== Modern, consistent scrollbars for tables & logs ===== */
+    .table-wrapper,
+    .log-container {
+      scrollbar-width: thin;  /* Firefox */
+      scrollbar-color: rgba(62,166,255,0.45) rgba(255,255,255,0.06);
+    }
+
+    .table-wrapper::-webkit-scrollbar,
+    .log-container::-webkit-scrollbar {
+      width: 12px;
+      height: 12px;
+    }
+
+    .table-wrapper::-webkit-scrollbar-track,
+    .log-container::-webkit-scrollbar-track {
+      background: rgba(255,255,255,0.06);
+      border-radius: 10px;
+    }
+
+    .table-wrapper::-webkit-scrollbar-thumb,
+    .log-container::-webkit-scrollbar-thumb {
+      background: linear-gradient(180deg, rgba(62,166,255,0.65), rgba(62,166,255,0.35));
+      border: 2px solid rgba(5,8,20,0.95);
+      border-radius: 10px;
+    }
+
+    .table-wrapper::-webkit-scrollbar-thumb:hover,
+    .log-container::-webkit-scrollbar-thumb:hover {
+      background: linear-gradient(180deg, rgba(62,166,255,0.85), rgba(62,166,255,0.55));
+    }
+
   </style>
 </head>
 <body>
