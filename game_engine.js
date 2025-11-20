@@ -1891,9 +1891,35 @@ function simulateKneelPlay(state, rng) {
         const down     = state.down;
         const distance = state.distance;
     
-        // --- identify rusher (RB1 most of the time, occasional QB keep/scramble) ---
-        const { offenseTeam, offenseSide, defenseSide } = getOffenseDefense(state); // include defenseSide
+        const { offenseTeam, offenseSide, defenseSide } = getOffenseDefense(state);
         const skill = getOffensiveSkillPlayers(offenseTeam);
+        
+        // Choose rusher with a more realistic distribution
+        const candidates = [];
+        
+        // RB usage: RB1 heavy, RB2 meaningful
+        if (skill.rb1) candidates.push({ p: skill.rb1, w: 65 });
+        if (skill.rb2) candidates.push({ p: skill.rb2, w: 25 });
+        
+        // Occasional WR carries (jet sweeps, end-arounds)
+        if (skill.wr3) candidates.push({ p: skill.wr3, w: 5 });
+        if (skill.wr2) candidates.push({ p: skill.wr2, w: 3 });
+        
+        // Rare designed QB run
+        if (skill.qb)  candidates.push({ p: skill.qb, w: 2 });
+        
+        let rusher = null;
+        if (candidates.length) {
+          let totalW = candidates.reduce((s,c)=>s + c.w, 0);
+          let r = rng.nextRange(0, totalW);
+          for (const c of candidates) {
+            if (r < c.w) { rusher = c.p; break; }
+            r -= c.w;
+          }
+        }
+        
+        // Fallback
+        if (!rusher) rusher = skill.rb1 || skill.qb || null;        
     
         // Apply momentum multipliers
         const offMult = getMomentumMultiplier(state, offenseSide, "offense");
@@ -1902,11 +1928,6 @@ function simulateKneelPlay(state, rng) {
         runOff    = clamp(runOff    * offMult,  40, 99);
         frontRunD = clamp(frontRunD * defMult,  40, 99);
     
-        let rusher = skill.rb1 || skill.qb || null;
-        // very small chance of QB keep on obvious pass looks
-        if (!rusher || (down >= 2 && distance >= 8 && rng.next() < 0.12)) {
-        rusher = skill.qb || rusher;
-        }
     
         const rusherRow = ensurePlayerRow(state, rusher, offenseSide);
         const rusherId   = getPlayerKey(rusher);
@@ -1948,6 +1969,32 @@ function simulateKneelPlay(state, rng) {
         // damp fumbles a bit
         const rawFumble = !!micro.fumble;
         const fumble    = rawFumble && (rng.next() < 0.6);
+
+        // --- Out-of-bounds modeling for runs ---
+        let outOfBounds = false;
+        if (!touchdown && !safety) {
+          // Base chance: small fraction of runs end OOB
+          let pOOB = 0.06;
+
+          const scoreDiff =
+            offenseSide === "home"
+              ? state.score.home - state.score.away
+              : state.score.away - state.score.home;
+
+          const late =
+            (state.quarter === 2 && state.clockSec <= 120) ||
+            (state.quarter === 4 && state.clockSec <= 300);
+
+          const clockIntent = state.clockIntent?.[offenseSide] || null;
+
+          if (late && scoreDiff <= 0) pOOB += 0.06; // trailing late => hug sideline more
+          if (clockIntent && clockIntent.boundsPreference === "sideline") {
+            pOOB += 0.08;
+          }
+
+          if (rng.next() < pOOB) outOfBounds = true;
+        }
+
     
         // in-play time – if your micro engine gives it, use that, else estimate
         const inPlayTime = Number.isFinite(micro.timeElapsed)
@@ -1971,7 +2018,7 @@ function simulateKneelPlay(state, rng) {
         sack: false,
         completion: false,
         incomplete: false,
-        outOfBounds: false,        // OOB flag handled by macro clock logic if you want later
+        outOfBounds,        // OOB flag handled by macro clock logic if you want later
         touchdown,
         safety,
         fieldGoalAttempt: false,
@@ -2104,6 +2151,26 @@ function simulateKneelPlay(state, rng) {
     const prospective = state.ballYardline + yards;
     const touchdown   = prospective >= 100;
     const safety      = prospective <= 0;
+
+
+    // --- Out-of-bounds modeling for completed passes ---
+    let outOfBounds = false;
+    if (completion && !touchdown && !safety) {
+      let pOOB = 0.18; // completions more likely OOB than runs
+
+      const clockIntent = state.clockIntent?.[offenseSide] || null;
+      const late =
+        (state.quarter === 2 && state.clockSec <= 120) ||
+        (state.quarter === 4 && state.clockSec <= 300);
+
+      if (late && scoreDiff <= 0) pOOB += 0.07;
+      if (clockIntent && clockIntent.boundsPreference === "sideline") {
+        pOOB += 0.10;
+      }
+
+      if (rng.next() < pOOB) outOfBounds = true;
+    }
+
   
     const inPlayTime = Number.isFinite(micro.timeElapsed)
       ? clamp(micro.timeElapsed, 3.5, 8.5)
@@ -2147,7 +2214,7 @@ function simulateKneelPlay(state, rng) {
       sack,
       completion,
       incomplete,
-      outOfBounds: false,  // you can wire explicit OOB later if desired
+      outOfBounds,  // you can wire explicit OOB later if desired
       touchdown,
       safety,
       fieldGoalAttempt: false,
