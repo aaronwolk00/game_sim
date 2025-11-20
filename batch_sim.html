@@ -191,11 +191,30 @@
         ypp: new Stat(),
         avgDriveSec: new Stat(),
         playsPerDrive: new Stat(),
+
+        // NEW: timing / play-shape metrics
+        secPerPlay: new Stat(),
+        playsInBounds: new Stat(),
+        playsOOB: new Stat(),
+
         // scoring counts
         td: new Stat(),
         fgMade: new Stat(),
         fgAtt: new Stat(),
         safety: new Stat(),
+
+        // NEW: usage metrics (per game, both teams combined)
+        qbPassAtt: new Stat(),
+        qbPassCmp: new Stat(),
+        rb1RushAtt: new Stat(),
+        rb2RushAtt: new Stat(),
+        wr1RushAtt: new Stat(),
+        wr2RushAtt: new Stat(),
+        wr3RushAtt: new Stat(),
+        te1RushAtt: new Stat(),
+        te2RushAtt: new Stat(),
+        sacks: new Stat(),
+
         // per side
         homePts: new Stat(), awayPts: new Stat(),
         homeYards: new Stat(), awayYards: new Stat(),
@@ -203,10 +222,12 @@
         homeTOPsec: new Stat(), awayTOPsec: new Stat(),
         homeRush: new Stat(), awayRush: new Stat(),
         homePass: new Stat(), awayPass: new Stat(),
+
         // per-game CSV rows
         perGameRows: []
       };
     }
+
 
     // ---------- League loading ----------
     let TEAMS = [];
@@ -242,7 +263,7 @@
     }
 
     // ---------- Per-game extraction ----------
-    function summarizeGame(result){
+    function summarizeGame(result, homeTeam, awayTeam){
       const home = result.teamStats?.home || {plays:0,yardsTotal:0,rushYards:0,passYards:0,turnovers:0};
       const away = result.teamStats?.away || {plays:0,yardsTotal:0,rushYards:0,passYards:0,turnovers:0};
 
@@ -257,6 +278,7 @@
       const tovs = (home.turnovers || 0) + (away.turnovers || 0);
       const ypp = plays > 0 ? yards / plays : 0;
 
+      // Drive-based time of possession
       let totalDriveSec = 0;
       let homeTOP = 0, awayTOP = 0;
       for (const d of (result.drives || [])){
@@ -268,6 +290,7 @@
       const avgDriveSec = drives > 0 ? totalDriveSec / drives : 0;
       const playsPerDrive = drives > 0 ? plays / drives : 0;
 
+      // FG, TD, safety counts
       let fgAtt = 0, fgMade = 0;
       for (const p of (result.plays || [])){
         if (p.fieldGoalAttempt){
@@ -283,6 +306,95 @@
         }
       }
 
+      // ---------- NEW: play-shape metrics ----------
+      let totalClockRunoff = 0;
+      let countedPlays = 0;
+      let playsInBounds = 0;
+      let playsOOB = 0;
+      let sacks = 0;
+
+      for (const p of (result.plays || [])){
+        const pt = p.playType || p.decisionType || '';
+        const isOffSnap =
+          pt === 'run' || pt === 'pass' || pt === 'field_goal' ||
+          pt === 'punt' || pt === 'kneel' || pt === 'spike';
+
+        if (isOffSnap){
+          const runoff = Number(p.clockRunoff);
+          if (Number.isFinite(runoff)){
+            totalClockRunoff += runoff;
+          }
+          countedPlays++;
+
+          if (pt === 'run' || pt === 'pass'){
+            if (p.outOfBounds) playsOOB++;
+            else playsInBounds++;
+          }
+        }
+
+        if (p.sack) sacks++;
+      }
+
+      const secPerPlay = countedPlays > 0 ? totalClockRunoff / countedPlays : 0;
+
+      // ---------- NEW: player usage metrics from playerStats ----------
+      const ps = result.playerStats || {};
+      const players = Object.values(ps);
+
+      const homePlayers = players.filter(p => p.side === 'home');
+      const awayPlayers = players.filter(p => p.side === 'away');
+
+      const byRush = (list, posSet) =>
+        list
+          .filter(p => posSet.has(p.position))
+          .sort((a,b) => (b.rushAtt || 0) - (a.rushAtt || 0));
+
+      const byPass = (list) =>
+        list
+          .filter(p => p.position === 'QB')
+          .sort((a,b) => (b.passAtt || 0) - (a.passAtt || 0));
+
+      const homeQBs = byPass(homePlayers);
+      const awayQBs = byPass(awayPlayers);
+      const homeQB = homeQBs[0] || null;
+      const awayQB = awayQBs[0] || null;
+
+      const qbPassAtt =
+        (homeQB?.passAtt || 0) + (awayQB?.passAtt || 0);
+      const qbPassCmp =
+        (homeQB?.passCmp || 0) + (awayQB?.passCmp || 0);
+
+      const rbPos = new Set(['RB','HB']);
+      const wrPos = new Set(['WR']);
+      const tePos = new Set(['TE']);
+
+      const homeRBs = byRush(homePlayers, rbPos);
+      const awayRBs = byRush(awayPlayers, rbPos);
+      const homeWRs = byRush(homePlayers, wrPos);
+      const awayWRs = byRush(awayPlayers, wrPos);
+      const homeTEs = byRush(homePlayers, tePos);
+      const awayTEs = byRush(awayPlayers, tePos);
+
+      // RB1 / RB2 = top rushers at RB/HB per side
+      const rb1RushAtt =
+        (homeRBs[0]?.rushAtt || 0) + (awayRBs[0]?.rushAtt || 0);
+      const rb2RushAtt =
+        (homeRBs[1]?.rushAtt || 0) + (awayRBs[1]?.rushAtt || 0);
+
+      // WR1–WR3 by rush attempts (jet sweeps, etc.)
+      const wr1RushAtt =
+        (homeWRs[0]?.rushAtt || 0) + (awayWRs[0]?.rushAtt || 0);
+      const wr2RushAtt =
+        (homeWRs[1]?.rushAtt || 0) + (awayWRs[1]?.rushAtt || 0);
+      const wr3RushAtt =
+        (homeWRs[2]?.rushAtt || 0) + (awayWRs[2]?.rushAtt || 0);
+
+      // TE1 / TE2 by rush attempts (usually tiny but measurable)
+      const te1RushAtt =
+        (homeTEs[0]?.rushAtt || 0) + (awayTEs[0]?.rushAtt || 0);
+      const te2RushAtt =
+        (homeTEs[1]?.rushAtt || 0) + (awayTEs[1]?.rushAtt || 0);
+
       return {
         homePts, awayPts,
         pts, yards, rush, pass, plays, drives, tovs, ypp, avgDriveSec, playsPerDrive,
@@ -295,9 +407,27 @@
         homePass: home.passYards || 0,
         awayPass: away.passYards || 0,
         homeTOP, awayTOP,
-        td, fgAtt, fgMade, safety
+        td, fgAtt, fgMade, safety,
+
+        // NEW: play-shape metrics
+        secPerPlay,
+        playsInBounds,
+        playsOOB,
+        sacks,
+
+        // NEW: usage metrics
+        qbPassAtt,
+        qbPassCmp,
+        rb1RushAtt,
+        rb2RushAtt,
+        wr1RushAtt,
+        wr2RushAtt,
+        wr3RushAtt,
+        te1RushAtt,
+        te2RushAtt
       };
     }
+
 
     // ---------- Globals for last batch ----------
     let LAST_ROWS = null;
@@ -339,7 +469,7 @@
           seed: seedBase != null ? (seedBase + i) : undefined
         });
 
-        const g = summarizeGame(res);
+        const g = summarizeGame(res, home, away);
 
         B.totalPts.push(g.pts);
         B.totalYards.push(g.yards);
@@ -352,11 +482,19 @@
         B.avgDriveSec.push(g.avgDriveSec);
         B.playsPerDrive.push(g.playsPerDrive);
 
+        // NEW: timing / shape
+        B.secPerPlay.push(g.secPerPlay);
+        B.playsInBounds.push(g.playsInBounds);
+        B.playsOOB.push(g.playsOOB);
+        B.sacks.push(g.sacks);
+
+        // scoring
         B.td.push(g.td);
         B.fgAtt.push(g.fgAtt);
         B.fgMade.push(g.fgMade);
         B.safety.push(g.safety);
 
+        // per side
         B.homePts.push(g.homePts);
         B.awayPts.push(g.awayPts);
         B.homeYards.push(g.homeYards);
@@ -370,6 +508,17 @@
         B.homeTOPsec.push(g.homeTOP);
         B.awayTOPsec.push(g.awayTOP);
 
+        // NEW: usage
+        B.qbPassAtt.push(g.qbPassAtt);
+        B.qbPassCmp.push(g.qbPassCmp);
+        B.rb1RushAtt.push(g.rb1RushAtt);
+        B.rb2RushAtt.push(g.rb2RushAtt);
+        B.wr1RushAtt.push(g.wr1RushAtt);
+        B.wr2RushAtt.push(g.wr2RushAtt);
+        B.wr3RushAtt.push(g.wr3RushAtt);
+        B.te1RushAtt.push(g.te1RushAtt);
+        B.te2RushAtt.push(g.te2RushAtt);
+
         B.perGameRows.push({
           game: i + 1,
           homeId: home.teamId, awayId: away.teamId,
@@ -382,8 +531,26 @@
           homePlays: g.homePlays, awayPlays: g.awayPlays,
           homeRush: g.homeRush, awayRush: g.awayRush,
           homePass: g.homePass, awayPass: g.awayPass,
-          homeTOPsec: g.homeTOP.toFixed(2), awayTOPsec: g.awayTOP.toFixed(2)
+          homeTOPsec: g.homeTOP.toFixed(2), awayTOPsec: g.awayTOP.toFixed(2),
+
+          // NEW: timing / shape
+          secPerPlay: g.secPerPlay.toFixed(3),
+          playsInBounds: g.playsInBounds,
+          playsOOB: g.playsOOB,
+          sacks: g.sacks,
+
+          // NEW: usage
+          qbPassAtt: g.qbPassAtt,
+          qbPassCmp: g.qbPassCmp,
+          rb1RushAtt: g.rb1RushAtt,
+          rb2RushAtt: g.rb2RushAtt,
+          wr1RushAtt: g.wr1RushAtt,
+          wr2RushAtt: g.wr2RushAtt,
+          wr3RushAtt: g.wr3RushAtt,
+          te1RushAtt: g.te1RushAtt,
+          te2RushAtt: g.te2RushAtt
         });
+
 
         if ((i % 25) === 0){
           await new Promise(r => setTimeout(r, 0));
@@ -420,11 +587,32 @@
       rows.push(rowHTML('Yards/play',   B.ypp.toRow(fmt2)));
       rows.push(rowHTML('Avg drive sec',B.avgDriveSec.toRow(fmt2)));
       rows.push(rowHTML('Plays/drive',  B.playsPerDrive.toRow(fmt2)));
+
+      // NEW: timing / shape
+      rows.push(rowHTML('Seconds per play', B.secPerPlay.toRow(fmt2)));
+      rows.push(rowHTML('Plays in bounds',  B.playsInBounds.toRow(fmt2)));
+      rows.push(rowHTML('Plays out of bounds', B.playsOOB.toRow(fmt2)));
+      rows.push(rowHTML('Sacks', B.sacks.toRow(fmt2)));
+
+      // scoring
       rows.push(rowHTML('FG attempts',  B.fgAtt.toRow(fmt2)));
       rows.push(rowHTML('FG made',      B.fgMade.toRow(fmt2)));
       rows.push(rowHTML('Touchdowns',   B.td.toRow(fmt2)));
       rows.push(rowHTML('Safeties',     B.safety.toRow(fmt2)));
+
+      // NEW: usage
+      rows.push(rowHTML('QB pass attempts',     B.qbPassAtt.toRow(fmt2), 'Both teams combined'));
+      rows.push(rowHTML('QB completions',       B.qbPassCmp.toRow(fmt2), 'Both teams combined'));
+      rows.push(rowHTML('RB1 rush attempts',    B.rb1RushAtt.toRow(fmt2), 'Top RB per side, summed'));
+      rows.push(rowHTML('RB2 rush attempts',    B.rb2RushAtt.toRow(fmt2), 'Second RB per side, summed'));
+      rows.push(rowHTML('WR1 rush attempts',    B.wr1RushAtt.toRow(fmt2), 'Top WR per side, summed'));
+      rows.push(rowHTML('WR2 rush attempts',    B.wr2RushAtt.toRow(fmt2), 'Second WR per side, summed'));
+      rows.push(rowHTML('WR3 rush attempts',    B.wr3RushAtt.toRow(fmt2), 'Third WR per side, summed'));
+      rows.push(rowHTML('TE1 rush attempts',    B.te1RushAtt.toRow(fmt2), 'Top TE per side, summed'));
+      rows.push(rowHTML('TE2 rush attempts',    B.te2RushAtt.toRow(fmt2), 'Second TE per side, summed'));
+
       aggBody.innerHTML = rows.join('');
+
 
       const homeTOPavg = B.homeTOPsec.mean;
       const awayTOPavg = B.awayTOPsec.mean;
