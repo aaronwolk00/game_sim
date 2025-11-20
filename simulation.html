@@ -46,9 +46,9 @@
     }
 
     main {
-      padding: 24px 4vw 32px;
-      max-width: 1760px;
-      width: 96vw;
+      padding: 20px 2.2vw 28px;
+      max-width: 1920px;
+      width: min(98vw, 1920px);
       margin: 0 auto;
     }
 
@@ -160,16 +160,33 @@
 
     .layout-grid {
       display: grid;
-      grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.35fr);
-      gap: 20px;
+      grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.65fr) minmax(0, 1.05fr);
+      gap: 18px;
       align-items: start;
     }
-
-    @media (max-width: 960px) {
+    @media (max-width: 1260px) {
       .layout-grid {
         grid-template-columns: minmax(0, 1fr);
       }
     }
+
+    /* Right rail keeps context visible; tables are sized for a rail */
+    #panel-right-rail { position: sticky; top: 12px; align-self: start; }
+
+    #drive-summary-wrapper,
+    #team-stats-wrapper { max-height: clamp(240px, 31vh, 480px); }
+
+    #play-log-container,
+    .log-container { max-height: clamp(520px, 68vh, 900px); }
+
+    #panel-right-rail table { font-size: 0.78rem; }
+    #panel-right-rail th, #panel-right-rail td { padding: 4px 8px; }
+
+    /* Slightly larger scoreline still fits the wider middle column */
+    .score-main .scoreline { font-size: 2.3rem; }
+
+    /* (Already present) custom scrollbars apply to rail as well */
+
 
     .panel {
       background: radial-gradient(circle at top left, rgba(255, 255, 255, 0.06), transparent 55%),
@@ -718,7 +735,8 @@
     </header>
 
     <section class="layout-grid" aria-label="Simulation controls and game summary">
-      <!-- LEFT: Controls + scoreboard + game state -->
+
+      <!-- LEFT COLUMN: Controls + scoreboard + game state -->
       <section class="panel" id="panel-controls">
         <div class="panel-header">
           <div class="panel-title">
@@ -756,28 +774,15 @@
             <label>Simulation Mode</label>
             <div id="sim-mode-group" class="radio-group">
               <label class="radio-pill active">
-                <input
-                  type="radio"
-                  name="sim-mode"
-                  value="full-game"
-                  checked
-                />
+                <input type="radio" name="sim-mode" value="full-game" checked />
                 Full Game
               </label>
               <label class="radio-pill">
-                <input
-                  type="radio"
-                  name="sim-mode"
-                  value="drive-step"
-                />
+                <input type="radio" name="sim-mode" value="drive-step" />
                 Drive-by-drive
               </label>
               <label class="radio-pill">
-                <input
-                  type="radio"
-                  name="sim-mode"
-                  value="play-step"
-                />
+                <input type="radio" name="sim-mode" value="play-step" />
                 Play-by-play
               </label>
             </div>
@@ -801,37 +806,37 @@
         </div>
 
         <div class="section-divider"></div>
+
         <!-- Player Box Score -->
         <div class="field-group">
-            <label>Player Box Score</label>
-            <div class="table-wrapper" id="player-stats-wrapper">
+          <label>Player Box Score</label>
+          <div class="table-wrapper" id="player-stats-wrapper">
             <table id="player-stats-table">
-                <thead>
+              <thead>
                 <tr>
-                    <th>Player</th>
-                    <th>Team</th>
-                    <th>Pos</th>
-                    <th>C/Att</th>
-                    <th>PYds</th>
-                    <th>PTD</th>
-                    <th>INT</th>
-                    <th>RAtt</th>
-                    <th>RYds</th>
-                    <th>RTD</th>
-                    <th>Tgt</th>
-                    <th>Rec</th>
-                    <th>RecYds</th>
-                    <th>RecTD</th>
-                    <th>FG</th>
-                    <th>XP</th>
-                    <th>Punts</th>
+                  <th>Player</th>
+                  <th>Team</th>
+                  <th>Pos</th>
+                  <th>C/Att</th>
+                  <th>PYds</th>
+                  <th>PTD</th>
+                  <th>INT</th>
+                  <th>RAtt</th>
+                  <th>RYds</th>
+                  <th>RTD</th>
+                  <th>Tgt</th>
+                  <th>Rec</th>
+                  <th>RecYds</th>
+                  <th>RecTD</th>
+                  <th>FG</th>
+                  <th>XP</th>
+                  <th>Punts</th>
                 </tr>
-                </thead>
-                <tbody></tbody>
+              </thead>
+              <tbody></tbody>
             </table>
-            </div>
+          </div>
         </div>
-        
 
         <!-- Scoreboard -->
         <div class="scoreboard" aria-label="Scoreboard">
@@ -893,12 +898,8 @@
           </summary>
           <div class="debug-body" id="debug-meta-body">
             <div class="chip-row">
-              <span class="chip" id="chip-layer-meta">
-                Layers: 0 → 1 → 2 → 3 → Sim
-              </span>
-              <span class="chip" id="chip-sim-mode-meta">
-                Mode: Full Game
-              </span>
+              <span class="chip" id="chip-layer-meta">Layers: 0 → 1 → 2 → 3 → Sim</span>
+              <span class="chip" id="chip-sim-mode-meta">Mode: Full Game</span>
             </div>
             <div class="stack">
               <span class="text-muted" id="debug-engine-line">
@@ -909,76 +910,25 @@
         </details>
       </section>
 
-      <!-- RIGHT: Drives / stats / log -->
+      <!-- MIDDLE COLUMN: Play-by-Play only -->
       <section class="panel" id="panel-analytics">
         <div class="panel-header">
           <div class="panel-title">
-            <span class="label">Game Flow & Analytics</span>
+            <span class="label">Play-by-Play</span>
           </div>
           <div class="panel-header-right">
-            <span class="badge">Play-by-play</span>
+            <span class="badge">Live</span>
           </div>
         </div>
 
         <div class="stack">
-          <!-- Drive summary & team stats -->
-          <div class="horizontal-stack">
-            <div class="field-group" style="flex: 1 1 220px;">
-              <label>Drive Summary</label>
-              <div class="table-wrapper" id="drive-summary-wrapper">
-                <table id="drive-summary-table">
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>Team</th>
-                      <th>Result</th>
-                      <th>Plays</th>
-                      <th>Yards</th>
-                      <th>Time</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <!-- JS will populate drive rows -->
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div class="field-group" style="flex: 1 1 220px;">
-              <label>Team Stats (Live)</label>
-              <div class="table-wrapper" id="team-stats-wrapper">
-                <table id="team-stats-table">
-                  <thead>
-                    <tr>
-                      <th>Team</th>
-                      <th>Yards</th>
-                      <th>Y/P</th>
-                      <th>Rush</th>
-                      <th>Pass</th>
-                      <th>TO</th>
-                      <th>EPA*</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <!-- JS will populate team stat rows -->
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-
-          <div class="section-divider"></div>
-
-          <!-- Play-by-play log -->
           <div class="field-group">
             <label>Play Log</label>
             <div class="log-container" id="play-log-container" aria-live="polite">
-              <!-- JS will append .log-entry elements -->
               <div class="log-entry">
                 <div class="log-meta">Pre-game</div>
                 <div class="log-text text-muted">
-                  Select teams and run a simulation to see detailed play-by-play
-                  output here.
+                  Select teams and run a simulation to see detailed play-by-play output here.
                 </div>
               </div>
             </div>
@@ -998,15 +948,69 @@
               </div>
               <p class="text-muted" id="debug-micro-text">
                 The JS engine can emit summary statistics for key micro-models
-                (time to pressure, separation, ball placement error,
-                run-fit outcomes, etc.). Those summaries can be rendered here
-                in text or sparkline form without changing the core simulation
-                logic.
+                (time to pressure, separation, ball placement error, run-fit outcomes, etc.).
+                Those summaries can be rendered here without changing the core simulation logic.
               </p>
             </div>
           </details>
         </div>
       </section>
+
+      <!-- RIGHT COLUMN: Drive Summary + Team Stats (sticky rail) -->
+      <section class="panel" id="panel-right-rail">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span class="label">Game Flow & Team Stats</span>
+          </div>
+          <div class="panel-header-right">
+            <span class="badge">Summary</span>
+          </div>
+        </div>
+
+        <div class="stack">
+          <div class="horizontal-stack" style="align-items: stretch;">
+            <div class="field-group" style="flex: 1 1 220px;">
+              <label>Drive Summary</label>
+              <div class="table-wrapper" id="drive-summary-wrapper">
+                <table id="drive-summary-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Team</th>
+                      <th>Result</th>
+                      <th>Plays</th>
+                      <th>Yards</th>
+                      <th>Time</th>
+                    </tr>
+                  </thead>
+                  <tbody><!-- JS populates --></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="field-group" style="flex: 1 1 220px;">
+              <label>Team Stats (Live)</label>
+              <div class="table-wrapper" id="team-stats-wrapper">
+                <table id="team-stats-table">
+                  <thead>
+                    <tr>
+                      <th>Team</th>
+                      <th>Yards</th>
+                      <th>Y/P</th>
+                      <th>Rush</th>
+                      <th>Pass</th>
+                      <th>TO</th>
+                      <th>EPA*</th>
+                    </tr>
+                  </thead>
+                  <tbody><!-- JS populates --></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
     </section>
   </main>
 
@@ -1016,6 +1020,7 @@
     <code>random_models.js</code>, <code>micro_engine.js</code>,
     <code>game_engine.js</code>).
   </footer>
+
 
   <!-- Top-level module: imports other modules and wires up the UI. -->
   <script type="module">
