@@ -1162,8 +1162,8 @@ function clockManager(state, preState, outcomeOrNull, offenseSide, defenseSide, 
 
   // Pace target (seconds between snaps) baseline
   let paceTarget = isLateGameHurry(state, offenseSide)
-    ? (state.cfg.betweenPlayHurryMin + state.cfg.betweenPlayHurryMax) * 0.5
-    : (state.cfg.betweenPlayNormalMin + state.cfg.betweenPlayNormalMax) * 0.5;
+    ? (state.cfg.betweenPlayHurryMin + state.cfg.betweenPlayHurryMax) * 0.35
+    : (state.cfg.betweenPlayNormalMin + state.cfg.betweenPlayNormalMax) * 0.35;
 
   // Milk clock if leading late in the 4th
   state._milkClock = false;
@@ -1615,8 +1615,8 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
   
     // ---------------- Base run/pass tendency ----------------
     // Pass advantage relative to coverage -> baseline pass probability
-    const passAdv = (offPass - defCover) / 15;
-    let basePassProb = logistic(passAdv); // ~0.3–0.7 most of the time
+    const passAdv = (offPass - defCover) / 18;
+    let basePassProb = logistic(passAdv) - 0.06; // ~0.3–0.7 most of the time
   
     // Situation tweaks
     const isObviousPass =
@@ -1626,20 +1626,20 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
     const isObviousRun =
       distance <= 2 && down <= 3 && yardline <= 80;
   
-    if (isObviousPass) basePassProb = Math.max(basePassProb, 0.70);
-    if (isObviousRun)  basePassProb = Math.min(basePassProb, 0.30);
+    if (isObviousPass) basePassProb = Math.max(basePassProb, 0.65);
+    if (isObviousRun)  basePassProb = Math.min(basePassProb, 0.32);
   
     // Trailing late → throw more
     if (quarter >= 4 && clockSec <= 120 && scoreDiff < 0) {
-      basePassProb = Math.max(basePassProb, 0.80);
+      basePassProb = Math.max(basePassProb, 0.75);
     }
   
     // Momentum tilt on non-4th down:
     // Hot offense (m>0) → a bit more pass-happy, cold (m<0) → lean run.
-    basePassProb += 0.05 * m;
+    basePassProb += 0.03 * m;
   
     // Cap extremes a bit for variety
-    basePassProb = clamp(basePassProb, 0.25, 0.80);
+    basePassProb = clamp(basePassProb, 0.30, 0.72);
   
     // ---------------- 4th down decisions ----------------
     if (down === 4) {
@@ -2080,11 +2080,26 @@ function simulateKneelPlay(state, rng) {
     const fumble       = fumbleRaw       && (rng.next() < 0.45);
     const turnover     = interception || fumble;
   
-    const sack       = sackRaw;
+    const sack       = sackRaw && (rng.next() < 0.45);
     const completion = completionRaw && !interception;
   
     // Incomplete if we didn't complete, and no INT/sack/fumble
     const incomplete = !completion && !interception && !sack && !fumble;
+
+    // Completion boost: occasionally turn an "incomplete" into a
+    // short checkdown completion, mostly affecting % but not much yardage.
+    if (incomplete && !sack && !interception && !fumble) {
+      const boost = 0.22; // tune 0.18–0.25 if needed
+      if (rng.next() < boost) {
+        completion = true;
+        incomplete = false;
+
+        // Small checkdown gain, capped so YPA doesn't blow up
+        const extra = clamp(Math.round(normal(rng, 3, 2)), 0, 7);
+        yards = clamp(yards + extra, -10, maxGain);
+      }
+    }
+
   
     const prospective = state.ballYardline + yards;
     const touchdown   = prospective >= 100;
