@@ -234,6 +234,31 @@
         display: none; /* hide last name on very small screens */
       }
     }
+
+    /* === Sortable roster tables & light interactivity === */
+    table.roster-table.sortable th {
+      cursor: pointer;
+      position: relative;
+      user-select: none;
+    }
+    table.roster-table th .sort-icon {
+      margin-left: 6px;
+      font-size: 10px;
+      opacity: .55;
+    }
+    table.roster-table th[aria-sort="ascending"] .sort-icon::after { content: "▲"; }
+    table.roster-table th[aria-sort="descending"] .sort-icon::after { content: "▼"; }
+    table.roster-table th[aria-sort="none"] .sort-icon::after { content: "◇"; opacity: .35; }
+
+    /* Click-to-select a row */
+    table.roster-table tbody tr:hover {
+      background: rgba(34,197,94,0.12);
+    }
+    table.roster-table tbody tr.row-selected {
+      outline: 2px solid var(--accent);
+      background: var(--accent-soft);
+    }
+
   </style>
 </head>
 <body>
@@ -467,118 +492,202 @@
     }
 
     function renderTeams(teams, filterText) {
-      clearTeamsUI();
-      const filter = String(filterText || '').trim().toLowerCase();
+  clearTeamsUI();
+  const filter = String(filterText || '').trim().toLowerCase();
 
-      let visibleCount = 0;
+  let visibleCount = 0;
 
-      for (const team of teams) {
-        const name = team.teamName || '';
-        const id = team.teamId || '';
-        const hay = `${name} ${id}`.toLowerCase();
-        if (filter && !hay.includes(filter)) {
-          continue;
+  for (const team of teams) {
+    const name = team.teamName || '';
+    const id = team.teamId || '';
+    const hay = `${name} ${id}`.toLowerCase();
+    if (filter && !hay.includes(filter)) continue;
+
+    visibleCount++;
+
+    // Keep a working copy we can sort without mutating the source
+    let currentRows = team.players.slice();
+
+    // Card shell
+    const section = document.createElement('details');
+    section.className = 'team-card';
+    if (!filter && visibleCount === 1) section.open = true;
+
+    // Header
+    const summary = document.createElement('summary');
+    summary.className = 'team-header';
+
+    const left = document.createElement('div');
+    left.className = 'team-name-block';
+
+    const nameSpan = document.createElement('div');
+    nameSpan.className = 'team-name';
+    nameSpan.textContent = name;
+
+    const metaSpan = document.createElement('div');
+    metaSpan.className = 'team-meta';
+    const idLabel = id ? id : '—';
+    metaSpan.textContent = `ID: ${idLabel} • ${team.players.length} players`;
+
+    left.appendChild(nameSpan);
+    left.appendChild(metaSpan);
+
+    const right = document.createElement('div');
+    right.className = 'roster-meta';
+    right.textContent = 'Click to toggle roster';
+
+    summary.appendChild(left);
+    summary.appendChild(right);
+    section.appendChild(summary);
+
+    // Table wrapper
+    const wrapper = document.createElement('div');
+    wrapper.className = 'roster-table-wrapper';
+
+    if (!team.players.length) {
+      const p = document.createElement('p');
+      p.className = 'empty-message';
+      p.textContent = 'No players found for this team.';
+      wrapper.appendChild(p);
+    } else {
+      // Build table
+      const table = document.createElement('table');
+      table.className = 'roster-table sortable';
+      table.innerHTML = `
+        <thead>
+          <tr>
+            <th data-key="position">Pos<span class="sort-icon"></span></th>
+            <th data-key="depth"   >Depth<span class="sort-icon"></span></th>
+            <th data-key="first_name">First<span class="sort-icon"></span></th>
+            <th data-key="last_name" >Last<span class="sort-icon"></span></th>
+            <th data-key="rating_overall">Ovr<span class="sort-icon"></span></th>
+            <th data-key="rating_pos"    >Pos&nbsp;Rt<span class="sort-icon"></span></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      `;
+      const tbody = table.querySelector('tbody');
+
+      // Position order for "football sense" sorting when clicking Pos
+      const POS_ORDER = { QB:0, RB:1, HB:1, FB:2, WR:3, TE:4, OL:5, DL:6, LB:7, DB:8, CB:8, S:8, K:9, P:10 };
+
+      // Helpers for sorting
+      const getters = {
+        position: (r) => String(r.position || '').toUpperCase(),
+        depth: (r) => Number(r.depth),
+        first_name: (r) => String(r.first_name || ''),
+        last_name:  (r) => String(r.last_name || ''),
+        rating_overall: (r) => Number(r.rating_overall),
+        rating_pos:     (r) => Number(r.rating_pos),
+      };
+
+      function cmpValues(a, b, key, dir) {
+        // Special-case position using ranking table
+        if (key === 'position') {
+          const ra = POS_ORDER[a] ?? 999, rb = POS_ORDER[b] ?? 999;
+          if (ra !== rb) return (ra - rb) * (dir === 'asc' ? 1 : -1);
+          // tie-break alphabetically
+          return a.localeCompare(b) * (dir === 'asc' ? 1 : -1);
         }
 
-        visibleCount++;
+        const na = Number(a), nb = Number(b);
+        const aNum = Number.isFinite(na), bNum = Number.isFinite(nb);
 
-        const section = document.createElement('details');
-        section.className = 'team-card';
-
-        if (!filter && visibleCount === 1) {
-          section.open = true;
+        if (aNum && bNum) {
+          return (na - nb) * (dir === 'asc' ? 1 : -1);
         }
+        // String compare fallback
+        return String(a).localeCompare(String(b), undefined, { sensitivity: 'base' }) * (dir === 'asc' ? 1 : -1);
+      }
 
-        const summary = document.createElement('summary');
-        summary.className = 'team-header';
+      function renderBody(list) {
+        tbody.innerHTML = '';
+        for (const row of list) {
+          const tr = document.createElement('tr');
+          const pos = String(row.position || '').toUpperCase();
+          const depth = row.depth || '';
+          const fn = row.first_name || '';
+          const ln = row.last_name || '';
+          const ovr = formatRating(row.rating_overall);
+          const posRt = formatRating(row.rating_pos);
 
-        const left = document.createElement('div');
-        left.className = 'team-name-block';
-
-        const nameSpan = document.createElement('div');
-        nameSpan.className = 'team-name';
-        nameSpan.textContent = name;
-
-        const metaSpan = document.createElement('div');
-        metaSpan.className = 'team-meta';
-        const idLabel = id ? id : '—';
-        metaSpan.textContent = `ID: ${idLabel} • ${team.players.length} players`;
-
-        left.appendChild(nameSpan);
-        left.appendChild(metaSpan);
-
-        const right = document.createElement('div');
-        right.className = 'roster-meta';
-        right.textContent = 'Click to toggle roster';
-
-        summary.appendChild(left);
-        summary.appendChild(right);
-        section.appendChild(summary);
-
-        const wrapper = document.createElement('div');
-        wrapper.className = 'roster-table-wrapper';
-
-        if (!team.players.length) {
-          const p = document.createElement('p');
-          p.className = 'empty-message';
-          p.textContent = 'No players found for this team.';
-          wrapper.appendChild(p);
-        } else {
-          const table = document.createElement('table');
-          table.className = 'roster-table';
-          table.innerHTML = `
-            <thead>
-              <tr>
-                <th>Pos</th>
-                <th>Depth</th>
-                <th>First</th>
-                <th>Last</th>
-                <th>Ovr</th>
-                <th>Pos&nbsp;Rt</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
+          tr.innerHTML = `
+            <td>${pos}</td>
+            <td>${depth}</td>
+            <td>${fn}</td>
+            <td>${ln}</td>
+            <td>${ovr}</td>
+            <td>${posRt}</td>
           `;
-          const tbody = table.querySelector('tbody');
-
-          for (const row of team.players) {
-            const tr = document.createElement('tr');
-            const pos = String(row.position || '').toUpperCase();
-            const depth = row.depth || '';
-            const fn = row.first_name || '';
-            const ln = row.last_name || '';
-            const ovr = formatRating(row.rating_overall);
-            const posRt = formatRating(row.rating_pos);
-
-            tr.innerHTML = `
-              <td>${pos}</td>
-              <td>${depth}</td>
-              <td>${fn}</td>
-              <td>${ln}</td>
-              <td>${ovr}</td>
-              <td>${posRt}</td>
-            `;
-            tbody.appendChild(tr);
-          }
-
-          wrapper.appendChild(table);
+          tbody.appendChild(tr);
         }
-
-        section.appendChild(wrapper);
-        dom.teamsContainer.appendChild(section);
       }
 
-      if (visibleCount === 0) {
-        const p = document.createElement('p');
-        p.className = 'empty-message';
-        p.textContent = filter
-          ? 'No teams match this filter.'
-          : 'No teams found in roster data.';
-        dom.teamsContainer.appendChild(p);
-      }
+      // Initial body render (honors the pre-sort you already do in buildTeamsFromRows)
+      renderBody(currentRows);
 
-      return visibleCount;
+      // Click-to-select a row (subtle interactivity)
+      tbody.addEventListener('click', (e) => {
+        const tr = e.target.closest('tr');
+        if (!tr) return;
+        tbody.querySelectorAll('.row-selected').forEach(el => el.classList.remove('row-selected'));
+        tr.classList.add('row-selected');
+      });
+
+      // Sorting state per table
+      let sortKey = null;          // e.g., 'rating_overall'
+      let sortDir = 'asc';         // 'asc' | 'desc'
+
+      // Wire header clicks
+      const ths = table.querySelectorAll('thead th');
+      ths.forEach(th => th.setAttribute('aria-sort', 'none'));
+
+      ths.forEach((th) => {
+        th.addEventListener('click', () => {
+          const key = th.dataset.key;
+          if (!key || !getters[key]) return;
+
+          // Toggle direction if same key; otherwise default asc
+          sortDir = (sortKey === key && sortDir === 'asc') ? 'desc' : 'asc';
+          sortKey = key;
+
+          // Visual state
+          ths.forEach(t => t.setAttribute('aria-sort', t === th ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'));
+
+          // Sort a fresh copy of the team's rows (stable-ish by adding index)
+          const withIdx = currentRows.map((r, i) => ({ r, i }));
+          withIdx.sort((A, B) => {
+            const a = getters[key](A.r);
+            const b = getters[key](B.r);
+            const primary = cmpValues(a, b, key, sortDir);
+            if (primary !== 0) return primary;
+            // stable tie-breaker: original index
+            return (A.i - B.i) * (sortDir === 'asc' ? 1 : -1);
+          });
+
+          currentRows = withIdx.map(x => x.r);
+          renderBody(currentRows);
+        });
+      });
+
+      wrapper.appendChild(table);
     }
+
+    section.appendChild(wrapper);
+    dom.teamsContainer.appendChild(section);
+  }
+
+  if (visibleCount === 0) {
+    const p = document.createElement('p');
+    p.className = 'empty-message';
+    p.textContent = filter
+      ? 'No teams match this filter.'
+      : 'No teams found in roster data.';
+    dom.teamsContainer.appendChild(p);
+  }
+
+  return visibleCount;
+}
 
     // ----------------------------- Main init ---------------------------------
     async function bootstrap() {
