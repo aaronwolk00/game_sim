@@ -1204,25 +1204,22 @@ function simulateDrive(state) {
 
   
   
-// -----------------------------------------------------------------------------
-// Apply outcome to game state
-// -----------------------------------------------------------------------------
-function applyPlayOutcomeToState(state, outcome) {
+  // -----------------------------------------------------------------------------
+  // Apply outcome to game state
+  // -----------------------------------------------------------------------------
+  function applyPlayOutcomeToState(state, outcome, preState) {
     const { offenseSide, defenseSide, offenseTeam } = getOffenseDefense(state);
     const rng = state.rng;
   
     const playType =
       outcome.playType ||
-      (outcome.fieldGoalAttempt
-        ? "field_goal"
-        : outcome.punt
-        ? "punt"
-        : "run");
+      (outcome.fieldGoalAttempt ? "field_goal" : outcome.punt ? "punt" : "run");
   
-    const isRun          = playType === "run";
-    const isPass         = playType === "pass";
-    const isFG           = !!outcome.fieldGoalAttempt;
-    const isPunt         = !!outcome.punt;
+    const isRun  = playType === "run";
+    const isPass = playType === "pass";
+    const isFG   = !!outcome.fieldGoalAttempt;
+    const isPunt = !!outcome.punt;
+  
     const isCompletion   = !!outcome.completion;
     const isSack         = !!outcome.sack;
     const isInterception = !!outcome.interception;
@@ -1241,64 +1238,35 @@ function applyPlayOutcomeToState(state, outcome) {
     const isChangeOfPossessionPlay =
       isPunt || isTurnover || outcome.safety || (isFG && !outcome.fieldGoalGood);
   
-    // ---------------------------------------------------------------------------
-    // Clock: micro time (snap→whistle) + between-play runoff
-    //
-    // Important realism bits:
-    // - Game clock does NOT run between drives on scores or changes of possession.
-    //   So we only burn the actual play itself in those cases.
-    // - Incompletions / late out-of-bounds also stop the clock after the play.
-    // - Everything else gets snap→whistle + huddle / presnap runoff.
-    // ---------------------------------------------------------------------------
+    // ---------------- Clock: in-play + between-play (contextual) ----------------
     const prevClock = state.clockSec;
   
-    let playTime = Number.isFinite(outcome.timeElapsed)
-      ? outcome.timeElapsed
-      : 5;
+    // Prefer simulator-provided in-play time; else estimate
+    let inPlayTime = Number.isFinite(outcome.inPlayTime)
+      ? outcome.inPlayTime
+      : estimateInPlayTime(
+          { playType, sack: isSack, incomplete: isIncompletion },
+          rng
+        );
   
     // Snap→whistle sanity clamp
-    playTime = clamp(playTime, 3, 8.5);
+    inPlayTime = clamp(inPlayTime, 3, 8.5);
   
-    // Late-clock windows where going out of bounds keeps the clock stopped
-    const under2FirstHalf =
-      state.quarter === 2 && prevClock <= 120;
-    const under5Fourth =
-      state.quarter === 4 && prevClock <= 300;
-    const clockStopsWindow = under2FirstHalf || under5Fourth;
-  
-    // Crude “went out of bounds” flag for late windows
-    let wentOutOfBounds = false;
-    if (clockStopsWindow && (isRun || (isPass && isCompletion))) {
-      const oobProb = isPass ? 0.30 : 0.15; // more sideline throws than sideline runs
-      if (rng.next() < oobProb) {
-        wentOutOfBounds = true;
-      }
-    }
-  
-    // Clock stops after:
-    // - incompletions
-    // - late out-of-bounds (in special windows)
-    // - any scoring play
-    // - any change of possession (punt / turnover / safety / missed FG)
+    // Clock stops until next snap after: incompletion, explicit out of bounds,
+    // any score, any change of possession (punt/turnover/safety/missed FG)
     const clockStopsAfterPlay =
-      isIncompletion || wentOutOfBounds || isScorePlay || isChangeOfPossessionPlay;
+      isIncompletion ||
+      !!outcome.outOfBounds ||
+      isScorePlay ||
+      isChangeOfPossessionPlay;
   
-    let provisionalRunoff;
-    if (clockStopsAfterPlay) {
-      // Only the play itself burns clock
-      provisionalRunoff = clamp(playTime, 4, 8);
-    } else {
-      // Normal in-bounds play: snap→whistle + huddle/sub/presnap runoff
-      const between = rng.nextRange(22, 32);
-      provisionalRunoff = playTime + between;
-      // Net: typically ~27–40s per in-bounds play
-      provisionalRunoff = clamp(provisionalRunoff, 26, 45);
-    }
+    // Between-play runoff (0 when clock is stopped to the next snap)
+    const between = clockStopsAfterPlay
+      ? 0
+      : estimateBetweenPlayTime(state, outcome, preState, rng, offenseSide);
   
-    // Apply runoff, then enforce 2-minute warnings
-    let newClock = Math.max(0, prevClock - provisionalRunoff);
-  
-    // 2-minute warning in 2Q and 4Q: if a play would cross 2:00, stop at 2:00
+    // Apply total runoff, enforce 2:00 warnings
+    let newClock = Math.max(0, prevClock - (inPlayTime + between));
     if (
       (state.quarter === 2 || state.quarter === 4) &&
       prevClock > 120 &&
@@ -1308,19 +1276,17 @@ function applyPlayOutcomeToState(state, outcome) {
     }
   
     const clockRunoff = prevClock - newClock;
-    outcome.clockRunoff = clockRunoff;      // <-- key for drives/TOP
+    outcome.clockRunoff = clockRunoff; // used by drives/TOP
     state.clockSec = newClock;
   
-    // ---------------------------------------------------------------------------
+    // ------------------------------- Results ------------------------------------
+  
     // Field goal
-    // ---------------------------------------------------------------------------
     if (isFG) {
       if (outcome.fieldGoalGood) {
-        if (offenseSide === "home") {
-          state.score.home += 3;
-        } else {
-          state.score.away += 3;
-        }
+        if (offenseSide === "home") state.score.home += 3;
+        else                        state.score.away += 3;
+  
         state.events.push({
           type: "score",
           subtype: "field_goal",
@@ -1332,7 +1298,7 @@ function applyPlayOutcomeToState(state, outcome) {
         });
       }
   
-      // After FG, drive is over; next drive's possession/spot decided in simulateDrive
+      // Drive ends; next drive kickoff handled in simulateDrive
       state.down = 1;
       state.distance = 10;
       outcome.endOfDrive = true;
@@ -1340,21 +1306,19 @@ function applyPlayOutcomeToState(state, outcome) {
       return;
     }
   
-    // ---------------------------------------------------------------------------
-    // Punt – approximate field position and flip field
-    // ---------------------------------------------------------------------------
+    // Punt – flip field
     if (isPunt) {
-      const los = state.ballYardline; // line of scrimmage, 0–100 from offense goal
+      const los = state.ballYardline; // 0–100 from offense goal
       const distance = Math.max(0, outcome.puntDistance || 0);
       const landing = los + distance;
   
       state.possession = offenseSide === "home" ? "away" : "home";
   
       if (landing >= 100) {
-        // Punt into end zone → touchback to receiving team's 20
+        // Punt into end zone → touchback to receiving 20
         state.ballYardline = 20;
       } else {
-        // Flip field relative to receiving team
+        // Flip field for receiving team
         state.ballYardline = Math.max(1, 100 - Math.round(landing));
       }
   
@@ -1365,18 +1329,14 @@ function applyPlayOutcomeToState(state, outcome) {
       return;
     }
   
-    // ---------------------------------------------------------------------------
-    // Normal offensive play (run / pass)
-    // ---------------------------------------------------------------------------
-    let newYard = state.ballYardline + outcome.yardsGained;
+    // Normal offensive play (run/pass)
+    let newYard = state.ballYardline + (outcome.yardsGained || 0);
   
-    // Safety (ball carrier tackled in own end zone)
+    // Safety
     if (newYard <= 0) {
-      if (defenseSide === "home") {
-        state.score.home += 2;
-      } else {
-        state.score.away += 2;
-      }
+      if (defenseSide === "home") state.score.home += 2;
+      else                        state.score.away += 2;
+  
       state.events.push({
         type: "score",
         subtype: "safety",
@@ -1387,10 +1347,9 @@ function applyPlayOutcomeToState(state, outcome) {
         score: cloneScore(state.score),
       });
   
-      // After a safety, the scoring team gets the ball.
-      // Approximate free kick by starting at own 25.
+      // Possession flips; free kick/drive start handled by simulateDrive
       state.possession = defenseSide;
-      state.ballYardline = 25;
+      state.ballYardline = 25; // temporary spot; simulateDrive will set up free kick/touchback semantics
       state.down = 1;
       state.distance = 10;
       outcome.safety = true;
@@ -1399,13 +1358,11 @@ function applyPlayOutcomeToState(state, outcome) {
       return;
     }
   
-    // Touchdown (6 pts only – PAT handled by handlePAT in simulateDrive)
+    // Touchdown (PAT handled later in simulateDrive → handlePAT)
     if (newYard >= 100) {
-      if (offenseSide === "home") {
-        state.score.home += 6;
-      } else {
-        state.score.away += 6;
-      }
+      if (offenseSide === "home") state.score.home += 6;
+      else                        state.score.away += 6;
+  
       state.events.push({
         type: "score",
         subtype: "touchdown",
@@ -1422,14 +1379,10 @@ function applyPlayOutcomeToState(state, outcome) {
       return;
     }
   
-    // ---------------------------------------------------------------------------
     // Turnover (non-FG / non-punt)
-    // ---------------------------------------------------------------------------
     if (isTurnover) {
-      state.possession =
-        offenseSide === "home" ? "away" : "home";
-  
-      // Approximate spot as where play ended, flipped for new offense
+      state.possession = offenseSide === "home" ? "away" : "home";
+      // New offense gets ball where play ended, flipped to their perspective
       state.ballYardline = 100 - clamp(newYard, 1, 99);
       state.down = 1;
       state.distance = 10;
@@ -1447,13 +1400,10 @@ function applyPlayOutcomeToState(state, outcome) {
       return;
     }
   
-    // ---------------------------------------------------------------------------
-    // No score, no turnover: normal advancement
-    // ---------------------------------------------------------------------------
+    // No score, no turnover: advance ball & handle series
     state.ballYardline = clamp(newYard, 1, 99);
   
-    const yardsToFirst = state.distance - outcome.yardsGained;
-  
+    const yardsToFirst = state.distance - (outcome.yardsGained || 0);
     if (yardsToFirst <= 0) {
       // First down
       state.down = 1;
@@ -1461,10 +1411,8 @@ function applyPlayOutcomeToState(state, outcome) {
     } else {
       if (state.down === 4) {
         // Turnover on downs
-        state.possession =
-          offenseSide === "home" ? "away" : "home";
-        state.ballYardline =
-          100 - clamp(state.ballYardline, 1, 99);
+        state.possession = offenseSide === "home" ? "away" : "home";
+        state.ballYardline = 100 - clamp(state.ballYardline, 1, 99);
         state.down = 1;
         state.distance = 10;
         outcome.endOfDrive = true;
@@ -1485,6 +1433,7 @@ function applyPlayOutcomeToState(state, outcome) {
   
     state.playId += 1;
   }
+  
   
   
   
