@@ -145,13 +145,14 @@ class RNG {
       return 0;
     }
   
-    // Out-of-bounds: 0 inside 2:00; small restart runoff outside 2:00
-    if (outcome.outOfBounds) {
-      if (isTwoMinute(state)) return 0;
-      return Math.round(rng.nextRange(cfg.oobRestartMin, cfg.oobRestartMax));
-    }
+    // Clock manager plan (if not set yet, compute a lightweight default)
+    const plan = state._clockPlan || clockManager(
+      state, preState, outcome, offenseSide,
+      offenseSide === "home" ? "away" : "home",
+      { clockStopsAfterPlay: false }
+    );
   
-    // Normal in-bounds runoff (huddle/sub/presnap), faster in hurry-up
+    // Baseline (normal vs hurry) — then bias with milk-clock/hurry intent
     const hurry = isLateGameHurry(state, offenseSide);
     let base = Math.round(
       rng.nextRange(
@@ -160,7 +161,13 @@ class RNG {
       )
     );
   
-    // Extra seconds for moving the chains on a first down (uses preState)
+    // Steer toward the plan's pace target
+    if (Number.isFinite(plan.paceTargetSec)) {
+      // Mix target in without whipsawing randomness
+      base = Math.round(0.5 * base + 0.5 * plan.paceTargetSec);
+    }
+  
+    // Extra seconds first-down chain movement (unless in 2:00 windows)
     const gainedFirst =
       preState &&
       Number.isFinite(preState.distance) &&
@@ -169,18 +176,22 @@ class RNG {
       !outcome.fieldGoalAttempt &&
       (outcome.yardsGained || 0) >= preState.distance;
   
-    if (gainedFirst && !isTwoMinute(state)) {
+    const twoMin = (state.quarter === 2 || state.quarter === 4) && state.clockSec <= 120;
+    if (gainedFirst && !twoMin) {
       base += Math.round(rng.nextRange(2, 4));
     }
   
-    // Apply one-time "quarter break setup" if flagged
+    // One-time “quarter break setup” (already in your pipeline)
     if (state._quarterBreakSetup) {
       base += (cfg.quarterBreakSetupExtra || 0);
       state._quarterBreakSetup = false;
     }
   
-    return base;
+    // Respect the play-clock cap for the next snap (40s normally, 25s after admin)
+    const playCap = Math.max(3, (state.playClockSec ?? cfg.playClockNormal) - 1);
+    return clamp(base, 0, playCap);
   }
+  
   
   
   
@@ -1073,6 +1084,115 @@ function simulateDrive(state) {
     const halfKey = state.quarter <= 2 ? "H1" : "H2";
     return state.timeouts?.[defenseSide]?.[halfKey] ?? 0;
   }
+
+
+  // ----- Timeout / Play-clock helpers & Clock Manager --------------------------
+
+function halfKeyForQuarter(q) { return q <= 2 ? "H1" : "H2"; }
+
+function getTimeouts(state, side) {
+  const hk = halfKeyForQuarter(state.quarter);
+  return state.timeouts?.[side]?.[hk] ?? 0;
+}
+
+function consumeTimeout(state, side, reason = "timeout", displayClockSec = state.clockSec) {
+  const hk = halfKeyForQuarter(state.quarter);
+  if (!state.timeouts?.[side]) return false;
+  if (state.timeouts[side][hk] <= 0) return false;
+
+  state.timeouts[side][hk] -= 1;
+
+  // Play clock becomes 25s after admin stoppage.
+  state.playClockSec = state.cfg.playClockAdmin;
+
+  // Log as an admin/special play (no yard change)
+  addSpecialPlayLog(state, {
+    specialType: "timeout",
+    description: `${side.toUpperCase()} timeout — ${reason}`,
+    timeElapsed: state.cfg.timeoutAdminSeconds || 0,
+    offenseSide: side,      // the side that called it (for UI coloring)
+    yardsGained: 0,
+    displayClockSec
+  });
+  return true;
+}
+
+/**
+ * Defense can "ice" the kicker before a high-leverage FG.
+ * If used, logs a timeout and sets a one-shot flag that FG sim will read.
+ */
+function maybeIceKicker(state, offenseSide, defenseSide) {
+  const q = state.quarter;
+  const snapClock = state.clockSec;
+  const hk = halfKeyForQuarter(q);
+  const defTO = state.timeouts?.[defenseSide]?.[hk] ?? 0;
+
+  // Score context from defense POV
+  const offScore = offenseSide === "home" ? state.score.home : state.score.away;
+  const defScore = offenseSide === "home" ? state.score.away : state.score.home;
+  const margin = Math.abs(offScore - defScore);
+
+  // Late halves and one-score / high-leverage spots → often ice
+  const lateHalf = (q === 2 && snapClock <= 60) || (q === 4);
+  if (!lateHalf || defTO <= 0) return false;
+
+  // Be selective; don't burn it frivolously.
+  const shouldIce = (margin <= 3) || (q === 4 && snapClock <= 180);
+  if (!shouldIce) return false;
+
+  const ok = consumeTimeout(state, defenseSide, "ice the kicker", state.clockSec);
+  if (ok) state._icedKicker = true;
+  return ok;
+}
+
+/**
+ * Decide pace (hurry vs milk), sideline preference, and whether to call an
+ * immediate timeout after this snap. Called each snap; its outputs are used
+ * by between-play timing and to insert admin plays.
+ */
+function clockManager(state, preState, outcomeOrNull, offenseSide, defenseSide, { clockStopsAfterPlay }) {
+  const q = preState?.quarter ?? state.quarter;
+  const snapClock = preState?.clockSec ?? state.clockSec;
+
+  const offScore = offenseSide === "home" ? state.score.home : state.score.away;
+  const defScore = offenseSide === "home" ? state.score.away : state.score.home;
+  const lead = offScore - defScore;
+
+  const offTO = getTimeouts(state, offenseSide);
+
+  // Pace target (seconds between snaps) baseline
+  let paceTarget = isLateGameHurry(state, offenseSide)
+    ? (state.cfg.betweenPlayHurryMin + state.cfg.betweenPlayHurryMax) * 0.5
+    : (state.cfg.betweenPlayNormalMin + state.cfg.betweenPlayNormalMax) * 0.5;
+
+  // Milk clock if leading late in the 4th
+  state._milkClock = false;
+  if (q === 4 && snapClock <= 300 && lead > 0) {
+    paceTarget += 8;
+    state._milkClock = true;
+  }
+  // Extra hurry when trailing late
+  if (q === 4 && snapClock <= 300 && lead < 0) {
+    paceTarget -= 6;
+  }
+  paceTarget = clamp(paceTarget, 4, 38); // sensible envelope
+
+  // Bounds preference mirrors late-game intent
+  const boundsPreference = ( (q === 2 || q === 4) && snapClock <= 120 && lead <= 0 )
+    ? "sideline"
+    : "normal";
+
+  // Post-play timeout (offense) if clock would otherwise run & we need it
+  let timeoutNow = null;
+  if (!clockStopsAfterPlay && (q === 2 || q === 4) && snapClock > 0 && offTO > 0) {
+    const urgent = (snapClock <= 120 && lead <= 0);       // one-score drill
+    const saveHalf = (q === 2 && snapClock <= 35);        // pocket 30–35s before half
+    if (urgent || saveHalf) timeoutNow = offenseSide;
+  }
+
+  return { paceTargetSec: paceTarget, boundsPreference, timeoutNow, tenSecRunoff: false /* hook */ };
+}
+
   
 
   
@@ -1328,6 +1448,15 @@ function simulatePlay(state) {
       clockSec: state.clockSec,
       quarter:  state.quarter,
     };
+
+    // Pre-snap clock plan (pace/bounds); detailed post-play decisions happen later
+    state._clockPlan = clockManager(
+      state, preState, null,
+      offenseSide,
+      defenseSide,
+      { clockStopsAfterPlay: false }
+    );
+
   
     // Timeouts for current half
     const halfKey = state.quarter <= 2 ? "H1" : "H2";
@@ -1406,6 +1535,7 @@ function simulatePlay(state) {
         playOutcome = simulatePassPlay(state, offenseUnits, defenseUnits, rng);
         break;
       case "field_goal":
+        maybeIceKicker(state, offenseSide, defenseSide);
         playOutcome = simulateFieldGoal(state, offenseUnits, specialOff, rng);
         break;
       case "punt":
@@ -2066,6 +2196,13 @@ function simulateFieldGoal(state, offenseUnits, specialOff, rng) {
     if (lateQuarter && closeGame && longKick) {
       prob -= 0.03;
     }
+
+      // If the defense iced the kicker just before this snap, apply a small penalty
+    if (state._icedKicker) {
+      prob -= (cfg.iceKickerPenalty ?? 0.02);
+      state._icedKicker = false; // one-shot
+    }
+
   
     prob = clamp(prob, 0.10, 0.99);
   
@@ -2297,10 +2434,26 @@ function computeMomentumImpact(outcome, preState, offenseSide, state) {
     const clockStopsAfterPlay =
     isIncompletion || oobStopsClock;
 
+    // ---- Use clock manager to guide pace & timeout decisions for THIS snap ----
+    const plan = clockManager(
+      state, preState, outcome, offenseSide, defenseSide,
+      { clockStopsAfterPlay }
+    );
+    state._clockPlan = plan;
+
     // Between-play runoff (0 when the clock is stopped awaiting next snap)
-    const between = clockStopsAfterPlay
-    ? 0
-    : estimateBetweenPlayTime(state, outcome, preState, rng, offenseSide);
+    let between = clockStopsAfterPlay
+      ? 0
+      : estimateBetweenPlayTime(state, outcome, preState, rng, offenseSide);
+
+    // Late-half offense timeout to stop a running clock (if plan says so)
+    if (!clockStopsAfterPlay && plan.timeoutNow === offenseSide && state.clockSec > 0) {
+      const ok = consumeTimeout(state, offenseSide, "save clock", state.clockSec);
+      if (ok) {
+        between = 0; // timeout stops the game clock right now
+      }
+    }
+
 
     // Apply total runoff, enforce 2:00 warnings in 2Q and 4Q
     let newClock = Math.max(0, prevClock - (inPlayTime + between));
@@ -2315,6 +2468,7 @@ function computeMomentumImpact(outcome, preState, offenseSide, state) {
 
     const clockRunoff = Math.max(0, prevClock - newClock);
     outcome.clockRunoff = clockRunoff; // used by drives/TOP
+    state.playClockSec = state.cfg.playClockNormal;
     state.clockSec = newClock;
 
     // ---------- Special case: Incomplete pass — no yardline change ----------
@@ -2348,13 +2502,13 @@ function computeMomentumImpact(outcome, preState, offenseSide, state) {
 
   
     // ------------------------------- Results ------------------------------------
-  
+
     // Field goal
     if (isFG) {
       if (outcome.fieldGoalGood) {
         if (offenseSide === "home") state.score.home += 3;
         else                        state.score.away += 3;
-  
+
         state.events.push({
           type: "score",
           subtype: "field_goal",
@@ -2367,23 +2521,24 @@ function computeMomentumImpact(outcome, preState, offenseSide, state) {
       }
 
       applyMomentumFromOutcome(state, outcome, preState, offenseSide, defenseSide);
-  
-      // Drive ends; next drive kickoff handled in simulateDrive
+
+      // Drive ends; next drive (kickoff or change) handled in simulateDrive
       state.down = 1;
       state.distance = 10;
+      state.playClockSec = state.cfg.playClockAdmin; // admin setup after FG try
       outcome.endOfDrive = true;
       state.playId += 1;
       return;
     }
-  
+
     // Punt – flip field
     if (isPunt) {
       const los = state.ballYardline; // 0–100 from offense goal
       const distance = Math.max(0, outcome.puntDistance || 0);
       const landing = los + distance;
-  
+
       state.possession = offenseSide === "home" ? "away" : "home";
-  
+
       if (landing >= 100) {
         // Punt into end zone → touchback to receiving 20
         state.ballYardline = 20;
@@ -2393,73 +2548,74 @@ function computeMomentumImpact(outcome, preState, offenseSide, state) {
       }
 
       applyMomentumFromOutcome(state, outcome, preState, offenseSide, defenseSide);
-  
+
       state.down = 1;
       state.distance = 10;
+      state.playClockSec = state.cfg.playClockAdmin; // change of possession/admin
       outcome.endOfDrive = true;
       state.playId += 1;
       return;
     }
-  
+
     // Normal offensive play (run/pass)
     let newYard = state.ballYardline + (outcome.yardsGained || 0);
-  
-// Safety candidate (ball carrier driven back toward own end zone)
-if (newYard <= 0) {
-    const fieldPos = state.ballYardline; // where the play started
-    const yardsLoss = outcome.yardsGained < 0 ? -outcome.yardsGained : 0;
-  
-    // Only a subset of these become true safeties. Most end up as being tackled
-    // very close to the goal line.
-    let safetyProb = 0;
-  
-    if (fieldPos <= 2 && yardsLoss >= 2) {
-      safetyProb = 0.38;     // very backed up and big loss
-    } else if (fieldPos <= 5 && yardsLoss >= 3) {
-      safetyProb = 0.22;
-    } else if (fieldPos <= 8 && yardsLoss >= 5) {
-      safetyProb = 0.05;
-    }
-  
-    if (rng.next() < safetyProb) {
-      // True safety
-      if (defenseSide === "home") {
-        state.score.home += 2;
-      } else {
-        state.score.away += 2;
+
+    // Safety candidate (ball carrier driven back toward own end zone)
+    if (newYard <= 0) {
+      const fieldPos  = state.ballYardline; // where the play started
+      const yardsLoss = outcome.yardsGained < 0 ? -outcome.yardsGained : 0;
+
+      // Only a subset of these become true safeties. Most end up as being tackled
+      // very close to the goal line.
+      let safetyProb = 0;
+
+      if (fieldPos <= 2 && yardsLoss >= 2) {
+        safetyProb = 0.38; // very backed up and big loss
+      } else if (fieldPos <= 5 && yardsLoss >= 3) {
+        safetyProb = 0.22;
+      } else if (fieldPos <= 8 && yardsLoss >= 5) {
+        safetyProb = 0.05;
       }
-      state.events.push({
-        type: "score",
-        subtype: "safety",
-        offense: defenseSide,
-        points: 2,
-        quarter: state.quarter,
-        clockSec: state.clockSec,
-        score: cloneScore(state.score),
-      });
-  
-      // Defense gets the ball after a safety (approximate at own 25)
-      state.possession = defenseSide;
-      state.ballYardline = 25;
-      state.down = 1;
-      state.distance = 10;
-      outcome.safety = true;
-      outcome.endOfDrive = true;
-      applyMomentumFromOutcome(state, outcome, preState, offenseSide, defenseSide);
-      state.playId += 1;
-      return;
-    } else {
-      // Not a safety — just pinned at the 1.
-      newYard = 1;
+
+      if (rng.next() < safetyProb) {
+        // True safety
+        if (defenseSide === "home") {
+          state.score.home += 2;
+        } else {
+          state.score.away += 2;
+        }
+        state.events.push({
+          type: "score",
+          subtype: "safety",
+          offense: defenseSide,
+          points: 2,
+          quarter: state.quarter,
+          clockSec: state.clockSec,
+          score: cloneScore(state.score),
+        });
+
+        // Defense gets the ball after a safety (approximate at own 25)
+        state.possession   = defenseSide;
+        state.ballYardline = 25;
+        state.down         = 1;
+        state.distance     = 10;
+        state.playClockSec = state.cfg.playClockAdmin; // change of possession/admin
+        outcome.safety     = true;
+        outcome.endOfDrive = true;
+        applyMomentumFromOutcome(state, outcome, preState, offenseSide, defenseSide);
+        state.playId += 1;
+        return;
+      } else {
+        // Not a safety — just pinned at the 1.
+        newYard = 1;
+      }
     }
-  }
-  
-  
+
     // Touchdown (PAT handled later in simulateDrive → handlePAT)
     if (newYard >= 100) {
       if (offenseSide === "home") state.score.home += 6;
       else                        state.score.away += 6;
-  
+
       state.events.push({
         type: "score",
         subtype: "touchdown",
@@ -2469,25 +2625,27 @@ if (newYard <= 0) {
         clockSec: state.clockSec,
         score: cloneScore(state.score),
       });
-  
-      outcome.touchdown = true;
-      outcome.endOfDrive = true;
+
+      outcome.touchdown   = true;
+      outcome.endOfDrive  = true;
+      state.playClockSec  = state.cfg.playClockAdmin; // admin setup before PAT/kickoff
       applyMomentumFromOutcome(state, outcome, preState, offenseSide, defenseSide);
       state.playId += 1;
       return;
     }
-  
+
     // Turnover (non-FG / non-punt)
     if (isTurnover) {
-      state.possession = offenseSide === "home" ? "away" : "home";
+      state.possession   = offenseSide === "home" ? "away" : "home";
       // New offense gets ball where play ended, flipped to their perspective
       state.ballYardline = 100 - clamp(newYard, 1, 99);
-      state.down = 1;
-      state.distance = 10;
+      state.down         = 1;
+      state.distance     = 10;
+      state.playClockSec = state.cfg.playClockAdmin; // change of possession/admin
       outcome.endOfDrive = true;
       applyMomentumFromOutcome(state, outcome, preState, offenseSide, defenseSide);
       state.playId += 1;
-  
+
       state.events.push({
         type: "turnover",
         offense: offenseSide,
@@ -2498,10 +2656,10 @@ if (newYard <= 0) {
       });
       return;
     }
-  
+
     // No score, no turnover: advance ball & handle series
     state.ballYardline = clamp(newYard, 1, 99);
-  
+
     const yardsToFirst = state.distance - (outcome.yardsGained || 0);
     if (yardsToFirst <= 0) {
       // First down
@@ -2510,12 +2668,13 @@ if (newYard <= 0) {
     } else {
       if (state.down === 4) {
         // Turnover on downs
-        state.possession = offenseSide === "home" ? "away" : "home";
+        state.possession   = offenseSide === "home" ? "away" : "home";
         state.ballYardline = 100 - clamp(state.ballYardline, 1, 99);
-        state.down = 1;
-        state.distance = 10;
+        state.down         = 1;
+        state.distance     = 10;
+        state.playClockSec = state.cfg.playClockAdmin; // change of possession/admin
         outcome.endOfDrive = true;
-  
+
         state.events.push({
           type: "turnover_on_downs",
           offense: offenseSide,
@@ -2530,10 +2689,7 @@ if (newYard <= 0) {
         state.distance = yardsToFirst;
       }
     }
-
-    }
-
-  
+  }
   
   
   
