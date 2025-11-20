@@ -183,7 +183,7 @@ class RNG {
     maxOvertimeQuarters: 1,
     allowTies: true,
   
-    // Micro layer (leave if used there)
+    // Micro layer (kept)
     baseRunMean: 3.0,
     baseRunStd: 2.5,
     basePassMean: 5.0,
@@ -191,22 +191,24 @@ class RNG {
     sackMeanLoss: -6,
     turnoverBaseProb: 0.025,
   
-    // FG
-    fgBaseProb: 0.82,
-    fgAccuracyWeight: 0.0025,
+    // FG (kept but unused by new FG model)
+    fgBaseProb: 0.82,          // unused now
+    fgAccuracyWeight: 0.0025,  // unused now
   
     // Punting realism
-    puntBaseDistance: 45, // was 42 → slightly stronger modern punting
+    puntBaseDistance: 45,
     puntStd: 7,
   
-    // Kickoffs (modern rules)
-    kickoffTouchbackRate: 0.85, // was 0.643 → closer to current TB rates
+    // Kickoffs
+    // Keep your old key if you want, but the new code uses the league average + team tilt:
+    kickoffTouchbackRate: 0.85,     // legacy; ignored by doKickoff()
+    kickoffTouchbackLeagueAvg: 0.65, // <-- NEW: base league average used by getKickoffTouchbackRate()
   
     // PAT strategy/quality knobs
     xpMakeProb: 0.94,
     twoPtMakeProb: 0.48,
   
-    // Pace knobs (snap-to-snap minus in-play time)
+    // Pace knobs
     betweenPlayNormalMin: 28,
     betweenPlayNormalMax: 40,
     betweenPlayHurryMin: 6,
@@ -214,12 +216,24 @@ class RNG {
     oobRestartMin: 4,
     oobRestartMax: 8,
   
-    // Small setup runoff applied to the FIRST play after a quarter break
+    // First play after a quarter break
     quarterBreakSetupExtra: 6,
+  
+    // ---- NEW: League targeting & team tilt (for YPC/YPA and punts/game) ----
+    targetYPC: 4.4,           // league yards/rush you want the sim to hover around
+    targetYPA: 7.3,           // league yards/pass (incl. incompletions)
+    runScaleGlobal: 1.08,     // gentle global nudge; tune after a 1k-game run
+    passScaleGlobal: 1.15,    // gentle global nudge; tune after a 1k-game run
+  
+    useRealBaselines: false,  // flip to true when you pass per-team tables
+    realBaselines: null,      // shape: { [teamName|id]: { ypc, ypa, punts, tb } }
+  
+    puntBaselinePerTeam: 3.6, // league-ish per-team punts/game target
   
     // Logging verbosity
     keepPlayByPlay: true,
   };
+  
   
   
   function createConfig(options = {}) {
@@ -319,6 +333,64 @@ class RNG {
     };
   }
 
+  function getTeamKey(team) {
+    return team?.teamName || team?.teamId || "Unknown";
+  }
+  
+  function getTeamBaseline(cfg, team) {
+    if (!cfg.useRealBaselines || !cfg.realBaselines) return null;
+    const key = getTeamKey(team);
+    return cfg.realBaselines[key] || null;
+  }
+  
+  // Smooth non-linear scaler: pushes toward target but doesn’t explode extremes.
+  function smoothScale(actual, target, alpha = 0.65) {
+    if (!Number.isFinite(actual) || !Number.isFinite(target) || target <= 0) return 1;
+    return Math.pow(actual / target, alpha);
+  }
+  
+  // Offense-leaning yard scalers (defense still matters via micro-engine)
+  function computeRunScale(state, offenseTeam) {
+    const { cfg } = state;
+    const base = cfg.runScaleGlobal || 1;
+    const b = getTeamBaseline(cfg, offenseTeam);
+    const teamTilt = b?.ypc ? smoothScale(b.ypc, cfg.targetYPC, 0.75) : 1;
+    return clamp(base * teamTilt, 0.80, 1.40);
+  }
+  
+  function computePassScale(state, offenseTeam) {
+    const { cfg } = state;
+    const base = cfg.passScaleGlobal || 1;
+    const b = getTeamBaseline(cfg, offenseTeam);
+    const teamTilt = b?.ypa ? smoothScale(b.ypa, cfg.targetYPA, 0.70) : 1;
+    return clamp(base * teamTilt, 0.80, 1.45);
+  }
+  
+  // Team punt tendency bias: negative => go a bit more, positive => punt a bit more
+  function computePuntBias(state, offenseTeam) {
+    const { cfg } = state;
+    const b = getTeamBaseline(cfg, offenseTeam);
+    if (!b?.punts || !cfg.puntBaselinePerTeam) return 0;
+    const rel = (b.punts - cfg.puntBaselinePerTeam) / cfg.puntBaselinePerTeam;
+    return clamp(rel, -0.40, 0.40); // ±40% envelope
+  }
+  
+  // Team-specific kickoff touchback rate
+  function getKickoffTouchbackRate(state, kickingTeam) {
+    const { cfg } = state;
+    const baseLeague = Number.isFinite(cfg.kickoffTouchbackLeagueAvg) ? cfg.kickoffTouchbackLeagueAvg : 0.65;
+  
+    const teamB = getTeamBaseline(cfg, kickingTeam);
+    const teamTB = Number.isFinite(teamB?.tb) ? teamB.tb : null;
+  
+    const kPow = (getUnitProfiles(kickingTeam).special?.kicking?.power ?? 60);
+    const powerAdj = (kPow - 60) * 0.004; // ±0.16 tops (40–100), typically smaller
+  
+    let rate = (teamTB != null ? teamTB : baseLeague) + powerAdj;
+    return clamp(rate, 0.10, 0.95);
+  }
+  
+
   // -----------------------------------------------------------------------------
   // Player helpers & stat accumulation
   // -----------------------------------------------------------------------------
@@ -354,8 +426,7 @@ class RNG {
     const key = getPlayerKey(player);
     if (!key) return null;
   
-    const team =
-      side === "home" ? state.homeTeam : state.awayTeam;
+    const team = side === "home" ? state.homeTeam : state.awayTeam;
   
     if (!state.playerStats[key]) {
       state.playerStats[key] = {
@@ -384,16 +455,21 @@ class RNG {
         recYds: 0,
         recTD: 0,
   
-        // kicking
+        // placekicking
         fgAtt: 0,
         fgMade: 0,
         xpAtt: 0,
         xpMade: 0,
+  
+        // punting
+        puntAtt: 0,
+        puntYds: 0,
       };
     }
   
     return state.playerStats[key];
   }
+  
   
   // Pull out key offensive skill players from depth chart / starters
   function getOffensiveSkillPlayers(team) {
@@ -671,8 +747,8 @@ function simulateDrive(state) {
   
 /**
  * Logs a PAT (XP or 2-pt) as its own play and mutates the score.
- * IMPORTANT: PAT is an **untimed** down — we do NOT change state.clockSec.
- * This function assumes the TD points (6) have already been added.
+ * PAT is an **untimed** down — we do NOT change state.clockSec.
+ * Assumes the TD points (6) have already been added.
  */
  function handlePAT(state, scoringSide) {
     const rng = state.rng;
@@ -698,15 +774,23 @@ function simulateDrive(state) {
       attemptTwo = rng.next() < 0.05;          // occasional 2-pt try earlier
     }
   
+    // Identify kicker (for XP stats / PBP)
+    const kicker =
+      scoringSide === "home" ? state.homeKicker : state.awayKicker;
+    const kickerRow = kicker ? ensurePlayerRow(state, kicker, scoringSide) : null;
+    const kickerId   = getPlayerKey(kicker);
+    const kickerName = getPlayerName(kicker);
+  
     let made = false;
     let desc = "";
   
     if (attemptTwo) {
+      // 2-point conversion
       made = rng.next() < twoPtMakeProb;
       if (made) {
         if (scoringSide === "home") state.score.home += 2;
         else                        state.score.away += 2;
-        desc = "Two-point try is good";
+        desc = "two-point try is good";
         state.events.push({
           type: "score",
           subtype: "two_point",
@@ -717,14 +801,22 @@ function simulateDrive(state) {
           score: cloneScore(state.score),
         });
       } else {
-        desc = "Two-point try fails";
+        desc = "two-point try fails";
       }
     } else {
+      // Extra point (kick)
       made = rng.next() < xpMakeProb;
+  
+      // Kicker stats
+      if (kickerRow) {
+        kickerRow.xpAtt += 1;
+        if (made) kickerRow.xpMade += 1;
+      }
+  
       if (made) {
         if (scoringSide === "home") state.score.home += 1;
         else                        state.score.away += 1;
-        desc = "Extra point is good";
+        desc = "extra point is good";
         state.events.push({
           type: "score",
           subtype: "extra_point",
@@ -735,13 +827,23 @@ function simulateDrive(state) {
           score: cloneScore(state.score),
         });
       } else {
-        desc = "Extra point is no good";
+        desc = "extra point is no good";
       }
     }
   
     const offenseTeam = scoringSide === "home" ? state.homeTeam : state.awayTeam;
     const defenseSide = scoringSide === "home" ? "away" : "home";
     const defenseTeam = scoringSide === "home" ? state.awayTeam : state.homeTeam;
+  
+    // PBP text: use kicker name on XP, team on 2-pt
+    let playText;
+    if (attemptTwo) {
+      playText = `${offenseTeam.teamName} ${desc}`;
+    } else if (kickerName) {
+      playText = `${kickerName} ${desc}`;
+    } else {
+      playText = `${offenseTeam.teamName} ${desc}`;
+    }
   
     const log = {
       playId: state.playId++,
@@ -759,9 +861,9 @@ function simulateDrive(state) {
       ballYardline: null,
       decisionType: attemptTwo ? "two_point" : "extra_point",
       playType:    attemptTwo ? "two_point" : "extra_point",
-      text: `${offenseTeam.teamName} ${desc}`,
-      description: `${offenseTeam.teamName} ${desc}`,
-      desc: `${offenseTeam.teamName} ${desc}`,
+      text: playText,
+      description: playText,
+      desc: playText,
       downAndDistance: "",
       tags: attemptTwo
         ? (made ? ["2PT", "SCORE"] : ["2PT"])
@@ -770,7 +872,7 @@ function simulateDrive(state) {
       isTurnover: false,
       highImpact: made,
       yardsGained: 0,
-      timeElapsed: 0,          // <-- PAT is *untimed*
+      timeElapsed: 0,          // PAT is *untimed*
       turnover: false,
       touchdown: false,
       safety: false,
@@ -778,11 +880,16 @@ function simulateDrive(state) {
       fieldGoalGood: false,
       punt: false,
       endOfDrive: false,
+  
+      // kicker info only meaningful on XP
+      kickerId:   attemptTwo ? null : kickerId,
+      kickerName: attemptTwo ? null : kickerName,
     };
   
     state.plays.push(log);
     return log;
   }
+  
   
   
   /**
@@ -1214,7 +1321,8 @@ function simulateRunPlay(state, offenseUnits, defenseUnits, rng) {
     const micro   = sampleRunOutcome(params, rng) || {};
     const raw     = Number.isFinite(micro.yardsGained) ? micro.yardsGained : 0;
     const maxGain = Math.max(0, 100 - state.ballYardline);
-    const yards   = Math.round(clamp(raw, -8, maxGain));
+    const runScale = computeRunScale(state, (getOffenseDefense(state).offenseSide === "home" ? state.homeTeam : state.awayTeam));
+    const yards = Math.round(clamp(raw * runScale, -4, maxGain));
   
     const prospective = state.ballYardline + yards;
     const touchdown   = prospective >= 100;
@@ -1335,7 +1443,8 @@ function simulatePassPlay(state, offenseUnits, defenseUnits, rng) {
     const micro   = samplePassOutcome(params, rng) || {};
     const raw     = Number.isFinite(micro.yardsGained) ? micro.yardsGained : 0;
     const maxGain = Math.max(0, 100 - state.ballYardline);
-    const yards   = Math.round(clamp(raw, -15, maxGain));
+    const passScale = computePassScale(state, (getOffenseDefense(state).offenseSide === "home" ? state.homeTeam : state.awayTeam));
+    const yards = Math.round(clamp(raw * passScale, -10, maxGain));
   
     const sackRaw         = !!micro.sack;
     const completionRaw   = !!micro.completion;
@@ -1432,84 +1541,54 @@ function simulateFieldGoal(state, offenseUnits, specialOff, rng) {
     const kAcc = specialOff.kicking?.accuracy ?? 60;
     const kPow = specialOff.kicking?.power   ?? 60;
   
-    // ------------------------------------------------------------
-    // Effective distance: stronger leg "shrinks" the distance a bit
-    // (40–100 power → roughly -3 to +3 yards effective)
-    // ------------------------------------------------------------
-    const legBonus = (kPow - 70) * 0.15; // +/- 4.5yds across 40–100, but most kickers narrower
+    // Effective distance: stronger leg "shrinks" distance a bit
+    const legBonus = (kPow - 70) * 0.15; // +/- ~4–5 yds across 40–100
     const effDist  = Math.max(18, rawDistance - legBonus);
   
-    // ------------------------------------------------------------
-    // Baseline make rate as a function of effective distance.
-    //
-    // Target ballpark:
-    //   - < 30 yds:   ~97–99%
-    //   - 30–39 yds:  mid-90s → low-90s
-    //   - 40–49 yds:  ~90 → ~80%
-    //   - 50–55 yds:  high-70s → low-70s
-    //   - 56+ yds:    falls toward the 50s / 40s
-    // ------------------------------------------------------------
+    // Baseline make rate vs effective distance
     let base;
     if (effDist <= 30) {
-      // Chip shots
       base = 0.985;
     } else if (effDist <= 35) {
-      // 31–35: 0.985 → ~0.955
-      base = 0.985 - 0.006 * (effDist - 30);
+      base = 0.985 - 0.006 * (effDist - 30);           // ~0.985 → ~0.955
     } else if (effDist <= 45) {
-      // 36–45: ~0.955 → ~0.865
-      base = 0.955 - 0.009 * (effDist - 35);
+      base = 0.955 - 0.009 * (effDist - 35);           // ~0.955 → ~0.865
     } else if (effDist <= 55) {
-      // 46–55: ~0.865 → ~0.715
-      base = 0.865 - 0.015 * (effDist - 45);
+      base = 0.865 - 0.015 * (effDist - 45);           // ~0.865 → ~0.715
     } else {
-      // 56+: ~0.715 at 56, sliding down toward low-40s by ~70+
-      base = 0.715 - 0.02 * (effDist - 55);
+      base = 0.715 - 0.02 * (effDist - 55);            // then down toward 40s
     }
   
-    // ------------------------------------------------------------
     // Kicker accuracy tweak: small but meaningful
-    //   40 rating → about -0.045
-    //   100 rating → about +0.045
-    // ------------------------------------------------------------
     const accAdj = 0.0015 * (kAcc - 70);
-  
-    // Start from base + accuracy
     let prob = base + accAdj;
   
-    // ------------------------------------------------------------
-    // Situational / pressure adjustment:
-    //  - Very long kicks (50+)
-    //  - Late 4Q or OT
-    //  - Close score (within 3 points)
-    //    => small extra difficulty
-    // ------------------------------------------------------------
-    const lateQuarter = (state.quarter >= 4);
+    // Context pressure: long, late, close game -> slightly harder
+    const lateQuarter = state.quarter >= 4;
     const closeGame = Math.abs(state.score.home - state.score.away) <= 3;
     const longKick = rawDistance >= 50;
   
     if (lateQuarter && closeGame && longKick) {
-      prob -= 0.03; // small clutch/pressure penalty
+      prob -= 0.03;
     }
   
-    // Clamp to sane bounds
     prob = clamp(prob, 0.10, 0.99);
   
     const made = rng.next() < prob;
   
     // Live clock on FGs: snap → whistle + brief admin
     const timeElapsed = rng.nextRange(5, 9);
-
-    const kicker = offenseSide === "home" ? state.homeKicker : state.awayKicker;
-    const kickerRow = ensurePlayerRow(state, kicker, offenseSide);
+  
+    // Kicker stats
+    const kicker =
+      offenseSide === "home" ? state.homeKicker : state.awayKicker;
+    const kickerRow = kicker ? ensurePlayerRow(state, kicker, offenseSide) : null;
     const kickerId   = getPlayerKey(kicker);
     const kickerName = getPlayerName(kicker);
-
-    // ... after you decide `made`:
-
+  
     if (kickerRow) {
-    kickerRow.fgAtt += 1;
-    if (made) kickerRow.fgMade += 1;
+      kickerRow.fgAtt += 1;
+      if (made) kickerRow.fgMade += 1;
     }
   
     return {
@@ -1533,23 +1612,38 @@ function simulateFieldGoal(state, offenseUnits, specialOff, rng) {
   
   
   
-  // ------------------------ Punt ----------------------------------------------
-  function simulatePunt(state, specialOff, rng) {
+// ------------------------ Punt ----------------------------------------------
+function simulatePunt(state, specialOff, rng) {
     const { cfg } = state;
-    const { offenseSide } = getOffenseDefense(state);
+    const { offenseSide, offenseTeam } = getOffenseDefense(state);
   
-    const pControl = specialOff.punting?.control ?? 60;
+    const pControl   = specialOff.punting?.control   ?? 60;
     const pFieldFlip = specialOff.punting?.fieldFlip ?? 60;
   
     const base = cfg.puntBaseDistance;
-    const adv = (pControl + pFieldFlip - 120) / 5; // around average => 0
+    const adv  = (pControl + pFieldFlip - 120) / 5; // around average => 0
     const mean = base + adv;
-    const std = cfg.puntStd;
+    const std  = cfg.puntStd;
   
     let distance = normal(rng, mean, std);
     distance = clamp(distance, 25, 70);
   
     const timeElapsed = rng.nextRange(5, 10);
+  
+    // Identify punter: prefer P, fall back to K if needed
+    const punter =
+      offenseTeam.getStarter?.("P") ||
+      offenseTeam.getStarter?.("K") ||
+      null;
+  
+    const punterRow = punter ? ensurePlayerRow(state, punter, offenseSide) : null;
+    const punterId   = getPlayerKey(punter);
+    const punterName = getPlayerName(punter);
+  
+    if (punterRow) {
+      punterRow.puntAtt += 1;
+      punterRow.puntYds += distance;
+    }
   
     return {
       playType: "punt",
@@ -1564,8 +1658,12 @@ function simulateFieldGoal(state, offenseUnits, specialOff, rng) {
       puntDistance: distance,
       offenseSide,
       endOfDrive: true,
+  
+      punterId,
+      punterName,
     };
   }
+  
 
   
   
@@ -1718,9 +1816,9 @@ if (newYard <= 0) {
     let safetyProb = 0;
   
     if (fieldPos <= 2 && yardsLoss >= 2) {
-      safetyProb = 0.50;     // very backed up and big loss
+      safetyProb = 0.38;     // very backed up and big loss
     } else if (fieldPos <= 5 && yardsLoss >= 3) {
-      safetyProb = 0.25;
+      safetyProb = 0.22;
     } else if (fieldPos <= 8 && yardsLoss >= 5) {
       safetyProb = 0.05;
     }
@@ -1874,6 +1972,8 @@ if (newYard <= 0) {
     const rusherName   = outcome.rusherName   || team;
     const passerName   = outcome.passerName   || team;
     const receiverName = outcome.receiverName || "";
+    const kickerName   = outcome.kickerName   || team;
+    const punterName   = outcome.punterName   || team;
   
     if (playType === "kickoff") {
       return outcome.touchback
@@ -1881,7 +1981,7 @@ if (newYard <= 0) {
         : `${team} kickoff returned`;
     }
     if (playType === "extra_point") {
-      return `${team} extra point ${outcome.isScoring ? "is good" : "is no good"}`;
+      return `${kickerName} ${outcome.isScoring ? "extra point is good" : "extra point is no good"}`;
     }
     if (playType === "two_point") {
       return `${team} two-point try ${outcome.isScoring ? "is good" : "fails"}`;
@@ -1890,15 +1990,17 @@ if (newYard <= 0) {
       const dist = Math.round(outcome.kickDistance || 0);
       return outcome.fieldGoalGood
         ? (dist
-            ? `${team} field goal from ${dist} yards is good`
-            : `${team} field goal is good`)
+            ? `${kickerName} field goal from ${dist} yards is good`
+            : `${kickerName} field goal is good`)
         : (dist
-            ? `${team} misses field goal from ${dist} yards`
-            : `${team} misses field goal`);
+            ? `${kickerName} misses field goal from ${dist} yards`
+            : `${kickerName} misses field goal`);
     }
     if (playType === "punt") {
       const dist = Math.round(outcome.puntDistance || 0);
-      return dist ? `${team} punts ${dist} yards` : `${team} punts`;
+      return dist
+        ? `${punterName} punts ${dist} yards`
+        : `${punterName} punts`;
     }
     if (playType === "pass") {
       if (outcome.sack) {
@@ -1930,6 +2032,7 @@ if (newYard <= 0) {
     if (yards < 0) return `${rusherName} run for a loss of ${Math.abs(yards)} yards`;
     return `${rusherName} run for no gain`;
   }
+  
   
   
 
