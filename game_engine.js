@@ -47,6 +47,16 @@ class RNG {
     nextRange(min, max) {
       return min + (max - min) * this.next();
     }
+
+    normal(mean = 0, std = 1) {
+        // Box–Muller using this RNG's stream
+        let u = 0, v = 0;
+        while (u === 0) u = this.next();
+        while (v === 0) v = this.next();
+        const mag = Math.sqrt(-2.0 * Math.log(u));
+        const z = mag * Math.cos(2 * Math.PI * v);
+        return mean + std * z;
+    }
   }
   
   // -----------------------------------------------------------------------------
@@ -943,80 +953,70 @@ function simulateDrive(state) {
    * Expects that state.possession already points to the RECEIVING team and
    * a new drive has been started.
    */
-  function doKickoff(state, kickingSide) {
+   function doKickoff(state, kickingSide) {
     const rng = state.rng;
-    const cfg = state.cfg || {};
-    const touchbackRate = Number.isFinite(cfg.kickoffTouchbackRate) ? cfg.kickoffTouchbackRate : 0.75;
   
-    // Decide touchback vs return with a real catch point
-    const isTouchback = rng.next() < (
-        state.cfg.kickoffTouchbackLeagueAvg ?? state.cfg.kickoffTouchbackRate ?? 0.65
-    );
-
+    // Identify kicking & receiving teams
+    const kickingTeam   = kickingSide === "home" ? state.homeTeam : state.awayTeam;
+    const receivingSide = (kickingSide === "home") ? "away" : "home";
+    const receivingTeam = receivingSide === "home" ? state.homeTeam : state.awayTeam;
+  
+    // NEW: use per-team touchback rate
+    const touchbackRate = getKickoffTouchbackRate(state, kickingTeam);
+    const isTouchback   = rng.next() < touchbackRate;
+  
     let desc = "";
     let timeElapsed = 0;
-
+  
     if (isTouchback) {
-        // Touchback (new rule: own 35)
-        const preClock = state.clockSec;
-        timeElapsed = Math.round(rng.nextRange(0, 2));
-        state.clockSec = Math.max(0, state.clockSec - timeElapsed);
-
-        state.ballYardline = 35;
-        state.down = 1;
-        state.distance = 10;
-
-        const kickingTeam   = kickingSide === "home" ? state.homeTeam : state.awayTeam;
-        const receivingSide = (kickingSide === "home") ? "away" : "home";
-        const receivingTeam = receivingSide === "home" ? state.homeTeam : state.awayTeam;
-
-        desc = `${kickingTeam.teamName} kickoff: touchback. ${receivingTeam.teamName} start at 35`;
-
-        addSpecialPlayLog(state, {
+      // Touchback (new rule: own 35)
+      const preClock = state.clockSec;
+      timeElapsed = Math.round(rng.nextRange(0, 2));
+      state.clockSec = Math.max(0, state.clockSec - timeElapsed);
+  
+      state.ballYardline = 35;
+      state.down = 1;
+      state.distance = 10;
+  
+      desc = `${kickingTeam.teamName} kickoff: touchback. ${receivingTeam.teamName} start at 35`;
+  
+      addSpecialPlayLog(state, {
         specialType: "kickoff",
         description: desc,
         timeElapsed,
         offenseSide: kickingSide,
         yardsGained: 0,
-        displayClockSec: preClock
-        });
-        return;
+        displayClockSec: preClock,
+      });
+      return;
     }
-
+  
     // Returned kick: choose a catch point and a return distance
-    // Catch point: -2..0 means end zone, 0..5 means at/near goal line to the 5
-    const catchAt = Math.round(rng.nextRange(-2, 5));
-    // Return distance: center ~24 with wide spread, clamp to realistic range
+    const catchAt = Math.round(rng.nextRange(-2, 5));             // -2..0 end zone, 0..5 near GL
     const returnYds = clamp(Math.round(normal(rng, 24, 8)), 10, 60);
-
-    // Ending yardline from receiving goal line
     const endYard = clamp(Math.max(0, catchAt) + returnYds, 1, 99);
-
-    // Small live time for a return; 0–2s for quick dead-ball moments
+  
     const preClock = state.clockSec;
     timeElapsed = Math.max(2, Math.round(rng.nextRange(3, 6)));
     state.clockSec = Math.max(0, state.clockSec - timeElapsed);
-
+  
     state.ballYardline = endYard;
     state.down = 1;
     state.distance = 10;
-
-    const kickingTeam   = kickingSide === "home" ? state.homeTeam : state.awayTeam;
-    const receivingSide = (kickingSide === "home") ? "away" : "home";
+  
     const fromText = (catchAt <= 0) ? "end zone" : `OWN ${catchAt}`;
-
     desc = `${kickingTeam.teamName} kickoff returned ${returnYds} yards from the ${fromText} to the OWN ${endYard}`;
-
+  
     addSpecialPlayLog(state, {
-        specialType: "kickoff",
-        description: desc,
-        timeElapsed,
-        offenseSide: kickingSide,
-        yardsGained: 0,
-        displayClockSec: preClock
+      specialType: "kickoff",
+      description: desc,
+      timeElapsed,
+      offenseSide: kickingSide,
+      yardsGained: 0,
+      displayClockSec: preClock,
     });
-
   }
+  
   
   /**
    * Generic helper to append a special play log (kickoff, free_kick, admin plays).
@@ -1407,11 +1407,11 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
         const skill = getOffensiveSkillPlayers(offenseTeam);
     
         // Apply momentum multipliers
-        //const offMult = getMomentumMultiplier(state, offenseSide, "offense");
-        //const defMult = getMomentumMultiplier(state, defenseSide, "defense");
+        const offMult = getMomentumMultiplier(state, offenseSide, "offense");
+        const defMult = getMomentumMultiplier(state, defenseSide, "defense");
     
-        //runOff    = clamp(runOff    * offMult,  40, 99);
-        //frontRunD = clamp(frontRunD * defMult,  40, 99);
+        runOff    = clamp(runOff    * offMult,  40, 99);
+        frontRunD = clamp(frontRunD * defMult,  40, 99);
     
         let rusher = skill.rb1 || skill.qb || null;
         // very small chance of QB keep on obvious pass looks
@@ -1517,12 +1517,12 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
     const qb   = skill.qb || offenseTeam.getStarter?.("QB") || null;
     const rec  = chooseReceivingTarget(skill, rng);
   
-    //const offMult = getMomentumMultiplier(state, offenseSide, "offense");
-    //const defMult = getMomentumMultiplier(state, defenseSide, "defense");
+    const offMult = getMomentumMultiplier(state, offenseSide, "offense");
+    const defMult = getMomentumMultiplier(state, defenseSide, "defense");
   
-    //passOff  = clamp(passOff  * offMult, 40, 99);
-    //coverDef = clamp(coverDef * defMult, 40, 99);
-    //rushDef  = clamp(rushDef  * defMult, 40, 99);
+    passOff  = clamp(passOff  * offMult, 40, 99);
+    coverDef = clamp(coverDef * defMult, 40, 99);
+    rushDef  = clamp(rushDef  * defMult, 40, 99);
   
     const qbRow  = ensurePlayerRow(state, qb, offenseSide);
     const recRow = ensurePlayerRow(state, rec, offenseSide);
@@ -1845,6 +1845,30 @@ function computeMomentumImpact(outcome, preState, offenseSide, state) {
     return impact;
   }
   
+  function applyMomentumFromOutcome(state, outcome, preState, offenseSide, defenseSide) {
+    if (!state.momentum) {
+      state.momentum = { home: 0, away: 0 };
+    }
+  
+    try {
+      const impact = computeMomentumImpact(outcome, preState, offenseSide, state);
+      if (!impact) return;
+  
+      const offenseTeam = offenseSide === "home" ? state.homeTeam : state.awayTeam;
+      const defenseTeam = offenseSide === "home" ? state.awayTeam : state.homeTeam;
+  
+      const prevOff = state.momentum[offenseSide] ?? 0;
+      const prevDef = state.momentum[defenseSide] ?? 0;
+  
+      const newOff = updateMomentum(prevOff,  impact, offenseTeam, defenseTeam, state.rng);
+      const newDef = updateMomentum(prevDef, -impact, defenseTeam, offenseTeam, state.rng);
+  
+      state.momentum[offenseSide] = newOff;
+      state.momentum[defenseSide] = newDef;
+    } catch (e) {
+      console.warn("Momentum update failed:", e);
+    }
+  }
   
 
   
@@ -1982,6 +2006,8 @@ function computeMomentumImpact(outcome, preState, offenseSide, state) {
           score: cloneScore(state.score),
         });
       }
+
+      applyMomentumFromOutcome(state, outcome, preState, offenseSide, defenseSide);
   
       // Drive ends; next drive kickoff handled in simulateDrive
       state.down = 1;
@@ -2006,6 +2032,8 @@ function computeMomentumImpact(outcome, preState, offenseSide, state) {
         // Flip field for receiving team
         state.ballYardline = Math.max(1, 100 - Math.round(landing));
       }
+
+      applyMomentumFromOutcome(state, outcome, preState, offenseSide, defenseSide);
   
       state.down = 1;
       state.distance = 10;
@@ -2058,6 +2086,7 @@ if (newYard <= 0) {
       state.distance = 10;
       outcome.safety = true;
       outcome.endOfDrive = true;
+      applyMomentumFromOutcome(state, outcome, preState, offenseSide, defenseSide);
       state.playId += 1;
       return;
     } else {
@@ -2084,6 +2113,7 @@ if (newYard <= 0) {
   
       outcome.touchdown = true;
       outcome.endOfDrive = true;
+      applyMomentumFromOutcome(state, outcome, preState, offenseSide, defenseSide);
       state.playId += 1;
       return;
     }
@@ -2096,6 +2126,7 @@ if (newYard <= 0) {
       state.down = 1;
       state.distance = 10;
       outcome.endOfDrive = true;
+      applyMomentumFromOutcome(state, outcome, preState, offenseSide, defenseSide);
       state.playId += 1;
   
       state.events.push({
@@ -2135,34 +2166,12 @@ if (newYard <= 0) {
           score: cloneScore(state.score),
         });
       } else {
+        applyMomentumFromOutcome(state, outcome, preState, offenseSide, defenseSide);
         state.down += 1;
         state.distance = yardsToFirst;
       }
     }
 
-      // --- Momentum update (after all scoring/turnover logic) ---
-    try {
-        const impact = computeMomentumImpact(outcome, preState, offenseSide, state);
-        if (impact !== 0) {
-        const offenseTeam = offenseSide === "home" ? state.homeTeam : state.awayTeam;
-        const defenseTeam = offenseSide === "home" ? state.awayTeam : state.homeTeam;
-
-        // From offense POV, positive impact helps offense, hurts defense.
-        const prevOff = state.momentum[offenseSide] || 0;
-        const prevDef = state.momentum[defenseSide] || 0;
-
-        const newOff = updateMomentum(prevOff,  impact, offenseTeam, defenseTeam, state.rng);
-        const newDef = updateMomentum(prevDef, -impact, defenseTeam, offenseTeam, state.rng);
-
-        state.momentum[offenseSide] = newOff;
-        state.momentum[defenseSide] = newDef;
-        }
-    } catch (e) {
-        // fail-safe: don’t break the sim if momentum hiccups
-        console.warn("Momentum update failed:", e);
-    }
-
-    state.playId += 1;
     }
 
   
