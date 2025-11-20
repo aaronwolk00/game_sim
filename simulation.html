@@ -1287,12 +1287,6 @@
       );
     }
 
-    function getTeamAbbr(team) {
-      if (!team) return '—';
-      return team.abbr || team.team_abbr || team.teamAbbr || (team.team_name || team.teamName || '').slice(0,3).toUpperCase() || '—';
-    }
-
-
     function getTeamMetaString(team) {
       if (!team) return 'Ovr – | Off – | Def – | ST –';
       const ratings =
