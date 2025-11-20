@@ -1369,132 +1369,132 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
   
   
   
-// ------------------------ Run play -----------------------------------------
-function simulateRunPlay(state, offenseUnits, defenseUnits, rng) {
-    const runUnit   = offenseUnits.run || {};
-    const defRun    = defenseUnits.runFit || {};
-    const runOff    = runUnit.overall ?? 60;
-    const frontRunD = defRun.overall ?? 60;
-  
-    const yardline = state.ballYardline;
-    const down     = state.down;
-    const distance = state.distance;
-  
-    // --- identify rusher (RB1 most of the time, occasional QB keep/scramble) ---
-    const { offenseTeam, offenseSide } = getOffenseDefense(state);
-    const skill = getOffensiveSkillPlayers(offenseTeam);
-
-    // Apply momentum multipliers
-    const offMult = getMomentumMultiplier(state, offenseSide, "offense");
-    const defMult = getMomentumMultiplier(state, defenseSide, "defense");
-
-    runOff    = clamp(runOff    * offMult,  40, 99);
-    frontRunD = clamp(frontRunD * defMult,  40, 99);
-  
-    let rusher = skill.rb1 || skill.qb || null;
-    // very small chance of QB keep on obvious pass looks
-    if (!rusher || (down >= 2 && distance >= 8 && rng.next() < 0.12)) {
-      rusher = skill.qb || rusher;
+  // ------------------------ Run play -----------------------------------------
+  function simulateRunPlay(state, offenseUnits, defenseUnits, rng) {
+        const runUnit   = offenseUnits.run || {};
+        const defRun    = defenseUnits.runFit || {};
+        let   runOff    = runUnit.overall ?? 60;   // changed to let
+        let   frontRunD = defRun.overall ?? 60;    // changed to let
+    
+        const yardline = state.ballYardline;
+        const down     = state.down;
+        const distance = state.distance;
+    
+        // --- identify rusher (RB1 most of the time, occasional QB keep/scramble) ---
+        const { offenseTeam, offenseSide, defenseSide } = getOffenseDefense(state); // include defenseSide
+        const skill = getOffensiveSkillPlayers(offenseTeam);
+    
+        // Apply momentum multipliers
+        const offMult = getMomentumMultiplier(state, offenseSide, "offense");
+        const defMult = getMomentumMultiplier(state, defenseSide, "defense");
+    
+        runOff    = clamp(runOff    * offMult,  40, 99);
+        frontRunD = clamp(frontRunD * defMult,  40, 99);
+    
+        let rusher = skill.rb1 || skill.qb || null;
+        // very small chance of QB keep on obvious pass looks
+        if (!rusher || (down >= 2 && distance >= 8 && rng.next() < 0.12)) {
+        rusher = skill.qb || rusher;
+        }
+    
+        const rusherRow = ensurePlayerRow(state, rusher, offenseSide);
+        const rusherId   = getPlayerKey(rusher);
+        const rusherName = getPlayerName(rusher);
+    
+        // Box heuristic
+        let boxCount = 7;
+        if (yardline < 10 || yardline > 90) boxCount = 8;
+        if (distance >= 8)                 boxCount = 6;
+        if (down === 1 && distance >= 10)  boxCount = 6;
+    
+        let boxLightness = 0;
+        if (boxCount <= 6) boxLightness = 0.7;
+        else if (boxCount >= 8) boxLightness = -0.7;
+    
+        const params = {
+        olRunBlockRating: runOff,
+        rbVisionRating: runOff,
+        rbPowerRating: runOff,
+        rbElusivenessRating: runOff,
+        frontRunDefRating: frontRunD,
+        boxCount,
+        boxLightness,
+        yardline,
+        down,
+        distance,
+        };
+    
+        const micro   = sampleRunOutcome(params, rng) || {};
+        const raw     = Number.isFinite(micro.yardsGained) ? micro.yardsGained : 0;
+        const maxGain = Math.max(0, 100 - state.ballYardline);
+        const runScale = computeRunScale(state, (offenseSide === "home" ? state.homeTeam : state.awayTeam));
+        const yards = Math.round(clamp(raw * runScale, -4, maxGain));
+    
+        const prospective = state.ballYardline + yards;
+        const touchdown   = prospective >= 100;
+        const safety      = prospective <= 0;
+    
+        // damp fumbles a bit
+        const rawFumble = !!micro.fumble;
+        const fumble    = rawFumble && (rng.next() < 0.6);
+    
+        // in-play time – if your micro engine gives it, use that, else estimate
+        const inPlayTime = Number.isFinite(micro.timeElapsed)
+        ? clamp(micro.timeElapsed, 3, 8.5)
+        : clamp(3 + Math.abs(yards) * 0.2 + rng.nextRange(-0.5, 0.5), 3, 8.5);
+    
+        // --- accumulate rushing stats for rusher ---
+        if (rusherRow) {
+        rusherRow.rushAtt += 1;
+        rusherRow.rushYds += yards;
+        if (touchdown) rusherRow.rushTD += 1;
+        }
+    
+        return {
+        playType: "run",
+        yardsGained: yards,
+        inPlayTime,
+        timeElapsed: inPlayTime,   // legacy field, used by clock
+        turnover: fumble,
+        interception: false,
+        sack: false,
+        completion: false,
+        incomplete: false,
+        outOfBounds: false,        // OOB flag handled by macro clock logic if you want later
+        touchdown,
+        safety,
+        fieldGoalAttempt: false,
+        fieldGoalGood: false,
+        punt: false,
+        endOfDrive: false,
+        micro,
+    
+        // NEW: player wiring
+        rusherId,
+        rusherName,
+        };
     }
   
-    const rusherRow = ensurePlayerRow(state, rusher, offenseSide);
-    const rusherId   = getPlayerKey(rusher);
-    const rusherName = getPlayerName(rusher);
-  
-    // Box heuristic
-    let boxCount = 7;
-    if (yardline < 10 || yardline > 90) boxCount = 8;
-    if (distance >= 8)                 boxCount = 6;
-    if (down === 1 && distance >= 10)  boxCount = 6;
-  
-    let boxLightness = 0;
-    if (boxCount <= 6) boxLightness = 0.7;
-    else if (boxCount >= 8) boxLightness = -0.7;
-  
-    const params = {
-      olRunBlockRating: runOff,
-      rbVisionRating: runOff,
-      rbPowerRating: runOff,
-      rbElusivenessRating: runOff,
-      frontRunDefRating: frontRunD,
-      boxCount,
-      boxLightness,
-      yardline,
-      down,
-      distance,
-    };
-  
-    const micro   = sampleRunOutcome(params, rng) || {};
-    const raw     = Number.isFinite(micro.yardsGained) ? micro.yardsGained : 0;
-    const maxGain = Math.max(0, 100 - state.ballYardline);
-    const runScale = computeRunScale(state, (getOffenseDefense(state).offenseSide === "home" ? state.homeTeam : state.awayTeam));
-    const yards = Math.round(clamp(raw * runScale, -4, maxGain));
-  
-    const prospective = state.ballYardline + yards;
-    const touchdown   = prospective >= 100;
-    const safety      = prospective <= 0;
-  
-    // damp fumbles a bit
-    const rawFumble = !!micro.fumble;
-    const fumble    = rawFumble && (rng.next() < 0.6);
-  
-    // in-play time – if your micro engine gives it, use that, else estimate
-    const inPlayTime = Number.isFinite(micro.timeElapsed)
-      ? clamp(micro.timeElapsed, 3, 8.5)
-      : clamp(3 + Math.abs(yards) * 0.2 + rng.nextRange(-0.5, 0.5), 3, 8.5);
-  
-    // --- accumulate rushing stats for rusher ---
-    if (rusherRow) {
-      rusherRow.rushAtt += 1;
-      rusherRow.rushYds += yards;
-      if (touchdown) rusherRow.rushTD += 1;
-    }
-  
-    return {
-      playType: "run",
-      yardsGained: yards,
-      inPlayTime,
-      timeElapsed: inPlayTime,   // legacy field, used by clock
-      turnover: fumble,
-      interception: false,
-      sack: false,
-      completion: false,
-      incomplete: false,
-      outOfBounds: false,        // OOB flag handled by macro clock logic if you want later
-      touchdown,
-      safety,
-      fieldGoalAttempt: false,
-      fieldGoalGood: false,
-      punt: false,
-      endOfDrive: false,
-      micro,
-  
-      // NEW: player wiring
-      rusherId,
-      rusherName,
-    };
-  }
   
   
-  
-// ------------------------ Pass play ------------------------------------------
-function simulatePassPlay(state, offenseUnits, defenseUnits, rng) {
+  // ------------------------ Pass play ------------------------------------------
+  function simulatePassPlay(state, offenseUnits, defenseUnits, rng) {
     const passUnit = offenseUnits.pass || {};
     const cover    = defenseUnits.coverage || {};
     const rush     = defenseUnits.passRush || {};
-    const passOff  = passUnit.overall ?? 60;
-    const coverDef = cover.overall ?? 60;
-    const rushDef  = rush.overall ?? 60;
+    let   passOff  = passUnit.overall ?? 60;  // changed to let
+    let   coverDef = cover.overall ?? 60;     // changed to let
+    let   rushDef  = rush.overall ?? 60;      // changed to let
   
     const yardline = state.ballYardline;
     const down     = state.down;
     const distance = state.distance;
   
-    const { offenseTeam, offenseSide } = getOffenseDefense(state);
+    const { offenseTeam, offenseSide, defenseSide } = getOffenseDefense(state); // include defenseSide
     const skill = getOffensiveSkillPlayers(offenseTeam);
     const qb   = skill.qb || offenseTeam.getStarter?.("QB") || null;
     const rec  = chooseReceivingTarget(skill, rng);
-
+  
     const offMult = getMomentumMultiplier(state, offenseSide, "offense");
     const defMult = getMomentumMultiplier(state, defenseSide, "defense");
   
@@ -1554,10 +1554,10 @@ function simulatePassPlay(state, offenseUnits, defenseUnits, rng) {
     };
   
     const micro   = samplePassOutcome(params, rng) || {};
-    const raw     = Number.isFinite(micro.yardsGained) ? micro.yardsGained : 0;
+    let   raw     = Number.isFinite(micro.yardsGained) ? micro.yardsGained : 0; // changed to let
     const maxGain = Math.max(0, 100 - state.ballYardline);
-    const passScale = computePassScale(state, (getOffenseDefense(state).offenseSide === "home" ? state.homeTeam : state.awayTeam));
-    const yards = Math.round(clamp(raw * passScale, -10, maxGain));
+    const passScale = computePassScale(state, (offenseSide === "home" ? state.homeTeam : state.awayTeam));
+    let   yards = Math.round(clamp(raw * passScale, -10, maxGain));             // changed to let
   
     const sackRaw         = !!micro.sack;
     const completionRaw   = !!micro.completion;
@@ -1574,8 +1574,7 @@ function simulatePassPlay(state, offenseUnits, defenseUnits, rng) {
   
     // Incomplete if we didn't complete, and no INT/sack/fumble
     const incomplete = !completion && !interception && !sack && !fumble;
-    if (incomplete) raw = 0;
-
+    if (incomplete) yards = 0; // avoid reassigning const
   
     const prospective = state.ballYardline + yards;
     const touchdown   = prospective >= 100;
@@ -1639,6 +1638,7 @@ function simulatePassPlay(state, offenseUnits, defenseUnits, rng) {
       receiverName,
     };
   }
+  
   
   
   
