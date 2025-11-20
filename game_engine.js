@@ -220,10 +220,10 @@ class RNG {
     twoPtMakeProb: 0.48,
   
     // Pace knobs
-    betweenPlayNormalMin: 28,
+    betweenPlayNormalMin: 30,
     betweenPlayNormalMax: 40,
     betweenPlayHurryMin: 6,
-    betweenPlayHurryMax: 15,
+    betweenPlayHurryMax: 25,
     oobRestartMin: 4,
     oobRestartMax: 8,
   
@@ -233,8 +233,8 @@ class RNG {
     // ---- NEW: League targeting & team tilt (for YPC/YPA and punts/game) ----
     targetYPC: 4.4,           // league yards/rush you want the sim to hover around
     targetYPA: 7.3,           // league yards/pass (incl. incompletions)
-    runScaleGlobal: 1.045,     // gentle global nudge; tune after a 1k-game run
-    passScaleGlobal: 1.055,    // gentle global nudge; tune after a 1k-game run
+    runScaleGlobal: 1.055,     // gentle global nudge; tune after a 1k-game run
+    passScaleGlobal: 1.045,    // gentle global nudge; tune after a 1k-game run
   
     useRealBaselines: false,  // flip to true when you pass per-team tables
     realBaselines: null,      // shape: { [teamName|id]: { ypc, ypa, punts, tb } }
