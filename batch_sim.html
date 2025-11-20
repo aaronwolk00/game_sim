@@ -47,7 +47,7 @@
   <main>
     <header class="panel">
       <h1>Batch Simulator</h1>
-      <div class="muted small">Run many games and summarize realistic ranges for scores, yards, plays, drives, etc. Uses your current engine & roster CSV.</div>
+      <div class="muted small">Run many games and summarize realistic ranges for scores, yards, plays, drives, etc. Uses your current engine &amp; roster CSV.</div>
     </header>
 
     <section class="panel grid">
@@ -94,7 +94,7 @@
     </section>
 
     <section class="panel">
-      <h3 style="margin:0 0 10px">Per-side & composition</h3>
+      <h3 style="margin:0 0 10px">Per-side &amp; composition</h3>
       <table id="sideTable">
         <thead>
           <tr>
@@ -154,20 +154,32 @@
 
     // ---------- Stats helpers ----------
     class Stat {
-      constructor(){ this.n=0; this.mean=0; this.M2=0; this.min=Infinity; this.max=-Infinity; }
-      push(x){
-        this.n++; const delta=x-this.mean; this.mean+=delta/this.n; this.M2+=delta*(x-this.mean);
-        if (x<this.min) this.min=x; if (x>this.max) this.max=x;
+      constructor(){
+        this.n = 0;
+        this.mean = 0;
+        this.M2 = 0;
+        this.min = Infinity;
+        this.max = -Infinity;
       }
-      std(){ return this.n>1 ? Math.sqrt(this.M2/(this.n-1)) : 0; }
+      push(x){
+        const v = Number.isFinite(x) ? x : 0;
+        this.n++;
+        const delta = v - this.mean;
+        this.mean += delta / this.n;
+        this.M2 += delta * (v - this.mean);
+        if (v < this.min) this.min = v;
+        if (v > this.max) this.max = v;
+      }
+      std(){
+        return this.n > 1 ? Math.sqrt(this.M2 / (this.n - 1)) : 0;
+      }
       toRow(fmt=(v)=>v.toFixed(2), notes=''){
         return [fmt(this.mean), fmt(this.std()), fmt(this.min), fmt(this.max), notes];
       }
     }
 
-    // bucket of overall & per-side stats
     function makeBuckets(){
-      const b = {
+      return {
         // overall per-game
         totalPts: new Stat(),
         totalYards: new Stat(),
@@ -180,7 +192,10 @@
         avgDriveSec: new Stat(),
         playsPerDrive: new Stat(),
         // scoring counts
-        td: new Stat(), fgMade: new Stat(), fgAtt: new Stat(), safety: new Stat(),
+        td: new Stat(),
+        fgMade: new Stat(),
+        fgAtt: new Stat(),
+        safety: new Stat(),
         // per side
         homePts: new Stat(), awayPts: new Stat(),
         homeYards: new Stat(), awayYards: new Stat(),
@@ -188,10 +203,9 @@
         homeTOPsec: new Stat(), awayTOPsec: new Stat(),
         homeRush: new Stat(), awayRush: new Stat(),
         homePass: new Stat(), awayPass: new Stat(),
-        // for CSV
+        // per-game CSV rows
         perGameRows: []
       };
-      return b;
     }
 
     // ---------- League loading ----------
@@ -204,75 +218,89 @@
       if (!url) throw new Error('Players CSV URL required');
       const league = await loadLeague(url);
       TEAMS = league.teams || league || [];
-      TEAM_BY_ID = new Map(TEAMS.map(t => [String(t.teamId || t.id || t.name).trim(), t]));
+      TEAM_BY_ID = new Map(
+        TEAMS.map(t => [String(t.teamId || t.id || t.name).trim(), t])
+      );
       setStatus(`Loaded ${TEAMS.length} teams`);
       setNote('Use teamIds (as in your CSV) for home/away, or leave blank to randomize each trial.');
     }
 
     // ---------- Random helpers ----------
     function pickRandomTeam(){
-      return TEAMS[Math.floor(Math.random()*TEAMS.length)];
+      return TEAMS[Math.floor(Math.random() * TEAMS.length)];
     }
 
     function resolveTeam(tag){
       if (!tag) return null;
-      const t = TEAM_BY_ID.get(String(tag).trim());
-      if (t) return t;
-      // loose: allow matching by name (case-insensitive)
-      const lc = String(tag).toLowerCase();
-      return TEAMS.find(t => String(t.teamName||t.name||t.teamId).toLowerCase()===lc) || null;
+      const key = String(tag).trim();
+      const exact = TEAM_BY_ID.get(key);
+      if (exact) return exact;
+      const lc = key.toLowerCase();
+      return TEAMS.find(
+        t => String(t.teamName || t.name || t.teamId).toLowerCase() === lc
+      ) || null;
     }
 
     // ---------- Per-game extraction ----------
     function summarizeGame(result){
-      // core
-      const home = result.teamStats.home;
-      const away = result.teamStats.away;
+      const home = result.teamStats?.home || {plays:0,yardsTotal:0,rushYards:0,passYards:0,turnovers:0};
+      const away = result.teamStats?.away || {plays:0,yardsTotal:0,rushYards:0,passYards:0,turnovers:0};
 
-      const pts = result.score.home + result.score.away;
+      const homePts = result.score.home;
+      const awayPts = result.score.away;
+      const pts   = homePts + awayPts;
       const yards = (home.yardsTotal || 0) + (away.yardsTotal || 0);
-      const rush = (home.rushYards || 0) + (away.rushYards || 0);
-      const pass = (home.passYards || 0) + (away.passYards || 0);
-      const plays = (home.plays || 0) + (away.plays || 0);
+      const rush  = (home.rushYards  || 0) + (away.rushYards  || 0);
+      const pass  = (home.passYards  || 0) + (away.passYards  || 0);
+      const plays = (home.plays      || 0) + (away.plays      || 0);
       const drives = (result.drives || []).length;
       const tovs = (home.turnovers || 0) + (away.turnovers || 0);
-      const ypp = plays>0 ? yards/plays : 0;
+      const ypp = plays > 0 ? yards / plays : 0;
 
-      // drive metrics
       let totalDriveSec = 0;
       let homeTOP = 0, awayTOP = 0;
-      for (const d of (result.drives||[])) {
-        const sec = +d.durationSec || 0;
+      for (const d of (result.drives || [])){
+        const sec = Number(d.durationSec) || 0;
         totalDriveSec += sec;
-        if (d.offense === 'home') homeTOP += sec; else awayTOP += sec;
+        if (d.offense === 'home') homeTOP += sec;
+        else if (d.offense === 'away') awayTOP += sec;
       }
-      const avgDriveSec = drives>0 ? totalDriveSec/drives : 0;
-      const playsPerDrive = drives>0 ? plays/drives : 0;
+      const avgDriveSec = drives > 0 ? totalDriveSec / drives : 0;
+      const playsPerDrive = drives > 0 ? plays / drives : 0;
 
-      // scoring counts via plays (FG att/made) + events (TD/Safety)
-      let fgAtt=0, fgMade=0;
-      for (const p of (result.plays||[])) {
-        if (p.fieldGoalAttempt) { fgAtt++; if (p.fieldGoalGood) fgMade++; }
+      let fgAtt = 0, fgMade = 0;
+      for (const p of (result.plays || [])){
+        if (p.fieldGoalAttempt){
+          fgAtt++;
+          if (p.fieldGoalGood) fgMade++;
+        }
       }
-      let td=0, safety=0;
-      for (const e of (result.events||[])) {
-        if (e.type==='score'){
-          if (e.subtype==='touchdown') td++;
-          if (e.subtype==='safety') safety++;
+      let td = 0, safety = 0;
+      for (const e of (result.events || [])){
+        if (e.type === 'score'){
+          if (e.subtype === 'touchdown') td++;
+          if (e.subtype === 'safety') safety++;
         }
       }
 
       return {
-        homePts: result.score.home, awayPts: result.score.away,
+        homePts, awayPts,
         pts, yards, rush, pass, plays, drives, tovs, ypp, avgDriveSec, playsPerDrive,
-        homeYards: home.yardsTotal||0, awayYards: away.yardsTotal||0,
-        homePlays: home.plays||0, awayPlays: away.plays||0,
-        homeRush: home.rushYards||0, awayRush: away.rushYards||0,
-        homePass: home.passYards||0, awayPass: away.passYards||0,
+        homeYards: home.yardsTotal || 0,
+        awayYards: away.yardsTotal || 0,
+        homePlays: home.plays || 0,
+        awayPlays: away.plays || 0,
+        homeRush: home.rushYards || 0,
+        awayRush: away.rushYards || 0,
+        homePass: home.passYards || 0,
+        awayPass: away.passYards || 0,
         homeTOP, awayTOP,
         td, fgAtt, fgMade, safety
       };
     }
+
+    // ---------- Globals for last batch ----------
+    let LAST_ROWS = null;
 
     // ---------- Batch run ----------
     async function runBatch(){
@@ -282,37 +310,37 @@
       const keepPBP = el('keepPBP').value === '1';
       const seedBase = el('seed').value !== '' ? +el('seed').value : null;
 
-      // fixed teams (optional)
       const fixedHome = resolveTeam(el('homeTeam').value.trim());
       const fixedAway = resolveTeam(el('awayTeam').value.trim());
 
-      if ((el('homeTeam').value||'').trim() && !fixedHome) setNote(`Warning: could not resolve home team "${el('homeTeam').value}"`);
-      if ((el('awayTeam').value||'').trim() && !fixedAway) setNote(`Warning: could not resolve away team "${el('awayTeam').value}"`);
+      if ((el('homeTeam').value||'').trim() && !fixedHome){
+        setNote(`Warning: could not resolve home team "${el('homeTeam').value}"`);
+      }
+      if ((el('awayTeam').value||'').trim() && !fixedAway){
+        setNote(`Warning: could not resolve away team "${el('awayTeam').value}"`);
+      }
 
-      // progress
-      prog.max = n; prog.value = 0;
+      prog.max = n;
+      prog.value = 0;
       setStatus('Running…');
 
       const B = makeBuckets();
 
-      // main loop (yield to UI every ~25 sims)
-      for (let i=0;i<n;i++){
+      for (let i = 0; i < n; i++){
         const home = fixedHome || pickRandomTeam();
         let away  = fixedAway || pickRandomTeam();
-        // avoid accidental mirror-match if both sides random:
-        if (!fixedAway && away.teamId === home.teamId) {
+
+        if (!fixedAway && away.teamId === home.teamId){
           away = pickRandomTeam();
         }
 
         const res = simulateGame(home, away, {
           keepPlayByPlay: keepPBP,
-          // use real quarter length & default OT/tuning from your engine
-          seed: seedBase!=null ? (seedBase + i) : undefined
+          seed: seedBase != null ? (seedBase + i) : undefined
         });
 
         const g = summarizeGame(res);
 
-        // push to buckets
         B.totalPts.push(g.pts);
         B.totalYards.push(g.yards);
         B.rushYds.push(g.rush);
@@ -329,34 +357,41 @@
         B.fgMade.push(g.fgMade);
         B.safety.push(g.safety);
 
-        B.homePts.push(g.homePts); B.awayPts.push(g.awayPts);
-        B.homeYards.push(g.homeYards); B.awayYards.push(g.awayYards);
-        B.homePlays.push(g.homePlays); B.awayPlays.push(g.awayPlays);
-        B.homeRush.push(g.homeRush); B.awayRush.push(g.awayRush);
-        B.homePass.push(g.homePass); B.awayPass.push(g.awayPass);
-        B.homeTOPsec.push(g.homeTOP); B.awayTOPsec.push(g.awayTOP);
+        B.homePts.push(g.homePts);
+        B.awayPts.push(g.awayPts);
+        B.homeYards.push(g.homeYards);
+        B.awayYards.push(g.awayYards);
+        B.homePlays.push(g.homePlays);
+        B.awayPlays.push(g.awayPlays);
+        B.homeRush.push(g.homeRush);
+        B.awayRush.push(g.awayRush);
+        B.homePass.push(g.homePass);
+        B.awayPass.push(g.awayPass);
+        B.homeTOPsec.push(g.homeTOP);
+        B.awayTOPsec.push(g.awayTOP);
 
-        // CSV row
         B.perGameRows.push({
-          game:i+1,
+          game: i + 1,
           homeId: home.teamId, awayId: away.teamId,
-          homePts:g.homePts, awayPts:g.awayPts, totalPts:g.pts,
-          yards:g.yards, rush:g.rush, pass:g.pass,
-          plays:g.plays, drives:g.drives, turnovers:g.tovs, ypp:g.ypp.toFixed(3),
-          avgDriveSec:g.avgDriveSec.toFixed(2), playsPerDrive:g.playsPerDrive.toFixed(2),
-          td:g.td, fgAtt:g.fgAtt, fgMade:g.fgMade, safety:g.safety,
-          homeYards:g.homeYards, awayYards:g.awayYards,
-          homePlays:g.homePlays, awayPlays:g.awayPlays,
-          homeRush:g.homeRush, awayRush:g.awayRush,
-          homePass:g.homePass, awayPass:g.awayPass,
-          homeTOPsec:g.homeTOP.toFixed(2), awayTOPsec:g.awayTOP.toFixed(2)
+          homePts: g.homePts, awayPts: g.awayPts, totalPts: g.pts,
+          yards: g.yards, rush: g.rush, pass: g.pass,
+          plays: g.plays, drives: g.drives, turnovers: g.tovs, ypp: g.ypp.toFixed(3),
+          avgDriveSec: g.avgDriveSec.toFixed(2), playsPerDrive: g.playsPerDrive.toFixed(2),
+          td: g.td, fgAtt: g.fgAtt, fgMade: g.fgMade, safety: g.safety,
+          homeYards: g.homeYards, awayYards: g.awayYards,
+          homePlays: g.homePlays, awayPlays: g.awayPlays,
+          homeRush: g.homeRush, awayRush: g.awayRush,
+          homePass: g.homePass, awayPass: g.awayPass,
+          homeTOPsec: g.homeTOP.toFixed(2), awayTOPsec: g.awayTOP.toFixed(2)
         });
 
-        // tick progress
-        if ((i%25)===0) await new Promise(r=>setTimeout(r,0));
-        prog.value = i+1;
+        if ((i % 25) === 0){
+          await new Promise(r => setTimeout(r, 0));
+        }
+        prog.value = i + 1;
       }
 
+      LAST_ROWS = B.perGameRows;
       renderAggregates(B, n);
       setStatus('Done');
     }
@@ -374,24 +409,28 @@
 
     function renderAggregates(B, n){
       const fmt2 = (v)=>Number(v).toFixed(2);
-      const s = [];
-      s.push(rowHTML('Total points', B.totalPts.toRow(fmt2), 'Home+Away'));
-      s.push(rowHTML('Total yards',  B.totalYards.toRow(fmt2)));
-      s.push(rowHTML('Rush yards',   B.rushYds.toRow(fmt2)));
-      s.push(rowHTML('Pass yards',   B.passYds.toRow(fmt2)));
-      s.push(rowHTML('Plays',        B.plays.toRow(fmt2)));
-      s.push(rowHTML('Drives',       B.drives.toRow(fmt2)));
-      s.push(rowHTML('Turnovers',    B.turnovers.toRow(fmt2)));
-      s.push(rowHTML('Yards/play',   B.ypp.toRow(fmt2)));
-      s.push(rowHTML('Avg drive sec',B.avgDriveSec.toRow(fmt2)));
-      s.push(rowHTML('Plays/drive',  B.playsPerDrive.toRow(fmt2)));
-      s.push(rowHTML('FG attempts',  B.fgAtt.toRow(fmt2)));
-      s.push(rowHTML('FG made',      B.fgMade.toRow(fmt2)));
-      s.push(rowHTML('Touchdowns',   B.td.toRow(fmt2)));
-      s.push(rowHTML('Safeties',     B.safety.toRow(fmt2)));
+      const rows = [];
+      rows.push(rowHTML('Total points', B.totalPts.toRow(fmt2), 'Home+Away'));
+      rows.push(rowHTML('Total yards',  B.totalYards.toRow(fmt2)));
+      rows.push(rowHTML('Rush yards',   B.rushYds.toRow(fmt2)));
+      rows.push(rowHTML('Pass yards',   B.passYds.toRow(fmt2)));
+      rows.push(rowHTML('Plays',        B.plays.toRow(fmt2)));
+      rows.push(rowHTML('Drives',       B.drives.toRow(fmt2)));
+      rows.push(rowHTML('Turnovers',    B.turnovers.toRow(fmt2)));
+      rows.push(rowHTML('Yards/play',   B.ypp.toRow(fmt2)));
+      rows.push(rowHTML('Avg drive sec',B.avgDriveSec.toRow(fmt2)));
+      rows.push(rowHTML('Plays/drive',  B.playsPerDrive.toRow(fmt2)));
+      rows.push(rowHTML('FG attempts',  B.fgAtt.toRow(fmt2)));
+      rows.push(rowHTML('FG made',      B.fgMade.toRow(fmt2)));
+      rows.push(rowHTML('Touchdowns',   B.td.toRow(fmt2)));
+      rows.push(rowHTML('Safeties',     B.safety.toRow(fmt2)));
+      aggBody.innerHTML = rows.join('');
 
-      aggBody.innerHTML = s.join('');
-      aggMeta.textContent = `Trials: ${n}. Avg TOP (sec) — Home: ${B.homeTOPsec.mean.toFixed(1)}, Away: ${B.awayTOPsec.mean.toFixed(1)}.`;
+      const homeTOPavg = B.homeTOPsec.mean;
+      const awayTOPavg = B.awayTOPsec.mean;
+      aggMeta.textContent =
+        `Trials: ${n}. Avg TOP (sec) — Home: ${homeTOPavg.toFixed(1)}, ` +
+        `Away: ${awayTOPavg.toFixed(1)}. Combined: ${(homeTOPavg + awayTOPavg).toFixed(1)}.`;
 
       const side = [];
       side.push(`<tr><td class="mono">Points</td><td>${B.homePts.mean.toFixed(2)}</td><td>${B.awayPts.mean.toFixed(2)}</td><td class="muted small">Per side</td></tr>`);
@@ -399,7 +438,7 @@
       side.push(`<tr><td class="mono">Plays</td><td>${B.homePlays.mean.toFixed(2)}</td><td>${B.awayPlays.mean.toFixed(2)}</td><td></td></tr>`);
       side.push(`<tr><td class="mono">Rush yards</td><td>${B.homeRush.mean.toFixed(2)}</td><td>${B.awayRush.mean.toFixed(2)}</td><td></td></tr>`);
       side.push(`<tr><td class="mono">Pass yards</td><td>${B.homePass.mean.toFixed(2)}</td><td>${B.awayPass.mean.toFixed(2)}</td><td></td></tr>`);
-      side.push(`<tr><td class="mono">Time of possession (sec)</td><td>${B.homeTOPsec.mean.toFixed(1)}</td><td>${B.awayTOPsec.mean.toFixed(1)}</td><td></td></tr>`);
+      side.push(`<tr><td class="mono">Time of possession (sec)</td><td>${homeTOPavg.toFixed(1)}</td><td>${awayTOPavg.toFixed(1)}</td><td></td></tr>`);
       sideBody.innerHTML = side.join('');
 
       const score = [];
@@ -412,22 +451,33 @@
 
     // ---------- CSV ----------
     function toCSV(rows){
-      if (!rows.length) return '';
+      if (!rows || !rows.length) return '';
       const headers = Object.keys(rows[0]);
-      const esc = (v)=>String(v).includes(',')||String(v).includes('"') ? `"${String(v).replace(/"/g,'""')}"` : v;
+      const esc = (v)=>{
+        const s = String(v);
+        return (s.includes(',') || s.includes('"') || s.includes('\n'))
+          ? `"${s.replace(/"/g,'""')}"`
+          : s;
+      };
       const out = [headers.join(',')];
       for (const r of rows){
-        out.push(headers.map(h=>esc(r[h]??'')).join(','));
+        out.push(headers.map(h => esc(r[h] ?? '')).join(','));
       }
       return out.join('\n');
     }
 
-    function downloadCSV(rows, name='batch_results.csv'){
+    function downloadCSV(rows, name='batch_sim_results.csv'){
       const csv = toCSV(rows);
+      if (!csv){
+        setNote('No results to download.');
+        return;
+      }
       const blob = new Blob([csv], {type:'text/csv'});
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url; a.download = name; a.click();
+      a.href = url;
+      a.download = name;
+      a.click();
       URL.revokeObjectURL(url);
     }
 
@@ -445,14 +495,11 @@
     el('btnRun').addEventListener('click', async ()=>{
       try{
         await loadTeams(); // safe if already loaded
-        // clear tables
-        document.querySelector('#aggTable tbody').innerHTML='';
-        document.querySelector('#sideTable tbody').innerHTML='';
-        document.querySelector('#scoreTable tbody').innerHTML='';
-        window._lastBatch = null;
-        // run
+        document.querySelector('#aggTable tbody').innerHTML = '';
+        document.querySelector('#sideTable tbody').innerHTML = '';
+        document.querySelector('#scoreTable tbody').innerHTML = '';
+        LAST_ROWS = null;
         await runBatch();
-        window._lastBatch = 'ready'; // marker
       }catch(err){
         setStatus('Error');
         setNote(String(err));
@@ -460,34 +507,12 @@
       }
     });
 
-    let lastRowsRef = null;
-    // stash rows via closure on runBatch by overriding renderAggregates
-    const _origRunBatch = runBatch;
-    runBatch = async function(){
-      // capture rows through makeBuckets
-      const _make = makeBuckets;
-      let rowsRef = null;
-      makeBuckets = function(){
-        const B = _make();
-        // expose rows after completion
-        Object.defineProperty(B, 'rowsRef', {get(){return B.perGameRows;}});
-        rowsRef = B.perGameRows;
-        lastRowsRef = rowsRef;
-        return B;
-      };
-      try{
-        await _origRunBatch();
-      } finally {
-        makeBuckets = _make; // restore
-      }
-    };
-
     el('btnCSV').addEventListener('click', ()=>{
-      if (!lastRowsRef || !lastRowsRef.length){
+      if (!LAST_ROWS || !LAST_ROWS.length){
         setNote('No results yet. Run a batch first.');
         return;
       }
-      downloadCSV(lastRowsRef,'batch_sim_results.csv');
+      downloadCSV(LAST_ROWS, 'batch_sim_results.csv');
     });
 
     // auto-load on open (respect query params)
@@ -495,7 +520,7 @@
       try{
         await loadTeams();
         setStatus('Ready');
-        setNote('Optionally set n/home/away/seed in the querystring or fields, then Run.');
+        setNote('Optionally set n/home/away/seed in the fields (or querystring), then Run.');
       }catch(err){
         setStatus('Error');
         setNote(String(err));
