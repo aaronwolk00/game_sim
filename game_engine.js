@@ -223,9 +223,9 @@ class RNG {
     betweenPlayNormalMin: 30,
     betweenPlayNormalMax: 40,
     betweenPlayHurryMin: 6,
-    betweenPlayHurryMax: 25,
-    oobRestartMin: 4,
-    oobRestartMax: 8,
+    betweenPlayHurryMax: 18,
+    oobRestartMin: 18,
+    oobRestartMax: 28,
   
     // First play after a quarter break
     quarterBreakSetupExtra: 6,
