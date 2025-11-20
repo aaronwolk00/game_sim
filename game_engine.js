@@ -1596,14 +1596,13 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
   
     // Incomplete if we didn't complete, and no INT/sack/fumble
     const incomplete = !completion && !interception && !sack && !fumble;
-    if (incomplete) yards = 0; // avoid reassigning const
   
     const prospective = state.ballYardline + yards;
     const touchdown   = prospective >= 100;
     const safety      = prospective <= 0;
   
     const inPlayTime = Number.isFinite(micro.timeElapsed)
-      ? clamp(micro.timeElapsed, 3, 8.5)
+      ? clamp(micro.timeElapsed, 3.5, 8.5)
       : clamp(
           3 +
             (sack ? 1.5 : 0) +
