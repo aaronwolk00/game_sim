@@ -252,7 +252,7 @@ class RNG {
     // ---- NEW: League targeting & team tilt (for YPC/YPA and punts/game) ----
     targetYPC: 4.4,           // league yards/rush you want the sim to hover around
     targetYPA: 7.3,           // league yards/pass (incl. incompletions)
-    runScaleGlobal: 1.12,     // gentle global nudge; tune after a 1k-game run
+    runScaleGlobal: 1.02,     // gentle global nudge; tune after a 1k-game run
     passScaleGlobal: 0.93,    // gentle global nudge; tune after a 1k-game run
   
     useRealBaselines: false,  // flip to true when you pass per-team tables
