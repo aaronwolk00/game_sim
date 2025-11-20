@@ -806,154 +806,148 @@ function simulateDrive(state) {
  * Assumes the TD points (6) have already been added.
  */
  function handlePAT(state, scoringSide) {
-    const rng = state.rng;
-    const cfg = state.cfg || {};
-  
-    const xpMakeProb    = Number.isFinite(cfg.xpMakeProb)    ? cfg.xpMakeProb    : 0.94;
-    const twoPtMakeProb = Number.isFinite(cfg.twoPtMakeProb) ? cfg.twoPtMakeProb : 0.48;
-  
-    // Score diff from offense perspective *after* TD already applied
-    const offenseScore =
-        scoringSide === "home" ? state.score.home : state.score.away;
-    const defenseScore =
-        scoringSide === "home" ? state.score.away : state.score.home;
+  const rng = state.rng;
+  const cfg = state.cfg || {};
 
-    // Timeouts for the half in progress
-    const halfKey = state.quarter <= 2 ? "H1" : "H2";
-    const offenseTimeouts = state.timeouts?.[scoringSide]?.[halfKey] ?? 0;
-    const defenseTimeouts = state.timeouts?.[defenseSide]?.[halfKey] ?? 0;
+  const xpMakeProb    = Number.isFinite(cfg.xpMakeProb)    ? cfg.xpMakeProb    : 0.94;
+  const twoPtMakeProb = Number.isFinite(cfg.twoPtMakeProb) ? cfg.twoPtMakeProb : 0.48;
 
-    // Optional team slider
-    const tryForTwoAggression =
-        (scoringSide === "home" ? state.homeTeam : state.awayTeam)?.tendencies?.twoPoint ?? 0;
+  // --- Figure out sides/teams up front so they're safe to use anywhere below ---
+  const offenseSide = scoringSide; // alias for clarity
+  const defenseSide = scoringSide === "home" ? "away" : "home";
+  const offenseTeam = offenseSide === "home" ? state.homeTeam : state.awayTeam;
+  const defenseTeam = defenseSide === "home" ? state.homeTeam : state.awayTeam;
 
-    // Final decision (uses your helper)
-    const attemptTwo = shouldAttemptTwo({
-        offenseScore,
-        defenseScore,
-        quarter: state.quarter,
-        secondsLeft: state.clockSec,
-        offenseTimeouts,
-        defenseTimeouts,
-        tryForTwoAggression,
-    });
+  // Score diff from offense perspective *after* TD already applied
+  const scoreDiff =
+    offenseSide === "home"
+      ? state.score.home - state.score.away
+      : state.score.away - state.score.home;
 
-  
-    // Identify kicker (for XP stats / PBP)
-    const kicker =
-      scoringSide === "home" ? state.homeKicker : state.awayKicker;
-    const kickerRow = kicker ? ensurePlayerRow(state, kicker, scoringSide) : null;
-    const kickerId   = getPlayerKey(kicker);
-    const kickerName = getPlayerName(kicker);
-  
-    let made = false;
-    let desc = "";
-  
-    if (attemptTwo) {
-      // 2-point conversion
-      made = rng.next() < twoPtMakeProb;
-      if (made) {
-        if (scoringSide === "home") state.score.home += 2;
-        else                        state.score.away += 2;
-        desc = "two-point try is good";
-        state.events.push({
-          type: "score",
-          subtype: "two_point",
-          offense: scoringSide,
-          points: 2,
-          quarter: state.quarter,
-          clockSec: state.clockSec,  // same as TD time (untimed down)
-          score: cloneScore(state.score),
-        });
-      } else {
-        desc = "two-point try fails";
-      }
-    } else {
-      // Extra point (kick)
-      made = rng.next() < xpMakeProb;
-  
-      // Kicker stats
-      if (kickerRow) {
-        kickerRow.xpAtt += 1;
-        if (made) kickerRow.xpMade += 1;
-      }
-  
-      if (made) {
-        if (scoringSide === "home") state.score.home += 1;
-        else                        state.score.away += 1;
-        desc = "extra point is good";
-        state.events.push({
-          type: "score",
-          subtype: "extra_point",
-          offense: scoringSide,
-          points: 1,
-          quarter: state.quarter,
-          clockSec: state.clockSec,  // same as TD time (untimed down)
-          score: cloneScore(state.score),
-        });
-      } else {
-        desc = "extra point is no good";
-      }
-    }
-  
-    const offenseTeam = scoringSide === "home" ? state.homeTeam : state.awayTeam;
-    const defenseSide = scoringSide === "home" ? "away" : "home";
-    const defenseTeam = scoringSide === "home" ? state.awayTeam : state.homeTeam;
-  
-    // PBP text: use kicker name on XP, team on 2-pt
-    let playText;
-    if (attemptTwo) {
-      playText = `${offenseTeam.teamName} ${desc}`;
-    } else if (kickerName) {
-      playText = `${kickerName} ${desc}`;
-    } else {
-      playText = `${offenseTeam.teamName} ${desc}`;
-    }
-  
-    const log = {
-      playId: state.playId++,
-      driveId: state.driveId,           // PAT stays with the scoring drive
-      quarter: state.quarter,
-      clockSec: state.clockSec,         // unchanged (untimed)
-      offense: scoringSide,
-      defense: defenseSide,
-      offenseTeamId: offenseTeam.teamId,
-      defenseTeamId: defenseTeam.teamId,
-      offenseTeamName: offenseTeam.teamName,
-      defenseTeamName: defenseTeam.teamName,
-      down: null,
-      distance: null,
-      ballYardline: null,
-      decisionType: attemptTwo ? "two_point" : "extra_point",
-      playType:    attemptTwo ? "two_point" : "extra_point",
-      text: playText,
-      description: playText,
-      desc: playText,
-      downAndDistance: "",
-      tags: attemptTwo
-        ? (made ? ["2PT", "SCORE"] : ["2PT"])
-        : (made ? ["XP", "SCORE"] : ["XP"]),
-      isScoring: made,
-      isTurnover: false,
-      highImpact: made,
-      yardsGained: 0,
-      timeElapsed: 0,          // PAT is *untimed*
-      turnover: false,
-      touchdown: false,
-      safety: false,
-      fieldGoalAttempt: false,
-      fieldGoalGood: false,
-      punt: false,
-      endOfDrive: false,
-  
-      // kicker info only meaningful on XP
-      kickerId:   attemptTwo ? null : kickerId,
-      kickerName: attemptTwo ? null : kickerName,
-    };
-  
-    state.plays.push(log);
-    return log;
+  const lateQ4 = (state.quarter >= 4 && state.clockSec <= 120);
+  let attemptTwo = false;
+
+  if (lateQ4 && scoreDiff === -2) {
+    attemptTwo = true;                       // textbook "down 2" situation
+  } else if (lateQ4 && scoreDiff < 0) {
+    attemptTwo = rng.next() < 0.30;          // trailing late → sometimes aggressive
+  } else {
+    attemptTwo = rng.next() < 0.05;          // occasional 2-pt try earlier
   }
+
+  // Identify kicker (for XP stats / PBP)
+  const kicker =
+    offenseSide === "home" ? state.homeKicker : state.awayKicker;
+  const kickerRow = kicker ? ensurePlayerRow(state, kicker, offenseSide) : null;
+  const kickerId   = getPlayerKey(kicker);
+  const kickerName = getPlayerName(kicker);
+
+  let made = false;
+  let desc = "";
+
+  if (attemptTwo) {
+    // 2-point conversion
+    made = rng.next() < twoPtMakeProb;
+    if (made) {
+      if (offenseSide === "home") state.score.home += 2;
+      else                        state.score.away += 2;
+      desc = "two-point try is good";
+      state.events.push({
+        type: "score",
+        subtype: "two_point",
+        offense: offenseSide,
+        points: 2,
+        quarter: state.quarter,
+        clockSec: state.clockSec,  // same as TD time (untimed down)
+        score: cloneScore(state.score),
+      });
+    } else {
+      desc = "two-point try fails";
+    }
+  } else {
+    // Extra point (kick)
+    made = rng.next() < xpMakeProb;
+
+    // Kicker stats
+    if (kickerRow) {
+      kickerRow.xpAtt += 1;
+      if (made) kickerRow.xpMade += 1;
+    }
+
+    if (made) {
+      if (offenseSide === "home") state.score.home += 1;
+      else                        state.score.away += 1;
+      desc = "extra point is good";
+      state.events.push({
+        type: "score",
+        subtype: "extra_point",
+        offense: offenseSide,
+        points: 1,
+        quarter: state.quarter,
+        clockSec: state.clockSec,  // same as TD time (untimed down)
+        score: cloneScore(state.score),
+      });
+    } else {
+      desc = "extra point is no good";
+    }
+  }
+
+  // PBP text: use kicker name on XP, team on 2-pt
+  let playText;
+  if (attemptTwo) {
+    playText = `${offenseTeam.teamName} ${desc}`;
+  } else if (kickerName) {
+    playText = `${kickerName} ${desc}`;
+  } else {
+    playText = `${offenseTeam.teamName} ${desc}`;
+  }
+
+  const log = {
+    playId: state.playId++,
+    driveId: state.driveId,           // PAT stays with the scoring drive
+    quarter: state.quarter,
+    clockSec: state.clockSec,         // unchanged (untimed)
+    offense: offenseSide,
+    defense: defenseSide,
+    offenseTeamId: offenseTeam.teamId,
+    defenseTeamId: defenseTeam.teamId,
+    offenseTeamName: offenseTeam.teamName,
+    defenseTeamName: defenseTeam.teamName,
+    down: null,
+    distance: null,
+    ballYardline: null,
+    decisionType: attemptTwo ? "two_point" : "extra_point",
+    playType:    attemptTwo ? "two_point" : "extra_point",
+    text: playText,
+    description: playText,
+    desc: playText,
+    downAndDistance: "",
+    tags: attemptTwo
+      ? (made ? ["2PT", "SCORE"] : ["2PT"])
+      : (made ? ["XP", "SCORE"] : ["XP"]),
+    isScoring: made,
+    isTurnover: false,
+    highImpact: made,
+    yardsGained: 0,
+    timeElapsed: 0,          // PAT is *untimed*
+    clockRunoff: 0,
+    turnover: false,
+    touchdown: false,
+    safety: false,
+    fieldGoalAttempt: false,
+    fieldGoalGood: false,
+    punt: false,
+    endOfDrive: false,
+
+    // kicker info only meaningful on XP
+    kickerId:   attemptTwo ? null : kickerId,
+    kickerName: attemptTwo ? null : kickerName,
+  };
+
+  state.plays.push(log);
+  return log;
+}
+
 
   export function shouldAttemptTwo({
     offenseScore, defenseScore, quarter, secondsLeft,
