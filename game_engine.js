@@ -683,7 +683,7 @@ function simulateDrive(state) {
     );
   
     // Drive result label
-    let resultText = "Drive ended";
+    let resultText = "Turnover on downs";
     if (lastPlay) {
       if (isTD) resultText = "TD";
       else if (isFG && isFGGood) resultText = "FG Good";
@@ -813,21 +813,31 @@ function simulateDrive(state) {
     const twoPtMakeProb = Number.isFinite(cfg.twoPtMakeProb) ? cfg.twoPtMakeProb : 0.48;
   
     // Score diff from offense perspective *after* TD already applied
-    const scoreDiff =
-      scoringSide === "home"
-        ? state.score.home - state.score.away
-        : state.score.away - state.score.home;
-  
-    const lateQ4 = (state.quarter >= 4 && state.clockSec <= 120);
-    let attemptTwo = false;
-  
-    if (lateQ4 && scoreDiff === -2) {
-      attemptTwo = true;                       // textbook "down 2" situation
-    } else if (lateQ4 && scoreDiff < 0) {
-      attemptTwo = rng.next() < 0.30;          // trailing late → sometimes aggressive
-    } else {
-      attemptTwo = rng.next() < 0.05;          // occasional 2-pt try earlier
-    }
+    const offenseScore =
+        scoringSide === "home" ? state.score.home : state.score.away;
+    const defenseScore =
+        scoringSide === "home" ? state.score.away : state.score.home;
+
+    // Timeouts for the half in progress
+    const halfKey = state.quarter <= 2 ? "H1" : "H2";
+    const offenseTimeouts = state.timeouts?.[scoringSide]?.[halfKey] ?? 0;
+    const defenseTimeouts = state.timeouts?.[defenseSide]?.[halfKey] ?? 0;
+
+    // Optional team slider
+    const tryForTwoAggression =
+        (scoringSide === "home" ? state.homeTeam : state.awayTeam)?.tendencies?.twoPoint ?? 0;
+
+    // Final decision (uses your helper)
+    const attemptTwo = shouldAttemptTwo({
+        offenseScore,
+        defenseScore,
+        quarter: state.quarter,
+        secondsLeft: state.clockSec,
+        offenseTimeouts,
+        defenseTimeouts,
+        tryForTwoAggression,
+    });
+
   
     // Identify kicker (for XP stats / PBP)
     const kicker =
@@ -944,6 +954,92 @@ function simulateDrive(state) {
     state.plays.push(log);
     return log;
   }
+
+  export function shouldAttemptTwo({
+    offenseScore, defenseScore, quarter, secondsLeft,
+    offenseTimeouts, defenseTimeouts, tryForTwoAggression = 0.0
+  }) {
+    const lead = offenseScore - defenseScore;         // before the try
+    const late = (quarter === 4 && secondsLeft <= 180); // last 3:00
+  
+    // Default chart-ish rules
+    // Trailing:
+    if (lead === -2) return true;               // try to tie
+    if (lead === -1) return true;               // take the lead
+    // Tied:
+    if (lead === 0)  return false;              // go up 7, not 8, by default
+    // Leading:
+    if (lead === 1)  return true;               // 1 -> 3 is often fine
+    if (lead === 2)  return false;              // 2 -> 4 is rarely worth it
+    if (lead >= 3 && lead <= 6) return false;   // 3–6 -> 5–8: generally kick
+    if (lead >= 7 && lead <= 8) return false;   // already a “one-score”
+    
+    // Late-game overrides: be even *less* aggressive when already ahead or tied.
+    if (late && lead >= 0) return false;
+  
+    // Small team slider if you want some flavor:
+    return Math.random() < tryForTwoAggression * 0.25;
+  }
+
+  export function mustGoForIt({
+    quarter, secondsLeft, distance, fieldPosYds,
+    scoreDiff, offenseHasBall, timeoutsOffense, timeoutsDefense
+  }) {
+    if (!offenseHasBall) return false;
+  
+    const late = (quarter === 4);
+    if (!late) return false;
+  
+    // If trailing one score (<=8) inside 90s, *never* punt regardless of 4th & distance.
+    const oneScoreBehind = (scoreDiff < 0 && (-scoreDiff) <= 8);
+    if (oneScoreBehind && secondsLeft <= 90) return true;
+  
+    // If trailing any amount with <= 40s and ≤ 1 timeout, punting is pointless.
+    if (scoreDiff < 0 && secondsLeft <= 40 && timeoutsOffense <= 1) return true;
+  
+    // If down 2+ scores, you also don't punt under 2:00 unless it’s 4th-and-25+ at your own 5, etc.
+    if (scoreDiff <= -9 && secondsLeft <= 120 && fieldPosYds < 20 && distance >= 20) {
+      // Allow a very rare punt as a field-position hail mary; otherwise go.
+      return true;
+    }
+    return false;
+  }
+  
+  // game_engine.js
+  export function victoryFormationAvailable({
+    quarter, secondsLeft, offenseLead, timeoutsDefense, playClock = 40
+  }) {
+    if (quarter !== 4 || offenseLead <= 0) return false;
+  
+    // How many kneels needed? First takes 5s, subsequent ~7s (spot + wind).
+    // Simple conservative estimate: assume each kneel burns ~38s if defense has no TOs
+    // but only ~5–7s if they do have TOs.
+    if (timeoutsDefense === 0) {
+      return secondsLeft <= playClock + 2; // one kneel drains it
+    }
+    if (timeoutsDefense === 1) {
+      return secondsLeft <= playClock + 10 + 8; // kneel, TO, kneel sequence
+    }
+    if (timeoutsDefense === 2) {
+      return secondsLeft <= playClock + 10 + 8 + 8;
+    }
+    // With all 3 TOs, you usually need 4 snaps; keep it conservative:
+    return secondsLeft <= playClock + 10 + 8 + 8 + 8;
+  }
+  
+  // In your play-caller:
+  const canKneel = victoryFormationAvailable({
+    quarter: state.quarter,
+    secondsLeft: state.clock.seconds,
+    offenseLead: state.offenseScore - state.defenseScore,
+    timeoutsDefense: state.timeouts.defense,
+    playClock: 40
+  });
+  
+  if (canKneel) {
+    call = 'KNEEL';
+  }
+  
   
   
   
@@ -1075,13 +1171,71 @@ function simulateDrive(state) {
     state.plays.push(log);
     return log;
   }
+
+  function updateClockIntent(state) {
+    const { offenseSide } = getOffenseDefense(state);
+    const ci = state.clockIntent[offenseSide];
+  
+    // Reset to defaults each snap
+    ci.forceSpike = false;
+    ci.forceKneel = false;
+    ci.boundsPreference = "normal";
+  
+    const q = state.quarter;
+    const t = state.clockSec;
+    const diff =
+      offenseSide === "home"
+        ? state.score.home - state.score.away
+        : state.score.away - state.score.home;
+    const m = clamp(state.momentum?.[offenseSide] ?? 0, -1, 1);
+  
+    const isEndOfHalf = (q === 2 || q === 4);
+  
+    // ---------------- End-of-game: kneel to burn clock ----------------
+    if (q === 4 && diff > 0 && t <= 90) {
+      // Simple "safe lead" heuristic:
+      // - up 2+ scores any time under 1:30
+      // - OR up by any amount under ~40s
+      const safeLead =
+        diff >= 9 || (diff >= 1 && t <= 40);
+  
+      if (safeLead && state.down >= 1 && state.down <= 4) {
+        ci.forceKneel = true;
+        ci.boundsPreference = "middle"; // keep the ball in bounds
+        return;
+      }
+    }
+  
+    // ---------------- Two-minute drill / sideline preference ----------------
+    if (isEndOfHalf && diff <= 0 && t <= 120) {
+      // Trailing or tied late: prefer sideline to stop clock
+      ci.boundsPreference = "sideline";
+    }
+  
+    // ---------------- Spike to stop clock ----------------
+    // Use when behind/tied, low time, not on 4th down
+    if (isEndOfHalf && diff <= 0 && t <= 30 && t >= 8 && state.down <= 3) {
+      // Base spike probability depending on urgency
+      const urgency = (30 - t) / 30; // 0..1
+      let prob = 0.45 + 0.35 * urgency; // ~0.45 → ~0.8
+      // Slight tilt: hot offense a bit more decisive
+      prob += 0.05 * m;
+      prob = clamp(prob, 0.30, 0.90);
+  
+      if (state.rng.next() < prob) {
+        ci.forceSpike = true;
+      }
+    }
+  }
   
   
   
-  // Play simulation
+  
+
 // Play simulation
 function simulatePlay(state) {
     const { rng } = state;
+    updateClockIntent(state);
     const {
       offenseTeam,
       defenseTeam,
@@ -1105,19 +1259,61 @@ function simulatePlay(state) {
       quarter: state.quarter,
     };
   
+    // Timeouts for current half
+    const halfKey = state.quarter <= 2 ? "H1" : "H2";
+    const timeoutsOffense = state.timeouts?.[offenseSide]?.[halfKey] ?? 0;
+    const timeoutsDefense = state.timeouts?.[defenseSide]?.[halfKey] ?? 0;
+
+    // Victory formation: kneel if mathematically able to kill the game
+    const offenseScore =
+        offenseSide === "home" ? state.score.home : state.score.away;
+    const defenseScore =
+        offenseSide === "home" ? state.score.away : state.score.home;
+
+    if (
+        victoryFormationAvailable({
+        quarter: state.quarter,
+        secondsLeft: state.clockSec,
+        offenseLead: offenseScore - defenseScore,
+        timeoutsDefense,
+        playClock: 40,
+        })
+    ) {
+        const decision = { type: "kneel" };
+        const playOutcome = simulateKneel(state, rng);
+        applyPlayOutcomeToState(state, playOutcome, preState);
+        const playLog = buildPlayLog(
+        state,
+        decision,
+        playOutcome,
+        preState,
+        offenseSide,
+        defenseSide,
+        offenseTeam,
+        defenseTeam
+        );
+        state.plays.push(playLog);
+        return playLog;
+    }
+
+    // (REPLACE your old situation object with this one so timeouts are included)
     const situation = {
-      down: preState.down,
-      distance: preState.distance,
-      yardline: preState.yardline,
-      quarter: preState.quarter,
-      clockSec: preState.clockSec,
-      scoreDiff:
+        down: preState.down,
+        distance: preState.distance,
+        yardline: preState.yardline,
+        quarter: preState.quarter,
+        clockSec: preState.clockSec,
+        scoreDiff:
         offenseSide === "home"
-          ? state.score.home - state.score.away
-          : state.score.away - state.score.home,
-      puntBias,                     // now defined
-      offMomentum: state.momentum?.[offenseSide] ?? 0
+            ? state.score.home - state.score.away
+            : state.score.away - state.score.home,
+        puntBias,
+        offMomentum: state.momentum?.[offenseSide] ?? 0,
+        timeoutsOffense,
+        timeoutsDefense,
+        clockIntent: state.clockIntent[offenseSide] || null,
     };
+
   
     const decision = choosePlayType(
       situation,
@@ -1141,6 +1337,12 @@ function simulatePlay(state) {
       case "punt":
         playOutcome = simulatePunt(state, specialOff, rng);
         break;
+      case "kneel":
+        playOutcome = simulateKneelPlay(state, rng);
+            break;
+      case "spike":
+        playOutcome = simulateSpikePlay(state, rng);
+            break;
       default:
         playOutcome = simulateRunPlay(state, offenseUnits, defenseUnits, rng);
     }
@@ -1176,12 +1378,24 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
       scoreDiff,
       puntBias: _puntBias = 0,
       offMomentum = 0,            // NEW: offensive momentum in [-1, 1]
+      clockIntent = null,   
     } = situation;
   
     const offPass  = offenseUnits.pass?.overall     ?? 60;
     const offRun   = offenseUnits.run?.overall      ?? 60;
     const defCover = defenseUnits.coverage?.overall ?? 60;
     const defRun   = defenseUnits.runFit?.overall   ?? 60;
+
+      // ---------------- Hard clock overrides: kneel / spike ----------------
+    if (clockIntent) {
+        // Never spike on 4th, and only if there's actually time left
+        if (clockIntent.forceKneel && clockSec > 0 && down >= 1 && down <= 4) {
+        return { type: "kneel" };
+        }
+        if (clockIntent.forceSpike && clockSec > 0 && down >= 1 && down <= 3) {
+        return { type: "spike" };
+        }
+    }
   
     // ---------------- Momentum wiring ----------------
     // Clamp momentum to [-1, 1]
@@ -1224,167 +1438,237 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
   
     // ---------------- 4th down decisions ----------------
     if (down === 4) {
-      const yardsToGoal = 100 - yardline;
-      const kAcc = specialOff.kicking?.accuracy ?? 60;
-  
-      // Approximate max "reasonable" FG distance as a function of kicker.
-      // This is distance from LOS: yardsToGoal + 17.
-      const rawKickDist = yardsToGoal + 17;
-  
-      // 40–100 accuracy → max distance from ~50–57 yards
-      const maxFgDist = 50 + 0.12 * (kAcc - 60); // soft: ~48–57 range
-      const inFgRange = rawKickDist <= maxFgDist;
-  
-      const oneScoreGame = Math.abs(scoreDiff) <= 8;
-      const under2 = (quarter >= 4 && clockSec <= 120);
-      const under5 = (quarter >= 4 && clockSec <= 300);
-  
-      // Field position bands
-      const deepOwn   = yardline <= 35;       // backed up
-      const midField  = yardline > 35 && yardline < 60;
-      const plusTerr  = yardline >= 60;       // opp 40 and in
-      const redZone   = yardsToGoal <= 20;
-  
-      const shortYds  = distance <= 2;
-      const medYds    = distance > 2 && distance <= 5;
-      const longYds   = distance > 5;
-  
-      // ----- MUST-GO situations -----
-      // Trailing (or tied) in a one-score game, very late: always go.
-      if (under2 && oneScoreGame && scoreDiff <= 0) {
+        const yardsToGoal = 100 - yardline;
+        const kAcc = specialOff.kicking?.accuracy ?? 60;
+    
+        // Approximate max "reasonable" FG distance as a function of kicker.
+        // This is distance from LOS: yardsToGoal + 17.
+        const rawKickDist = yardsToGoal + 17;
+    
+        // 40–100 accuracy → max distance from ~50–57 yards
+        const maxFgDist = 50 + 0.12 * (kAcc - 60); // soft: ~48–57 range
+        const inFgRange = rawKickDist <= maxFgDist;
+    
+        const oneScoreGame = Math.abs(scoreDiff) <= 8;
+        const under2 = (quarter >= 4 && clockSec <= 120);
+        const under5 = (quarter >= 4 && clockSec <= 300);
+    
+        // Field position bands
+        const deepOwn   = yardline <= 35;       // backed up
+        const midField  = yardline > 35 && yardline < 60;
+        const plusTerr  = yardline >= 60;       // opp 40 and in
+        const redZone   = yardsToGoal <= 20;
+    
+        const shortYds  = distance <= 2;
+        const medYds    = distance > 2 && distance <= 5;
+        const longYds   = distance > 5;
+    
+        // ---------- HARD MUST-GO OVERRIDES (fix end-game weirdness) ----------
+        const secondsLeft = clockSec;
+    
+        // Trailing (or tied) by one score very late: never punt / try long FG.
+        if (quarter === 4 && oneScoreGame && scoreDiff <= 0 && secondsLeft <= 90) {
         return { type: shortYds ? "run" : "pass" };
-      }
-  
-      // Also treat 4th-and-goal / very close to goal in 4Q one-score as go-heavy
-      if (quarter >= 4 && oneScoreGame && redZone && scoreDiff <= 0) {
-        // Still mostly go for it; rarely kick if long-ish & small deficit.
+        }
+    
+        // Trailing by any amount with ~:40 or less: do not punt.
+        if (quarter === 4 && scoreDiff < 0 && secondsLeft <= 40) {
+        return { type: longYds ? "pass" : "run" };
+        }
+    
+        // Down two scores late: don’t punt unless truly extreme.
+        if (quarter === 4 && scoreDiff <= -9 && secondsLeft <= 120) {
+        // If you somehow are at your own 5 and it’s 4th & 25+, allow a tiny punt chance.
+        if (!(yardline < 20 && distance >= 25)) {
+            return { type: longYds ? "pass" : "run" };
+        }
+        }
+    
+        // ----- MUST-GO situations (soft) -----
+        // 4th-and-goal / very close in 4Q one-score when not leading → go-heavy.
+        if (quarter >= 4 && oneScoreGame && redZone && scoreDiff <= 0) {
         let goProb = shortYds ? 0.80 : 0.60;
         // puntBias: if team punts more (positive), reduce go; if punts less (negative), increase go
         goProb += (-puntBias) * 0.20;
         goProb = clamp(goProb, 0.40, 0.90);
-  
+    
         if (rng.next() < goProb) {
-          return { type: shortYds ? "run" : "pass" };
+            return { type: shortYds ? "run" : "pass" };
         }
         if (inFgRange) return { type: "field_goal" };
         return { type: shortYds ? "run" : "pass" };
-      }
-  
-      // ----- Normal 4th-down logic (not must-go) -----
-  
-      // 1) Deep in own territory: very conservative → punt almost always.
-      if (deepOwn) {
+        }
+    
+        // ----- Normal 4th-down logic (not must-go) -----
+    
+        // 1) Deep in own territory: very conservative → punt almost always.
+        if (deepOwn) {
         // Rare YOLO when trailing big in 2H on 4th & short
         const desperate = quarter >= 3 && scoreDiff < -14 && shortYds;
         let goProb = desperate ? 0.25 : 0.02; // ~never, unless desperate
         goProb += (-puntBias) * (desperate ? 0.15 : 0.08);
         goProb = clamp(goProb, 0.00, 0.60);
-  
+    
         if (rng.next() < goProb) {
-          return { type: shortYds ? "run" : "pass" };
+            return { type: shortYds ? "run" : "pass" };
         }
         return { type: "punt" };
-      }
-  
-      // 2) Midfield (own 36–opp 39)
-      if (midField) {
+        }
+    
+        // 2) Midfield (own 36–opp 39)
+        if (midField) {
         // If in solid FG range and distance > 1, lean FG
         if (inFgRange && !shortYds) {
-          // Slightly more aggressive to go when trailing
-          let goProb = scoreDiff < 0 ? 0.25 : 0.10;
-          goProb += (-puntBias) * 0.15;              // anti-punt teams go a bit more
-          goProb = clamp(goProb, 0.05, 0.50);
-  
-          if (rng.next() < goProb) {
+            // Slightly more aggressive to go when trailing
+            let goProb = scoreDiff < 0 ? 0.25 : 0.10;
+            goProb += (-puntBias) * 0.15;              // anti-punt teams go a bit more
+            goProb = clamp(goProb, 0.05, 0.50);
+    
+            if (rng.next() < goProb) {
             return { type: longYds ? "pass" : "run" };
-          }
-          return { type: "field_goal" };
+            }
+            return { type: "field_goal" };
         }
-  
+    
         // 4th-and-short around midfield: mix go/punt
         if (shortYds) {
-          // More likely to go if trailing or 2H
-          let goProb = 0.25;
-          if (quarter >= 2) goProb += 0.10;
-          if (scoreDiff < 0) goProb += 0.15;
-          if (under5 && oneScoreGame && scoreDiff < 0) goProb += 0.20;
-          goProb += (-puntBias) * 0.25;              // key lever
-          goProb = clamp(goProb, 0.20, 0.70);
-  
-          if (rng.next() < goProb) {
+            // More likely to go if trailing or 2H
+            let goProb = 0.25;
+            if (quarter >= 2) goProb += 0.10;
+            if (scoreDiff < 0) goProb += 0.15;
+            if (under5 && oneScoreGame && scoreDiff < 0) goProb += 0.20;
+            goProb += (-puntBias) * 0.25;              // key lever
+            goProb = clamp(goProb, 0.20, 0.70);
+    
+            if (rng.next() < goProb) {
             return { type: basePassProb > 0.55 ? "pass" : "run" };
-          }
-          return { type: "punt" };
+            }
+            return { type: "punt" };
         }
-  
+    
         // 4th & medium/long at midfield → usually punt (but let anti-punt teams go a bit)
         const yoloGoProb = clamp((-puntBias) * 0.15, 0.00, 0.25);
         if (rng.next() < yoloGoProb) {
-          return { type: basePassProb > 0.55 ? "pass" : "run" };
+            return { type: basePassProb > 0.55 ? "pass" : "run" };
         }
         return { type: "punt" };
-      }
-  
-      // 3) Plus territory (opp 40+)
-      if (plusTerr) {
+        }
+    
+        // 3) Plus territory (opp 40+)
+        if (plusTerr) {
         // Inside comfortable FG range: mostly kick, but go sometimes on 4&short
         if (inFgRange) {
-          if (shortYds) {
+            if (shortYds) {
             let goProb = 0.35;
             if (quarter >= 2) goProb += 0.10;
             if (scoreDiff < 0) goProb += 0.15;
             if (under5 && oneScoreGame && scoreDiff < 0) goProb += 0.20;
             goProb += (-puntBias) * 0.20;
             goProb = clamp(goProb, 0.25, 0.75);
-  
+    
             if (rng.next() < goProb) {
-              return { type: basePassProb > 0.55 ? "pass" : "run" };
+                return { type: basePassProb > 0.55 ? "pass" : "run" };
             }
-          }
-          // Default in range: kick
-          return { type: "field_goal" };
+            }
+            // Default in range: kick
+            return { type: "field_goal" };
         }
-  
+    
         // Out of normal range (really long FG):
         // - Short/medium distance: go a decent chunk of the time
         if (shortYds || medYds) {
-          let goProb = 0.60;
-          if (scoreDiff < 0) goProb += 0.10;
-          if (quarter >= 3) goProb += 0.10;
-          goProb += (-puntBias) * 0.20;              // anti-punt teams go even more
-          goProb = clamp(goProb, 0.50, 0.85);
-  
-          if (rng.next() < goProb) {
+            let goProb = 0.60;
+            if (scoreDiff < 0) goProb += 0.10;
+            if (quarter >= 3) goProb += 0.10;
+            goProb += (-puntBias) * 0.20;              // anti-punt teams go even more
+            goProb = clamp(goProb, 0.50, 0.85);
+    
+            if (rng.next() < goProb) {
             return { type: basePassProb > 0.55 ? "pass" : "run" };
-          }
-          // fallback conservative choice
-          return { type: "punt" };
+            }
+            // fallback conservative choice
+            return { type: "punt" };
         }
-  
+    
         // Long distance + out of range: mostly punt (but allow anti-punt flavor)
         const antiPuntGoProbPlus = clamp((-puntBias) * 0.20, 0.00, 0.30);
         if (rng.next() < antiPuntGoProbPlus) {
-          return { type: basePassProb > 0.55 ? "pass" : "run" };
+            return { type: basePassProb > 0.55 ? "pass" : "run" };
         }
         return { type: "punt" };
-      }
-  
-      // Fallback (shouldn’t really hit, but just in case):
-      // treat as midfield conservative
-      if (inFgRange && !shortYds) {
+        }
+    
+        // Fallback (shouldn’t really hit, but just in case):
+        // treat as midfield conservative
+        if (inFgRange && !shortYds) {
         return { type: "field_goal" };
-      }
-      // tiny anti-punt bias even here
-      const finalGoProb = clamp((-puntBias) * 0.10, 0.00, 0.20);
-      if (rng.next() < finalGoProb) {
+        }
+        // tiny anti-punt bias even here
+        const finalGoProb = clamp((-puntBias) * 0.10, 0.00, 0.20);
+        if (rng.next() < finalGoProb) {
         return { type: basePassProb > 0.55 ? "pass" : "run" };
-      }
-      return { type: "punt" };
+        }
+        return { type: "punt" };
     }
+    
   
     // ---------------- Non-4th downs: run vs pass ----------------
     return rng.next() < basePassProb ? { type: "pass" } : { type: "run" };
   }
+
+  // ------------------------ Clock-management plays -----------------------------
+
+function simulateKneelPlay(state, rng) {
+    // Simple kneeldown: small loss, short in-play time, clock will run
+    const yards = -1;
+    const inPlayTime = rng.nextRange(1, 2); // ~1–2s
+  
+    return {
+      playType: "run",   // treated like a run for chains logic
+      yardsGained: yards,
+      inPlayTime,
+      timeElapsed: inPlayTime,
+      turnover: false,
+      interception: false,
+      sack: false,
+      completion: false,
+      incomplete: false,
+      outOfBounds: false,
+      touchdown: false,
+      safety: false,
+      fieldGoalAttempt: false,
+      fieldGoalGood: false,
+      punt: false,
+      endOfDrive: false,
+      kneel: true,
+    };
+  }
+  
+  function simulateSpikePlay(state, rng) {
+    // Immediate incomplete pass to stop clock; no yards
+    const inPlayTime = rng.nextRange(1, 2); // ~1–2s
+  
+    return {
+      playType: "pass",  // important so the incomplete/clock logic kicks in
+      yardsGained: 0,
+      inPlayTime,
+      timeElapsed: inPlayTime,
+      turnover: false,
+      interception: false,
+      sack: false,
+      completion: false,
+      incomplete: true,   // so applyPlayOutcome treats this like an incompletion
+      outOfBounds: false,
+      touchdown: false,
+      safety: false,
+      fieldGoalAttempt: false,
+      fieldGoalGood: false,
+      punt: false,
+      endOfDrive: false,
+      spike: true,
+    };
+  }
+  
   
   
   
