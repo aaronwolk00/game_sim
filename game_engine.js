@@ -999,7 +999,6 @@ function simulateDrive(state) {
     return false;
   }
   
-  // game_engine.js
   export function victoryFormationAvailable({
     quarter, secondsLeft, offenseLead, timeoutsDefense, playClock = 40
   }) {
@@ -1156,8 +1155,43 @@ function simulateDrive(state) {
     return log;
   }
 
-  function updateClockIntent(state) {
+  function updateClockIntentForKneel(state) {
     const { offenseSide, defenseSide } = getOffenseDefense(state);
+    const intent = state.clockIntent?.[offenseSide];
+    if (!intent) return;
+  
+    // Only care in the 4th quarter with time left
+    if (state.quarter !== 4 || state.clockSec <= 0) return;
+  
+    const secondsLeft = state.clockSec;
+  
+    // Offense lead from the offense’s POV
+    const offenseScore =
+      offenseSide === "home" ? state.score.home : state.score.away;
+    const defenseScore =
+      offenseSide === "home" ? state.score.away : state.score.home;
+    const offenseLead = offenseScore - defenseScore;
+  
+    if (offenseLead <= 0) return;
+  
+    // Use defense timeouts + play clock to see if kneel-out is possible
+    const timeoutsDefense = getDefenseTimeouts(state, defenseSide);
+  
+    const canKneel = victoryFormationAvailable({
+      quarter: state.quarter,
+      secondsLeft,
+      offenseLead,
+      timeoutsDefense,
+      playClock: 40, // tweak if you ever expose this in cfg
+    });
+  
+    if (canKneel) {
+      intent.forceKneel = true;
+    }
+  }
+  
+  function updateClockIntent(state) {
+    const { offenseSide } = getOffenseDefense(state);
     const intent = state.clockIntent?.[offenseSide];
     if (!intent) return;
   
@@ -1166,8 +1200,7 @@ function simulateDrive(state) {
     intent.forceKneel = false;
     intent.boundsPreference = "normal";
   
-    // 1) Victory formation / kneel logic (uses timeouts + score)
-    //    This will set intent.forceKneel = true if we can kill the game.
+    // 1) Victory formation / kneel logic (may set forceKneel = true)
     updateClockIntentForKneel(state);
   
     const quarter     = state.quarter;
@@ -1198,11 +1231,11 @@ function simulateDrive(state) {
     //    - < ~25s, > 8s
     //    - no timeouts
     //    - not 4th down
-    const yardline        = state.ballYardline; // 0–100 from offense goal
-    const inScoringRange  = yardline >= 60 && yardline <= 90; // opp 40–10
+    const yardline       = state.ballYardline; // 0–100 from offense goal
+    const inScoringRange = yardline >= 60 && yardline <= 90; // opp 40–10
   
     if (
-      !intent.forceKneel &&             // don’t spike if we’re just icing the game
+      !intent.forceKneel &&          // don’t spike if we’re just icing the game
       scoreDiff <= 0 &&
       secondsLeft <= 25 &&
       secondsLeft >= 8 &&
@@ -1214,11 +1247,6 @@ function simulateDrive(state) {
       intent.forceSpike = true;
     }
   }
-  
-  
-  
-  
-  
   
 
 // Play simulation
