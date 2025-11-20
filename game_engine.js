@@ -249,11 +249,11 @@ class RNG {
     // First play after a quarter break
     quarterBreakSetupExtra: 6,
   
-    // ---- NEW: League targeting & team tilt (for YPC/YPA and punts/game) ----
+    // League targeting & team tilt (for YPC/YPA and punts/game) ----
     targetYPC: 4.4,           // league yards/rush you want the sim to hover around
     targetYPA: 7.3,           // league yards/pass (incl. incompletions)
-    runScaleGlobal: 0.71,     // gentle global nudge; tune after a 1k-game run
-    passScaleGlobal: 1.03,    // gentle global nudge; tune after a 1k-game run
+    runScaleGlobal: 0.61,     // gentle global nudge; tune after a 1k-game run
+    passScaleGlobal: 1.13,    // gentle global nudge; tune after a 1k-game run
   
     useRealBaselines: false,  // flip to true when you pass per-team tables
     realBaselines: null,      // shape: { [teamName|id]: { ypc, ypa, punts, tb } }
