@@ -224,8 +224,8 @@ class RNG {
     betweenPlayNormalMax: 40,
     betweenPlayHurryMin: 6,
     betweenPlayHurryMax: 18,
-    oobRestartMin: 24,
-    oobRestartMax: 35,
+    oobRestartMin: 26,
+    oobRestartMax: 36,
 
     // Play clock (NFL-style)
     playClockNormal: 40,
@@ -274,6 +274,12 @@ class RNG {
       rng,
       homeTeam,
       awayTeam,
+
+      // Play clock (for next snap)
+      playClockSec: 40,          // 40 by default, 25 after admin stoppages
+      _milkClock: false,         // ephemeral: offense intends to bleed clock
+      _icedKicker: false,        // set when defense ices the kicker before a FG
+      _clockPlan: null,          // last clockManager plan (pace/timeout/bounds)
   
       // Score
       score: { home: 0, away: 0 },
@@ -794,6 +800,7 @@ function simulateDrive(state) {
   function startNewDrive(state, priorPlay, reason) {
     if (!state.cfg.keepPlayByPlay) return;
     const { offenseSide } = getOffenseDefense(state);
+    state.playClockSec = state.cfg.playClockAdmin;
     state.events.push({
       type: "drive_start",
       driveId: state.driveId,
