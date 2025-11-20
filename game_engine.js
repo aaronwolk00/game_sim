@@ -121,7 +121,7 @@ class RNG {
    function estimateBetweenPlayTime(state, outcome, preState, rng, offenseSide) {
     const cfg = state.cfg || {};
   
-    // Situations that stop the clock until the next snap
+    // If the clock should be stopped until the next snap, there is no between-play runoff.
     if (
       outcome.touchdown ||
       outcome.safety ||
@@ -149,6 +149,19 @@ class RNG {
       )
     );
   
+    // Extra seconds for moving the chains on a first down (uses preState)
+    const gainedFirst =
+      preState &&
+      Number.isFinite(preState.distance) &&
+      !outcome.turnover &&
+      !outcome.punt &&
+      !outcome.fieldGoalAttempt &&
+      (outcome.yardsGained || 0) >= preState.distance;
+  
+    if (gainedFirst && !isTwoMinute(state)) {
+      base += Math.round(rng.nextRange(2, 4));
+    }
+  
     // Apply one-time "quarter break setup" if flagged
     if (state._quarterBreakSetup) {
       base += (cfg.quarterBreakSetupExtra || 0);
@@ -157,6 +170,7 @@ class RNG {
   
     return base;
   }
+  
   
   
   
@@ -562,16 +576,14 @@ function simulateDrive(state) {
    * Logs a PAT (XP or 2-pt) as its own play and mutates score/clock.
    * Returns the play log object (so caller can include it in drivePlays).
    */
-  function handlePAT(state, scoringSide) {
+   function handlePAT(state, scoringSide) {
     const rng = state.rng;
     const cfg = state.cfg || {};
-    const xpMakeProb     = Number.isFinite(cfg.xpMakeProb) ? cfg.xpMakeProb : 0.94;
-    const twoPtMakeProb  = Number.isFinite(cfg.twoPtMakeProb) ? cfg.twoPtMakeProb : 0.48;
   
-    // Simple 2-pt decision:
-    // - If trailing by 2 after the TD late in Q4, go for 2.
-    // - Else if leading large, kick XP.
-    // - Otherwise, small chance to try 2 when trailing in Q4.
+    const xpMakeProb    = Number.isFinite(cfg.xpMakeProb)    ? cfg.xpMakeProb    : 0.94;
+    const twoPtMakeProb = Number.isFinite(cfg.twoPtMakeProb) ? cfg.twoPtMakeProb : 0.48;
+  
+    // Score diff from the scoring team's perspective *after* the TD was added.
     const scoreDiff =
       scoringSide === "home"
         ? state.score.home - state.score.away
@@ -580,16 +592,21 @@ function simulateDrive(state) {
     const lateQ4 = (state.quarter >= 4 && state.clockSec <= 120);
     let attemptTwo = false;
   
+    // Simple decision model:
+    // - Down 2 late in Q4 -> always go for 2.
+    // - Trailing late -> sometimes go for 2.
+    // - Otherwise, occasionally.
     if (lateQ4 && scoreDiff === -2) {
       attemptTwo = true;
     } else if (lateQ4 && scoreDiff < 0) {
       attemptTwo = rng.next() < 0.30;
     } else {
-      attemptTwo = rng.next() < 0.05; // occasional aggressiveness
+      attemptTwo = rng.next() < 0.05;
     }
   
-    const timeElapsed = Math.max(3, Math.min(8, Math.round(rng.nextRange(3, 8))));
-    state.clockSec = Math.max(0, state.clockSec - timeElapsed);
+    // PAT is an *untimed* down: no game clock movement.
+    const timeElapsed = 0;
+    const clockRunoff = 0;
   
     let made = false;
     let desc = "";
@@ -599,7 +616,7 @@ function simulateDrive(state) {
       if (made) {
         if (scoringSide === "home") state.score.home += 2;
         else                        state.score.away += 2;
-        desc = "Two-point try is good";
+  
         state.events.push({
           type: "score",
           subtype: "two_point",
@@ -609,6 +626,8 @@ function simulateDrive(state) {
           clockSec: state.clockSec,
           score: cloneScore(state.score),
         });
+  
+        desc = "Two-point try is good";
       } else {
         desc = "Two-point try fails";
       }
@@ -617,7 +636,7 @@ function simulateDrive(state) {
       if (made) {
         if (scoringSide === "home") state.score.home += 1;
         else                        state.score.away += 1;
-        desc = "Extra point is good";
+  
         state.events.push({
           type: "score",
           subtype: "extra_point",
@@ -627,21 +646,24 @@ function simulateDrive(state) {
           clockSec: state.clockSec,
           score: cloneScore(state.score),
         });
+  
+        desc = "Extra point is good";
       } else {
         desc = "Extra point is no good";
       }
     }
   
-    // Build a special-play log explicitly (don't depend on getOffenseDefense).
     const offenseTeam = scoringSide === "home" ? state.homeTeam : state.awayTeam;
     const defenseSide = scoringSide === "home" ? "away" : "home";
     const defenseTeam = scoringSide === "home" ? state.awayTeam : state.homeTeam;
+  
+    const text = `${offenseTeam.teamName} ${desc}`;
   
     const log = {
       playId: state.playId++,
       driveId: state.driveId, // stays with the scoring drive
       quarter: state.quarter,
-      clockSec: state.clockSec,
+      clockSec: state.clockSec,   // unchanged (untimed)
       offense: scoringSide,
       defense: defenseSide,
       offenseTeamId: offenseTeam.teamId,
@@ -653,16 +675,26 @@ function simulateDrive(state) {
       ballYardline: null,
       decisionType: attemptTwo ? "two_point" : "extra_point",
       playType: attemptTwo ? "two_point" : "extra_point",
-      text: `${offenseTeam.teamName} ${desc}`,
-      description: `${offenseTeam.teamName} ${desc}`,
-      desc: `${offenseTeam.teamName} ${desc}`,
+  
+      text,
+      description: text,
+      desc: text,
       downAndDistance: "",
-      tags: attemptTwo ? (made ? ["2PT", "SCORE"] : ["2PT"]) : (made ? ["XP", "SCORE"] : ["XP"]),
+  
+      tags: attemptTwo
+        ? (made ? ["2PT", "SCORE"] : ["2PT"])
+        : (made ? ["XP", "SCORE"] : ["XP"]),
+  
       isScoring: made,
       isTurnover: false,
       highImpact: made,
+  
       yardsGained: 0,
+  
+      // PAT is untimed in game-clock terms:
       timeElapsed,
+      clockRunoff,          // <- 0, so it won’t affect drive duration / TOP
+  
       turnover: false,
       touchdown: false,
       safety: false,
@@ -674,7 +706,7 @@ function simulateDrive(state) {
   
     state.plays.push(log);
     return log;
-  }
+  }  
   
   /**
    * Logs a kickoff play (time may be 0–6s) and sets the receiving team's
