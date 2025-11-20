@@ -2128,10 +2128,10 @@ function simulateKneelPlay(state, rng) {
     const turnover     = interception || fumble;
   
     const sack       = sackRaw && (rng.next() < 0.45);
-    const completion = completionRaw && !interception;
+    let completion = completionRaw && !interception;
   
     // Incomplete if we didn't complete, and no INT/sack/fumble
-    const incomplete = !completion && !interception && !sack && !fumble;
+    let incomplete = !completion && !interception && !sack && !fumble;
 
     // Completion boost: occasionally turn an "incomplete" into a
     // short checkdown completion, mostly affecting % but not much yardage.
