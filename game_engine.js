@@ -18,7 +18,6 @@
 // -----------------------------------------------------------------------------
 
 import { sampleRunOutcome, samplePassOutcome } from './micro_engine.js';
-import { updateMomentum } from "./random_models.js";
 
 // -----------------------------------------------------------------------------
 // PRNG (deterministic, seedable) – Mulberry32
@@ -291,32 +290,12 @@ class RNG {
       winner: null,
 
       playerStats: {},
-
-      momentum: {
-        home: 0,
-        away: 0,
-      },
     };
   }
   
   function cloneScore(score) {
     return { home: score.home, away: score.away };
   }
-
-  function getMomentumMultiplier(state, side, role) {
-    // side: "home" | "away"
-    // role: "offense" | "defense"
-    const m = state.momentum?.[side] ?? 0; // -1..1
-  
-    // Keep it subtle: +/- ~5–7% on offense, +/- ~4–5% on defense
-    if (role === "offense") {
-      return 1 + 0.06 * m;   // if m=1 → 1.06, if m=-1 → 0.94
-    } else {
-      // Defense gets opposite sign influence when *they* have momentum:
-      return 1 + 0.05 * m;
-    }
-  }
-  
   
   // -----------------------------------------------------------------------------
   // Team helpers
@@ -924,74 +903,49 @@ function simulateDrive(state) {
     const cfg = state.cfg || {};
     const touchbackRate = Number.isFinite(cfg.kickoffTouchbackRate) ? cfg.kickoffTouchbackRate : 0.75;
   
-    // Decide touchback vs return with a real catch point
-    const isTouchback = rng.next() < (
-        state.cfg.kickoffTouchbackLeagueAvg ?? state.cfg.kickoffTouchbackRate ?? 0.65
-    );
-
+    // Decide touchback vs return
+    const isTouchback = rng.next() < touchbackRate;
     let desc = "";
-    let timeElapsed = 0;
-
-    if (isTouchback) {
-        // Touchback (new rule: own 35)
-        const preClock = state.clockSec;
-        timeElapsed = Math.round(rng.nextRange(0, 2));
-        state.clockSec = Math.max(0, state.clockSec - timeElapsed);
-
-        state.ballYardline = 35;
-        state.down = 1;
-        state.distance = 10;
-
-        const kickingTeam   = kickingSide === "home" ? state.homeTeam : state.awayTeam;
-        const receivingSide = (kickingSide === "home") ? "away" : "home";
-        const receivingTeam = receivingSide === "home" ? state.homeTeam : state.awayTeam;
-
-        desc = `${kickingTeam.teamName} kickoff: touchback. ${receivingTeam.teamName} start at 35`;
-
-        addSpecialPlayLog(state, {
-        specialType: "kickoff",
-        description: desc,
-        timeElapsed,
-        offenseSide: kickingSide,
-        yardsGained: 0,
-        displayClockSec: preClock
-        });
-        return;
+    let startYardline = 35; // default for touchback
+    let returnYds = 0;
+  
+    if (!isTouchback) {
+      // Simple return model: average ~25-28 yard line; clamp inside [10, 45]
+      // We simulate the *ending* yardline for the receiving team.
+      const base = 28 + Math.round((rng.next() - 0.5) * 12); // ~[22..34]
+      startYardline = clamp(base, 10, 45);
+      returnYds = startYardline - 25; // relative to a neutral TB spot for text
     }
-
-    // Returned kick: choose a catch point and a return distance
-    // Catch point: -2..0 means end zone, 0..5 means at/near goal line to the 5
-    const catchAt = Math.round(rng.nextRange(-2, 5));
-    // Return distance: center ~24 with wide spread, clamp to realistic range
-    const returnYds = clamp(Math.round(normal(rng, 24, 8)), 10, 60);
-
-    // Ending yardline from receiving goal line
-    const endYard = clamp(Math.max(0, catchAt) + returnYds, 1, 99);
-
-    // Small live time for a return; 0–2s for quick dead-ball moments
+  
+    // Small clock burn on live returns; zero on touchbacks is allowed but we’ll
+    // burn up to 2s anyway to help realism.
     const preClock = state.clockSec;
-    timeElapsed = Math.max(2, Math.round(rng.nextRange(3, 6)));
+    const timeElapsed = isTouchback ? Math.round(rng.nextRange(0, 2))
+                                    : Math.max(2, Math.round(rng.nextRange(3, 6)));
     state.clockSec = Math.max(0, state.clockSec - timeElapsed);
-
-    state.ballYardline = endYard;
-    state.down = 1;
-    state.distance = 10;
-
+  
+    // Set the receiving team as offense on its new drive
+    state.ballYardline = startYardline;
+    state.down         = 1;
+    state.distance     = 10;
+  
+    // Build kickoff log as a special play under the NEW driveId (already bumped)
+    const receivingSide = state.possession; // after flip
     const kickingTeam   = kickingSide === "home" ? state.homeTeam : state.awayTeam;
-    const receivingSide = (kickingSide === "home") ? "away" : "home";
-    const fromText = (catchAt <= 0) ? "end zone" : `OWN ${catchAt}`;
-
-    desc = `${kickingTeam.teamName} kickoff returned ${returnYds} yards from the ${fromText} to the OWN ${endYard}`;
-
+    const receivingTeam = receivingSide === "home" ? state.homeTeam : state.awayTeam;
+  
+    desc = isTouchback
+      ? `${kickingTeam.teamName} kickoff: touchback. ${receivingTeam.teamName} start at 35`
+      : `${kickingTeam.teamName} kickoff returned ${Math.max(0, returnYds)} yards to the ${receivingSide === "home" ? "OWN" : "OWN"} ${startYardline}`;
+  
     addSpecialPlayLog(state, {
-        specialType: "kickoff",
-        description: desc,
-        timeElapsed,
-        offenseSide: kickingSide,
-        yardsGained: 0,
-        displayClockSec: preClock
+      specialType: "kickoff",
+      description: desc,
+      timeElapsed,
+      offenseSide: kickingSide, // kicking team shown as offense for the kickoff play
+      yardsGained: 0,
+      displayClockSec: preClock
     });
-
   }
   
   /**
@@ -1087,8 +1041,6 @@ function simulateDrive(state) {
         offenseSide === "home"
           ? state.score.home - state.score.away
           : state.score.away - state.score.home,
-      puntBias,
-      offMomentum: state.momentum?.[offenseSide] ?? 0
     };
 
     const decision = choosePlayType(
@@ -1145,32 +1097,12 @@ function simulateDrive(state) {
 
 // Choose between run / pass / FG / punt with improved 4th-down logic
 function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) {
-    const {
-      down,
-      distance,
-      yardline,
-      quarter,
-      clockSec,
-      scoreDiff,
-      puntBias: _puntBias = 0,
-      offMomentum = 0,            // NEW: offensive momentum in [-1, 1]
-    } = situation;
+    const { down, distance, yardline, quarter, clockSec, scoreDiff } = situation;
   
-    const offPass  = offenseUnits.pass?.overall     ?? 60;
-    const offRun   = offenseUnits.run?.overall      ?? 60;
+    const offPass  = offenseUnits.pass?.overall  ?? 60;
+    const offRun   = offenseUnits.run?.overall   ?? 60;
     const defCover = defenseUnits.coverage?.overall ?? 60;
     const defRun   = defenseUnits.runFit?.overall   ?? 60;
-  
-    // ---------------- Momentum wiring ----------------
-    // Clamp momentum to [-1, 1]
-    const m = clamp(offMomentum, -1, 1);
-  
-    // Base punt tendency from caller
-    const basePuntBias = clamp(_puntBias, -0.40, 0.40); // + = punt more, - = go more
-  
-    // Effective punt bias: hot offense (m>0) → slightly less punty; cold → more conservative.
-    // This is the only change to how puntBias feeds into the 4th-down logic.
-    const puntBias = clamp(basePuntBias - 0.20 * m, -0.40, 0.40);
   
     // ---------------- Base run/pass tendency ----------------
     // Pass advantage relative to coverage -> baseline pass probability
@@ -1192,10 +1124,6 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
     if (quarter >= 4 && clockSec <= 120 && scoreDiff < 0) {
       basePassProb = Math.max(basePassProb, 0.80);
     }
-  
-    // Momentum tilt on non-4th down:
-    // Hot offense (m>0) → a bit more pass-happy, cold (m<0) → lean run.
-    basePassProb += 0.05 * m;
   
     // Cap extremes a bit for variety
     basePassProb = clamp(basePassProb, 0.25, 0.80);
@@ -1236,11 +1164,7 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
       // Also treat 4th-and-goal / very close to goal in 4Q one-score as go-heavy
       if (quarter >= 4 && oneScoreGame && redZone && scoreDiff <= 0) {
         // Still mostly go for it; rarely kick if long-ish & small deficit.
-        let goProb = shortYds ? 0.80 : 0.60;
-        // puntBias: if team punts more (positive), reduce go; if punts less (negative), increase go
-        goProb += (-puntBias) * 0.20;
-        goProb = clamp(goProb, 0.40, 0.90);
-  
+        const goProb = shortYds ? 0.80 : 0.60;
         if (rng.next() < goProb) {
           return { type: shortYds ? "run" : "pass" };
         }
@@ -1253,11 +1177,9 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
       // 1) Deep in own territory: very conservative → punt almost always.
       if (deepOwn) {
         // Rare YOLO when trailing big in 2H on 4th & short
-        const desperate = quarter >= 3 && scoreDiff < -14 && shortYds;
-        let goProb = desperate ? 0.25 : 0.02; // ~never, unless desperate
-        goProb += (-puntBias) * (desperate ? 0.15 : 0.08);
-        goProb = clamp(goProb, 0.00, 0.60);
-  
+        const desperate =
+          quarter >= 3 && scoreDiff < -14 && shortYds;
+        const goProb = desperate ? 0.25 : 0.02; // ~never, unless desperate
         if (rng.next() < goProb) {
           return { type: shortYds ? "run" : "pass" };
         }
@@ -1269,10 +1191,7 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
         // If in solid FG range and distance > 1, lean FG
         if (inFgRange && !shortYds) {
           // Slightly more aggressive to go when trailing
-          let goProb = scoreDiff < 0 ? 0.25 : 0.10;
-          goProb += (-puntBias) * 0.15;              // anti-punt teams go a bit more
-          goProb = clamp(goProb, 0.05, 0.50);
-  
+          const goProb = scoreDiff < 0 ? 0.25 : 0.10;
           if (rng.next() < goProb) {
             return { type: longYds ? "pass" : "run" };
           }
@@ -1286,7 +1205,6 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
           if (quarter >= 2) goProb += 0.10;
           if (scoreDiff < 0) goProb += 0.15;
           if (under5 && oneScoreGame && scoreDiff < 0) goProb += 0.20;
-          goProb += (-puntBias) * 0.25;              // key lever
           goProb = clamp(goProb, 0.20, 0.70);
   
           if (rng.next() < goProb) {
@@ -1295,11 +1213,7 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
           return { type: "punt" };
         }
   
-        // 4th & medium/long at midfield → usually punt (but let anti-punt teams go a bit)
-        const yoloGoProb = clamp((-puntBias) * 0.15, 0.00, 0.25);
-        if (rng.next() < yoloGoProb) {
-          return { type: basePassProb > 0.55 ? "pass" : "run" };
-        }
+        // 4th & medium/long at midfield → usually punt
         return { type: "punt" };
       }
   
@@ -1312,7 +1226,6 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
             if (quarter >= 2) goProb += 0.10;
             if (scoreDiff < 0) goProb += 0.15;
             if (under5 && oneScoreGame && scoreDiff < 0) goProb += 0.20;
-            goProb += (-puntBias) * 0.20;
             goProb = clamp(goProb, 0.25, 0.75);
   
             if (rng.next() < goProb) {
@@ -1329,7 +1242,6 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
           let goProb = 0.60;
           if (scoreDiff < 0) goProb += 0.10;
           if (quarter >= 3) goProb += 0.10;
-          goProb += (-puntBias) * 0.20;              // anti-punt teams go even more
           goProb = clamp(goProb, 0.50, 0.85);
   
           if (rng.next() < goProb) {
@@ -1339,11 +1251,7 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
           return { type: "punt" };
         }
   
-        // Long distance + out of range: mostly punt (but allow anti-punt flavor)
-        const antiPuntGoProbPlus = clamp((-puntBias) * 0.20, 0.00, 0.30);
-        if (rng.next() < antiPuntGoProbPlus) {
-          return { type: basePassProb > 0.55 ? "pass" : "run" };
-        }
+        // Long distance + out of range: mostly punt
         return { type: "punt" };
       }
   
@@ -1352,19 +1260,12 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
       if (inFgRange && !shortYds) {
         return { type: "field_goal" };
       }
-      // tiny anti-punt bias even here
-      const finalGoProb = clamp((-puntBias) * 0.10, 0.00, 0.20);
-      if (rng.next() < finalGoProb) {
-        return { type: basePassProb > 0.55 ? "pass" : "run" };
-      }
       return { type: "punt" };
     }
   
     // ---------------- Non-4th downs: run vs pass ----------------
     return rng.next() < basePassProb ? { type: "pass" } : { type: "run" };
   }
-  
-  
   
   
   
@@ -1383,13 +1284,6 @@ function simulateRunPlay(state, offenseUnits, defenseUnits, rng) {
     // --- identify rusher (RB1 most of the time, occasional QB keep/scramble) ---
     const { offenseTeam, offenseSide } = getOffenseDefense(state);
     const skill = getOffensiveSkillPlayers(offenseTeam);
-
-    // Apply momentum multipliers
-    const offMult = getMomentumMultiplier(state, offenseSide, "offense");
-    const defMult = getMomentumMultiplier(state, defenseSide, "defense");
-
-    runOff    = clamp(runOff    * offMult,  40, 99);
-    frontRunD = clamp(frontRunD * defMult,  40, 99);
   
     let rusher = skill.rb1 || skill.qb || null;
     // very small chance of QB keep on obvious pass looks
@@ -1494,13 +1388,6 @@ function simulatePassPlay(state, offenseUnits, defenseUnits, rng) {
     const skill = getOffensiveSkillPlayers(offenseTeam);
     const qb   = skill.qb || offenseTeam.getStarter?.("QB") || null;
     const rec  = chooseReceivingTarget(skill, rng);
-
-    const offMult = getMomentumMultiplier(state, offenseSide, "offense");
-    const defMult = getMomentumMultiplier(state, defenseSide, "defense");
-  
-    passOff  = clamp(passOff  * offMult, 40, 99);
-    coverDef = clamp(coverDef * defMult, 40, 99);
-    rushDef  = clamp(rushDef  * defMult, 40, 99);
   
     const qbRow  = ensurePlayerRow(state, qb, offenseSide);
     const recRow = ensurePlayerRow(state, rec, offenseSide);
@@ -1574,8 +1461,6 @@ function simulatePassPlay(state, offenseUnits, defenseUnits, rng) {
   
     // Incomplete if we didn't complete, and no INT/sack/fumble
     const incomplete = !completion && !interception && !sack && !fumble;
-    if (incomplete) raw = 0;
-
   
     const prospective = state.ballYardline + yards;
     const touchdown   = prospective >= 100;
@@ -1778,52 +1663,6 @@ function simulatePunt(state, specialOff, rng) {
       punterName,
     };
   }
-
-  // put near applyPlayOutcomeToState in game_engine.js
-
-function computeMomentumImpact(outcome, preState, offenseSide, state) {
-    // Base: no impact for routine plays
-    let impact = 0;
-  
-    const yards = Number.isFinite(outcome.yardsGained) ? outcome.yardsGained : 0;
-    const down  = preState.down;
-    const dist  = preState.distance;
-  
-    // 1) Scoring plays
-    if (outcome.touchdown) {
-      impact += 0.9;  // huge swing for offense
-    } else if (outcome.fieldGoalGood) {
-      impact += 0.6;
-    } else if (outcome.safety) {
-      // from offense POV, disaster
-      impact -= 0.9;
-    }
-  
-    // 2) Turnovers (non-safety)
-    if (outcome.turnover && !outcome.safety && !outcome.fieldGoalAttempt && !outcome.punt) {
-      impact -= 0.8;
-    }
-  
-    // 3) Explosive plays for offense (20+ gains)
-    if ((outcome.playType === "run" || outcome.playType === "pass") && yards >= 20) {
-      impact += 0.4;
-    }
-  
-    // 4) Drive-ending negative: sack or TFL on key down
-    if (outcome.sack && yards <= -7 && down >= 3) {
-      impact -= 0.5;
-    }
-  
-    // 5) 3-and-out or big stop: handle at drive-level if you want.
-    //   You can pass a small negative impact from simulateDrive
-    //   when a drive is 3 plays and ends without points.
-  
-    // Clamp to [-1, 1] just in case multiple conditions add up
-    if (impact > 1) impact = 1;
-    if (impact < -1) impact = -1;
-    return impact;
-  }
-  
   
 
   
@@ -1874,7 +1713,7 @@ function computeMomentumImpact(outcome, preState, offenseSide, state) {
         );
 
     // Snap→whistle sanity clamp (live action only)
-    inPlayTime = clamp(inPlayTime, 3.5, 8.5);
+    inPlayTime = clamp(inPlayTime, 3, 8.5);
 
     // Late-clock windows where going out of bounds actually stops the clock
     const under2FirstHalf =
@@ -1912,35 +1751,6 @@ function computeMomentumImpact(outcome, preState, offenseSide, state) {
     const clockRunoff = Math.max(0, prevClock - newClock);
     outcome.clockRunoff = clockRunoff; // used by drives/TOP
     state.clockSec = newClock;
-
-    // ---------- Special case: Incomplete pass — no yardline change ----------
-    if (isIncompletion) {
-        // Series handling at prior LOS
-        if (state.down === 4) {
-        // Turnover on downs at the LOS
-        const spotLOS = preState ? preState.yardline : state.ballYardline;
-        state.possession    = (offenseSide === "home") ? "away" : "home";
-        state.ballYardline  = 100 - clamp(spotLOS, 1, 99);
-        state.down          = 1;
-        state.distance      = 10;
-        outcome.endOfDrive  = true;
-    
-        state.events.push({
-            type: "turnover_on_downs",
-            offense: offenseSide,
-            defense: defenseSide,
-            quarter: state.quarter,
-            clockSec: state.clockSec,
-            score: cloneScore(state.score),
-        });
-        } else {
-        // Just the next down; distance & spot unchanged
-        state.down += 1;
-        }
-        state.playId += 1;
-        return;
-    }
-    
 
   
     // ------------------------------- Results ------------------------------------
@@ -2118,32 +1928,10 @@ if (newYard <= 0) {
         state.distance = yardsToFirst;
       }
     }
-
-      // --- Momentum update (after all scoring/turnover logic) ---
-    try {
-        const impact = computeMomentumImpact(outcome, preState, offenseSide, state);
-        if (impact !== 0) {
-        const offenseTeam = offenseSide === "home" ? state.homeTeam : state.awayTeam;
-        const defenseTeam = offenseSide === "home" ? state.awayTeam : state.homeTeam;
-
-        // From offense POV, positive impact helps offense, hurts defense.
-        const prevOff = state.momentum[offenseSide] || 0;
-        const prevDef = state.momentum[defenseSide] || 0;
-
-        const newOff = updateMomentum(prevOff,  impact, offenseTeam, defenseTeam, state.rng);
-        const newDef = updateMomentum(prevDef, -impact, defenseTeam, offenseTeam, state.rng);
-
-        state.momentum[offenseSide] = newOff;
-        state.momentum[defenseSide] = newDef;
-        }
-    } catch (e) {
-        // fail-safe: don’t break the sim if momentum hiccups
-        console.warn("Momentum update failed:", e);
-    }
-
+  
     state.playId += 1;
-    }
-
+  }
+  
   
   
   
