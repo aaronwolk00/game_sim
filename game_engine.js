@@ -1156,42 +1156,65 @@ function simulateDrive(state) {
     return log;
   }
 
-  function updateClockIntentForKneel(state) {
+  function updateClockIntent(state) {
     const { offenseSide, defenseSide } = getOffenseDefense(state);
     const intent = state.clockIntent?.[offenseSide];
     if (!intent) return;
   
-    // Reset each snap – we’ll re-decide every play
+    // Reset per-snap flags (we’ll re-decide every play)
+    intent.forceSpike = false;
     intent.forceKneel = false;
+    intent.boundsPreference = "normal";
   
-    // Only 4th quarter
-    if (state.quarter !== 4) return;
+    // 1) Victory formation / kneel logic (uses timeouts + score)
+    //    This will set intent.forceKneel = true if we can kill the game.
+    updateClockIntentForKneel(state);
   
+    const quarter     = state.quarter;
     const secondsLeft = state.clockSec;
-    if (secondsLeft <= 0) return;
+    const halfKey     = quarter <= 2 ? "H1" : "H2";
   
-    // Offense lead from the offense’s POV
-    const offenseLead =
-      offenseSide === "home"
-        ? state.score.home - state.score.away
-        : state.score.away - state.score.home;
+    const timeoutsOffense =
+      state.timeouts?.[offenseSide]?.[halfKey] ?? 0;
   
-    if (offenseLead <= 0) return;
+    const offenseScore =
+      offenseSide === "home" ? state.score.home : state.score.away;
+    const defenseScore =
+      offenseSide === "home" ? state.score.away : state.score.home;
+    const scoreDiff = offenseScore - defenseScore;
   
-    const timeoutsDefense = getDefenseTimeouts(state, defenseSide);
+    // Only do extra clock logic late in halves
+    const lateHalf = (quarter === 2 || quarter === 4) && secondsLeft > 0;
+    if (!lateHalf) return;
   
-    const canKneel = victoryFormationAvailable({
-      quarter: state.quarter,
-      secondsLeft,
-      offenseLead,
-      timeoutsDefense,
-      playClock: 40, // or cfg.playClock if you add it
-    });
+    // 2) When behind or tied late, favor sideline plays
+    if (scoreDiff <= 0 && secondsLeft <= 120) {
+      intent.boundsPreference = "sideline";
+    }
   
-    if (canKneel) {
-      intent.forceKneel = true;
+    // 3) Simple spike logic:
+    //    - behind or tied
+    //    - near scoring range
+    //    - < ~25s, > 8s
+    //    - no timeouts
+    //    - not 4th down
+    const yardline        = state.ballYardline; // 0–100 from offense goal
+    const inScoringRange  = yardline >= 60 && yardline <= 90; // opp 40–10
+  
+    if (
+      !intent.forceKneel &&             // don’t spike if we’re just icing the game
+      scoreDiff <= 0 &&
+      secondsLeft <= 25 &&
+      secondsLeft >= 8 &&
+      timeoutsOffense === 0 &&
+      inScoringRange &&
+      state.down >= 1 &&
+      state.down <= 3
+    ) {
+      intent.forceSpike = true;
     }
   }
+  
   
   
   
