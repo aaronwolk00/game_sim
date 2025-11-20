@@ -1027,6 +1027,11 @@ function simulateDrive(state) {
     return secondsLeft <= playClock + 10 + 8 + 8 + 8;
   }
 
+  function getDefenseTimeouts(state, defenseSide) {
+    const halfKey = state.quarter <= 2 ? "H1" : "H2";
+    return state.timeouts?.[defenseSide]?.[halfKey] ?? 0;
+  }
+
   
   /**
    * Logs a kickoff play (time may be 0–6s) and sets the receiving team's
@@ -1157,61 +1162,43 @@ function simulateDrive(state) {
     return log;
   }
 
-  function updateClockIntent(state) {
-    const { offenseSide } = getOffenseDefense(state);
-    const ci = state.clockIntent[offenseSide];
+  function updateClockIntentForKneel(state) {
+    const { offenseSide, defenseSide } = getOffenseDefense(state);
+    const intent = state.clockIntent?.[offenseSide];
+    if (!intent) return;
   
-    // Reset to defaults each snap
-    ci.forceSpike = false;
-    ci.forceKneel = false;
-    ci.boundsPreference = "normal";
+    // Reset each snap – we’ll re-decide every play
+    intent.forceKneel = false;
   
-    const q = state.quarter;
-    const t = state.clockSec;
-    const diff =
+    // Only 4th quarter
+    if (state.quarter !== 4) return;
+  
+    const secondsLeft = state.clockSec;
+    if (secondsLeft <= 0) return;
+  
+    // Offense lead from the offense’s POV
+    const offenseLead =
       offenseSide === "home"
         ? state.score.home - state.score.away
         : state.score.away - state.score.home;
-    const m = clamp(state.momentum?.[offenseSide] ?? 0, -1, 1);
   
-    const isEndOfHalf = (q === 2 || q === 4);
+    if (offenseLead <= 0) return;
   
-    // ---------------- End-of-game: kneel to burn clock ----------------
-    if (q === 4 && diff > 0 && t <= 90) {
-      // Simple "safe lead" heuristic:
-      // - up 2+ scores any time under 1:30
-      // - OR up by any amount under ~40s
-      const safeLead =
-        diff >= 9 || (diff >= 1 && t <= 40);
+    const timeoutsDefense = getDefenseTimeouts(state, defenseSide);
   
-      if (safeLead && state.down >= 1 && state.down <= 4) {
-        ci.forceKneel = true;
-        ci.boundsPreference = "middle"; // keep the ball in bounds
-        return;
-      }
-    }
+    const canKneel = victoryFormationAvailable({
+      quarter: state.quarter,
+      secondsLeft,
+      offenseLead,
+      timeoutsDefense,
+      playClock: 40, // or cfg.playClock if you add it
+    });
   
-    // ---------------- Two-minute drill / sideline preference ----------------
-    if (isEndOfHalf && diff <= 0 && t <= 120) {
-      // Trailing or tied late: prefer sideline to stop clock
-      ci.boundsPreference = "sideline";
-    }
-  
-    // ---------------- Spike to stop clock ----------------
-    // Use when behind/tied, low time, not on 4th down
-    if (isEndOfHalf && diff <= 0 && t <= 30 && t >= 8 && state.down <= 3) {
-      // Base spike probability depending on urgency
-      const urgency = (30 - t) / 30; // 0..1
-      let prob = 0.45 + 0.35 * urgency; // ~0.45 → ~0.8
-      // Slight tilt: hot offense a bit more decisive
-      prob += 0.05 * m;
-      prob = clamp(prob, 0.30, 0.90);
-  
-      if (state.rng.next() < prob) {
-        ci.forceSpike = true;
-      }
+    if (canKneel) {
+      intent.forceKneel = true;
     }
   }
+  
   
   
   
@@ -1220,7 +1207,10 @@ function simulateDrive(state) {
 // Play simulation
 function simulatePlay(state) {
     const { rng } = state;
+  
+    // Update any clock / intent state (hurry-up, spike preferences, etc.)
     updateClockIntent(state);
+  
     const {
       offenseTeam,
       defenseTeam,
@@ -1230,44 +1220,49 @@ function simulatePlay(state) {
   
     const offenseUnits = getUnitProfiles(offenseTeam).offense;
     const defenseUnits = getUnitProfiles(defenseTeam).defense;
-    const specialOff  = getUnitProfiles(offenseTeam).special;
+    const specialOff   = getUnitProfiles(offenseTeam).special;
   
-    // ⬇️ ADD THIS: compute puntBias from team tilt
+    // Team tilt for 4th-down decisions
     const puntBias = computePuntBias(state, offenseTeam);
   
-    // Snapshot of state *before* the play for logging
+    // Snapshot of state *before* the play for logging and D&D text
     const preState = {
-      down: state.down,
+      down:     state.down,
       distance: state.distance,
       yardline: state.ballYardline,
       clockSec: state.clockSec,
-      quarter: state.quarter,
+      quarter:  state.quarter,
     };
   
     // Timeouts for current half
     const halfKey = state.quarter <= 2 ? "H1" : "H2";
-    const timeoutsOffense = state.timeouts?.[offenseSide]?.[halfKey] ?? 0;
-    const timeoutsDefense = state.timeouts?.[defenseSide]?.[halfKey] ?? 0;
-
-    // Victory formation: kneel if mathematically able to kill the game
+    const timeoutsOffense =
+      state.timeouts?.[offenseSide]?.[halfKey] ?? 0;
+    const timeoutsDefense =
+      state.timeouts?.[defenseSide]?.[halfKey] ?? 0;
+  
+    // Scores from the offense perspective
     const offenseScore =
-        offenseSide === "home" ? state.score.home : state.score.away;
+      offenseSide === "home" ? state.score.home : state.score.away;
     const defenseScore =
-        offenseSide === "home" ? state.score.away : state.score.home;
-
+      offenseSide === "home" ? state.score.away : state.score.home;
+  
+    // Victory formation: override everything if we can mathematically kill the game
     if (
-        victoryFormationAvailable({
-        quarter: state.quarter,
-        secondsLeft: state.clockSec,
-        offenseLead: offenseScore - defenseScore,
+      victoryFormationAvailable({
+        quarter:        state.quarter,
+        secondsLeft:    state.clockSec,
+        offenseLead:    offenseScore - defenseScore,
         timeoutsDefense,
-        playClock: 40,
-        })
+        playClock:      40,
+      })
     ) {
-        const decision = { type: "kneel" };
-        const playOutcome = simulateKneel(state, rng);
-        applyPlayOutcomeToState(state, playOutcome, preState);
-        const playLog = buildPlayLog(
+      const decision   = { type: "kneel" };
+      const playOutcome = simulateKneelPlay(state, rng);
+  
+      applyPlayOutcomeToState(state, playOutcome, preState);
+  
+      const playLog = buildPlayLog(
         state,
         decision,
         playOutcome,
@@ -1276,29 +1271,28 @@ function simulatePlay(state) {
         defenseSide,
         offenseTeam,
         defenseTeam
-        );
-        state.plays.push(playLog);
-        return playLog;
+      );
+      state.plays.push(playLog);
+      return playLog;
     }
-
-    // (REPLACE your old situation object with this one so timeouts are included)
+  
+    // Situation context passed into the play-caller
     const situation = {
-        down: preState.down,
-        distance: preState.distance,
-        yardline: preState.yardline,
-        quarter: preState.quarter,
-        clockSec: preState.clockSec,
-        scoreDiff:
+      down:     preState.down,
+      distance: preState.distance,
+      yardline: preState.yardline,
+      quarter:  preState.quarter,
+      clockSec: preState.clockSec,
+      scoreDiff:
         offenseSide === "home"
-            ? state.score.home - state.score.away
-            : state.score.away - state.score.home,
-        puntBias,
-        offMomentum: state.momentum?.[offenseSide] ?? 0,
-        timeoutsOffense,
-        timeoutsDefense,
-        clockIntent: state.clockIntent[offenseSide] || null,
+          ? state.score.home - state.score.away
+          : state.score.away - state.score.home,
+      puntBias,
+      offMomentum:   state.momentum?.[offenseSide] ?? 0,
+      timeoutsOffense,
+      timeoutsDefense,
+      clockIntent:   state.clockIntent?.[offenseSide] ?? null,
     };
-
   
     const decision = choosePlayType(
       situation,
@@ -1324,10 +1318,10 @@ function simulatePlay(state) {
         break;
       case "kneel":
         playOutcome = simulateKneelPlay(state, rng);
-            break;
+        break;
       case "spike":
         playOutcome = simulateSpikePlay(state, rng);
-            break;
+        break;
       default:
         playOutcome = simulateRunPlay(state, offenseUnits, defenseUnits, rng);
     }
@@ -1348,6 +1342,7 @@ function simulatePlay(state) {
   
     return playLog;
   }
+  
   
 
   
