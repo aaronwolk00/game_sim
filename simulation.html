@@ -1507,18 +1507,31 @@
 
     // ----- RENDERING ---------------------------------------------------------
     function resetScoreboardOnly() {
-      dom.scoreHome.textContent = '0';
-      dom.scoreAway.textContent = '0';
-      dom.scoreMeta.textContent = 'Q1 • 15:00 • 0–0';
+      // scores
+      if (dom.scoreHome) dom.scoreHome.textContent = '0';
+      if (dom.scoreAway) dom.scoreAway.textContent = '0';
 
+      // NEW broadcast scorebar (quarter/clock/progress)
+      const usesScorebar = dom.scoreQuarter || dom.scoreClock || dom.scoreProgress;
+      if (usesScorebar) {
+        if (dom.scoreQuarter) dom.scoreQuarter.textContent = 'Q1';
+        if (dom.scoreClock)   dom.scoreClock.textContent   = '15:00';
+        if (dom.scoreProgress) dom.scoreProgress.style.setProperty('--_pct', '0%');
+        if (dom.scorebar) dom.scorebar.classList.remove('pos-home', 'pos-away');
+      } else if (dom.scoreMeta) {
+        // OLD center text fallback (if you ever render the old scoreboard)
+        dom.scoreMeta.textContent = 'Q1 • 15:00 • 0–0';
+      }
+
+      // game state chips
       dom.stateDownDist.innerHTML = '<strong>Down &amp; Distance:</strong> –';
       dom.stateFieldPos.innerHTML = '<strong>Field:</strong> –';
       dom.statePossession.innerHTML = '<strong>Ball:</strong> –';
       dom.stateTimeouts.innerHTML =
         '<strong>Timeouts:</strong> <span>Home 3</span> | <span>Away 3</span>';
-      dom.stateMomentum.innerHTML =
-        '<strong>Momentum:</strong> Neutral';
+      dom.stateMomentum.innerHTML = '<strong>Momentum:</strong> Neutral';
     }
+
 
     function resetTablesAndLogs() {
       clearElement(dom.driveTableBody);
