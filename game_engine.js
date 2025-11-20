@@ -1269,44 +1269,55 @@ function simulateRunPlay(state, offenseUnits, defenseUnits, rng) {
   
     // ---------------- Clock: in-play + between-play (contextual) ----------------
     const prevClock = state.clockSec;
-  
-    // Prefer simulator-provided in-play time; else estimate
+
+    // Prefer simulator-provided in-play time; else estimate from context
     let inPlayTime = Number.isFinite(outcome.inPlayTime)
-      ? outcome.inPlayTime
-      : estimateInPlayTime(
-          { playType, sack: isSack, incomplete: isIncompletion },
-          rng
+    ? outcome.inPlayTime
+    : estimateInPlayTime(
+        { playType, sack: isSack, incomplete: isIncompletion },
+        rng
         );
-  
-    // Snap→whistle sanity clamp
+
+    // Snap→whistle sanity clamp (live action only)
     inPlayTime = clamp(inPlayTime, 3, 8.5);
-  
-    // Clock stops until next snap after: incompletion, explicit out of bounds,
-    // any score, any change of possession (punt/turnover/safety/missed FG)
+
+    // Late-clock windows where going out of bounds actually stops the clock
+    const under2FirstHalf =
+    state.quarter === 2 && prevClock <= 120;
+    const under5Fourth =
+    state.quarter === 4 && prevClock <= 300;
+    const clockStopsWindow = under2FirstHalf || under5Fourth;
+
+    // Only treat explicit out-of-bounds as a rule stoppage in those windows
+    const oobStopsClock = !!outcome.outOfBounds && clockStopsWindow;
+
+    // Clock is stopped after: incompletions always, plus late-window OOB.
+    // We do *not* force a stop just because of scores or changes of possession;
+    // their dead-ball time is absorbed into between-play runoff so that
+    // total offensive TOP closely tracks the full 3600s of regulation.
     const clockStopsAfterPlay =
-      isIncompletion ||
-      !!outcome.outOfBounds ||
-      isScorePlay ||
-      isChangeOfPossessionPlay;
-  
-    // Between-play runoff (0 when clock is stopped to the next snap)
+    isIncompletion || oobStopsClock;
+
+    // Between-play runoff (0 when the clock is stopped awaiting next snap)
     const between = clockStopsAfterPlay
-      ? 0
-      : estimateBetweenPlayTime(state, outcome, preState, rng, offenseSide);
-  
-    // Apply total runoff, enforce 2:00 warnings
+    ? 0
+    : estimateBetweenPlayTime(state, outcome, preState, rng, offenseSide);
+
+    // Apply total runoff, enforce 2:00 warnings in 2Q and 4Q
     let newClock = Math.max(0, prevClock - (inPlayTime + between));
+
     if (
-      (state.quarter === 2 || state.quarter === 4) &&
-      prevClock > 120 &&
-      newClock < 120
+    (state.quarter === 2 || state.quarter === 4) &&
+    prevClock > 120 &&
+    newClock < 120
     ) {
-      newClock = 120;
+    newClock = 120;
     }
-  
-    const clockRunoff = prevClock - newClock;
+
+    const clockRunoff = Math.max(0, prevClock - newClock);
     outcome.clockRunoff = clockRunoff; // used by drives/TOP
     state.clockSec = newClock;
+
   
     // ------------------------------- Results ------------------------------------
   
