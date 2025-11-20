@@ -211,7 +211,7 @@ class RNG {
     basePassMean: 5.0,
     basePassStd: 5.0,
     sackMeanLoss: -6,
-    turnoverBaseProb: 0.025,
+    turnoverBaseProb: 0.02,
   
     // FG (kept but unused by new FG model)
     fgBaseProb: 0.82,          // unused now
@@ -252,8 +252,8 @@ class RNG {
     // ---- NEW: League targeting & team tilt (for YPC/YPA and punts/game) ----
     targetYPC: 4.4,           // league yards/rush you want the sim to hover around
     targetYPA: 7.3,           // league yards/pass (incl. incompletions)
-    runScaleGlobal: 1.09,     // gentle global nudge; tune after a 1k-game run
-    passScaleGlobal: 0.95,    // gentle global nudge; tune after a 1k-game run
+    runScaleGlobal: 1.12,     // gentle global nudge; tune after a 1k-game run
+    passScaleGlobal: 0.93,    // gentle global nudge; tune after a 1k-game run
   
     useRealBaselines: false,  // flip to true when you pass per-team tables
     realBaselines: null,      // shape: { [teamName|id]: { ypc, ypa, punts, tb } }
@@ -2415,7 +2415,7 @@ function computeMomentumImpact(outcome, preState, offenseSide, state) {
         );
 
     // Snap→whistle sanity clamp (live action only)
-    inPlayTime = clamp(inPlayTime, 3.5, 8.5);
+    inPlayTime = clamp(inPlayTime, 4.7, 9.0);
 
     // Late-clock windows where going out of bounds actually stops the clock
     const under2FirstHalf =
