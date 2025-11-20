@@ -393,6 +393,94 @@
       margin-top: 4px;
     }
 
+    /* === Broadcast Scorebar ============================= */
+    :root { --num-font: tabular-nums lining-nums; }
+    .num { font-variant-numeric: var(--num-font); }
+
+    .scorebar{
+      position: relative;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 10px;
+      height: 52px;                 /* expanded height */
+      padding: 0 12px;
+      margin-bottom: 10px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-subtle);
+      background:
+        linear-gradient(145deg, rgba(30,50,100,.35), rgba(15,20,40,.85)),
+        linear-gradient(180deg, var(--panel-bg), var(--panel-bg-alt));
+      box-shadow: var(--shadow-soft);
+      overflow: hidden;
+      transition: height var(--transition-med), padding var(--transition-med);
+    }
+
+    .scorebar.is-collapsed{
+      height: 36px;                 /* shuttered height */
+      padding-top: 0; padding-bottom: 0;
+    }
+
+    /* shutter button (left edge) */
+    .sb-shutter{
+      position: absolute; left: 6px; top: 50%; transform: translateY(-50%);
+      width: 18px; height: 18px; border-radius: 999px;
+      border: 1px solid var(--border-subtle); background: rgba(255,255,255,.06);
+      cursor: pointer;
+    }
+    .scorebar.is-collapsed .sb-shutter{ transform: translateY(-50%) rotate(180deg); }
+
+    /* teams */
+    .sb-team{
+      display: flex; align-items: center; gap: 10px;
+      font-weight: 650; letter-spacing: .03em;
+    }
+    .sb-home { justify-self: start; padding-left: 24px; }
+    .sb-away { justify-self: end;  padding-right: 8px; }
+
+    .sb-abbr{
+      font-size: 0.95rem; text-transform: uppercase;
+      color: #e7eeff; opacity: .95;
+    }
+    .sb-score{
+      font-size: 1.45rem; font-weight: 800;
+      text-shadow: 0 0 18px rgba(62,166,255,.28);
+    }
+
+    .sb-center{
+      display: flex; align-items: baseline; gap: 8px;
+      padding: 4px 10px; border-radius: 8px;
+      background: rgba(255,255,255,.05);
+      border: 1px solid rgba(255,255,255,.10);
+    }
+    .sb-quarter{ font-size: .88rem; color: var(--text-soft); }
+    .sb-clock{ font-size: 1.05rem; font-weight: 700; }
+
+    /* possession dots */
+    .sb-pos-dot{
+      width: 8px; height: 8px; border-radius: 50%;
+      background: transparent; box-shadow: none; opacity: .85;
+    }
+    .scorebar.pos-home .sb-home .sb-pos-dot{ background: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+    .scorebar.pos-away .sb-away .sb-pos-dot{ background: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+
+    /* game progress */
+    .sb-progress{
+      position: absolute; left: 8px; right: 8px; bottom: 6px; height: 3px;
+      border-radius: 999px; overflow: hidden; background: rgba(255,255,255,.08);
+    }
+    .sb-progress::before{
+      content:""; display:block; height:100%; width: var(--_pct, 0%);
+      background: linear-gradient(90deg, var(--accent), color-mix(in oklab, var(--accent) 50%, white));
+      transition: width var(--transition-med);
+    }
+
+    /* compact tweaks when collapsed */
+    .scorebar.is-collapsed .sb-abbr{ font-size:.82rem; }
+    .scorebar.is-collapsed .sb-score{ font-size:1.2rem; }
+    .scorebar.is-collapsed .sb-center{ padding:2px 8px; }
+
+
     .game-state-row {
       display: flex;
       flex-wrap: wrap;
@@ -476,6 +564,10 @@
       border-collapse: collapse;
       font-size: 0.8rem;
     }
+
+    /* tabular numerals improve readability in tables/logs */
+    td, th, .log-text, .scorebar .num { font-variant-numeric: tabular-nums lining-nums; }
+    th[data-align="r"], td[data-align="r"] { text-align: right; }
 
     th,
     td {
@@ -769,33 +861,30 @@
           </div>
         </div>
 
-        <!-- Scoreboard -->
-        <div class="scoreboard" aria-label="Scoreboard">
-          <div class="team-card" id="home-team-card">
-            <div class="team-label">Home</div>
-            <div class="team-name" id="home-team-name">–</div>
-            <div class="team-meta" id="home-team-meta">
-              Ovr – | Off – | Def – | ST –
-            </div>
+        <!-- Scoreboard (broadcast strip, shuttered) -->
+        <div class="scorebar" id="scorebar" aria-label="Scoreboard">
+          <button class="sb-shutter" id="scorebar-toggle" aria-label="Collapse scoreboard"></button>
+
+          <div class="sb-team sb-home">
+            <span class="sb-abbr" id="home-team-abbr">HOME</span>
+            <span class="sb-score num" id="score-home">0</span>
+            <span class="sb-pos-dot" aria-hidden="true"></span>
           </div>
-          <div class="score-main">
-            <div class="scoreline">
-              <span id="score-away">0</span>
-              <span>•</span>
-              <span id="score-home">0</span>
-            </div>
-            <div class="score-meta" id="score-meta">
-              Q1 • 15:00 • 0–0
-            </div>
+
+          <div class="sb-center">
+            <span class="sb-quarter" id="score-quarter">Q1</span>
+            <span class="sb-clock num" id="score-clock">15:00</span>
           </div>
-          <div class="team-card" id="away-team-card">
-            <div class="team-label">Away</div>
-            <div class="team-name" id="away-team-name">–</div>
-            <div class="team-meta" id="away-team-meta">
-              Ovr – | Off – | Def – | ST –
-            </div>
+
+          <div class="sb-team sb-away">
+            <span class="sb-pos-dot" aria-hidden="true"></span>
+            <span class="sb-score num" id="score-away">0</span>
+            <span class="sb-abbr" id="away-team-abbr">AWAY</span>
           </div>
+
+          <div class="sb-progress" id="score-progress"></div>
         </div>
+
 
         <div class="control-row">
           <div class="field-group" style="flex: 1 1 220px;">
@@ -1051,6 +1140,13 @@
       btnStepDrive: document.getElementById('btn-step-drive'),
       btnStepPlay: document.getElementById('btn-step-play'),
       btnReset: document.getElementById('btn-reset'),
+      scoreQuarter: document.getElementById('score-quarter'),
+      scoreClock: document.getElementById('score-clock'),
+      homeAbbr: document.getElementById('home-team-abbr'),
+      awayAbbr: document.getElementById('away-team-abbr'),
+      scoreProgress: document.getElementById('score-progress'),
+      scorebar: document.getElementById('scorebar'),
+      scorebarToggle: document.getElementById('scorebar-toggle'),
 
       selectHome: document.getElementById('select-home-team'),
       selectAway: document.getElementById('select-away-team'),
@@ -1217,6 +1313,31 @@
       return `Ovr ${ovr} | Off ${off} | Def ${def} | ST ${st}`;
     }
 
+    function getTeamAbbr(team){
+      if(!team) return '---';
+      return team.abbr || (team.team_name || team.teamName || '').split(' ').pop()?.slice(0,3).toUpperCase() || '---';
+    }
+
+    function computeGamePct(quarter, clock){
+      // 15 min quarters, ignore OT nuance here
+      const q = Number(quarter) && Number(quarter) <= 4 ? Number(quarter) : 4;
+      const [mm, ss] = String(clock || '0:00').split(':').map(n => Number(n)||0);
+      const secondsIntoGame = (q-1)*900 + (900 - (mm*60+ss));
+      const pct = Math.max(0, Math.min(100, (secondsIntoGame/(4*900))*100));
+      return pct;
+    }
+
+    function updateScorebarPossession(result){
+      const t = result?.possessionTeamId || result?.possession || result?.meta?.possessionTeamId;
+      dom.scorebar?.classList.remove('pos-home','pos-away');
+      if(!t) return;
+      const homeId = currentHomeTeam?.teamId || currentHomeTeam?.id;
+      const awayId = currentAwayTeam?.teamId || currentAwayTeam?.id;
+      if(t === homeId || t === 'home') dom.scorebar?.classList.add('pos-home');
+      if(t === awayId || t === 'away') dom.scorebar?.classList.add('pos-away');
+    }
+
+
     function getDrivesFromResult(result) {
       if (!result) return [];
       if (Array.isArray(result.driveSummaries)) return result.driveSummaries;
@@ -1348,6 +1469,11 @@
       dom.btnStepDrive.addEventListener('click', onStepDrive);
       dom.btnStepPlay.addEventListener('click', onStepPlay);
       dom.btnReset.addEventListener('click', resetForNewSimulation);
+      if (dom.scorebarToggle && dom.scorebar){
+        dom.scorebarToggle.addEventListener('click', () => {
+          dom.scorebar.classList.toggle('is-collapsed');
+        });
+      }
     }
 
     function enableControlsAfterLeagueLoad() {
@@ -1376,6 +1502,9 @@
 
       dom.homeName.textContent = getTeamLabel(currentHomeTeam);
       dom.awayName.textContent = getTeamLabel(currentAwayTeam);
+
+      if (dom.homeAbbr) dom.homeAbbr.textContent = getTeamAbbr(currentHomeTeam);
+      if (dom.awayAbbr) dom.awayAbbr.textContent = getTeamAbbr(currentAwayTeam);
 
       dom.homeMeta.textContent = getTeamMetaString(currentHomeTeam);
       dom.awayMeta.textContent = getTeamMetaString(currentAwayTeam);
@@ -1426,16 +1555,24 @@
       }
     }
 
-    function renderScoreboardFromResult(result) {
+    function renderScoreboardFromResult(result){
       const { home, away, quarter, clock } = getScoreFromResult(result);
+
       dom.scoreHome.textContent = String(home);
       dom.scoreAway.textContent = String(away);
 
-      const qLabel =
-        quarter && quarter !== 'Final' ? `Q${quarter}` : 'Final';
-      const clockLabel = clock || '0:00';
-      dom.scoreMeta.textContent = `${qLabel} • ${clockLabel} • ${away}–${home}`;
+      // Center readouts
+      if (dom.scoreQuarter) dom.scoreQuarter.textContent = (quarter && quarter !== 'Final') ? `Q${quarter}` : 'Final';
+      if (dom.scoreClock)   dom.scoreClock.textContent   = clock || '0:00';
+
+      // Progress bar
+      const pct = computeGamePct(quarter, clock);
+      if (dom.scoreProgress) dom.scoreProgress.style.setProperty('--_pct', `${pct}%`);
+
+      // Possession if available
+      updateScorebarPossession(result);
     }
+
 
     function renderDriveSummary(result, maxDriveIndex = Infinity) {
       clearElement(dom.driveTableBody);
