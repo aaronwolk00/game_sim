@@ -107,8 +107,8 @@ class RNG {
         if (outcome.incomplete) return t(4, 6);
         return t(4, 8);
       case "field_goal":        return t(5, 8);
-      case "punt":              return t(6, 9);
-      default:                  return t(3, 6);
+      case "punt":              return t(8, 12);
+      default:                  return t(4, 7);
     }
   }
   
@@ -207,10 +207,10 @@ class RNG {
     twoPtMakeProb: 0.48,
   
     // Pace knobs (snap-to-snap minus in-play time)
-    betweenPlayNormalMin: 18,
-    betweenPlayNormalMax: 30,
-    betweenPlayHurryMin: 8,
-    betweenPlayHurryMax: 14,
+    betweenPlayNormalMin: 28,
+    betweenPlayNormalMax: 40,
+    betweenPlayHurryMin: 6,
+    betweenPlayHurryMax: 15,
     oobRestartMin: 4,
     oobRestartMax: 8,
   
