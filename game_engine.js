@@ -1000,30 +1000,65 @@ function simulateDrive(state) {
   }
   
   export function victoryFormationAvailable({
-    quarter, secondsLeft, offenseLead, timeoutsDefense, playClock = 40
+    quarter,
+    secondsLeft,
+    offenseLead,
+    timeoutsDefense,
+    playClock = 40,
   }) {
+    // Must be leading in the 4th with time on the clock
     if (quarter !== 4 || offenseLead <= 0) return false;
+    if (!Number.isFinite(secondsLeft) || secondsLeft <= 0) return false;
   
-    // How many kneels needed? First takes 5s, subsequent ~7s (spot + wind).
-    // Simple conservative estimate: assume each kneel burns ~38s if defense has no TOs
-    // but only ~5–7s if they do have TOs.
-    if (timeoutsDefense === 0) {
-      return secondsLeft <= playClock + 2; // one kneel drains it
+    // Don't even *think* about kneeling outside the last ~3 minutes.
+    // This keeps teams from going into victory too early even if the math
+    // would technically allow a multi-kneel sequence.
+    if (secondsLeft > 180) return false;
+  
+    // Very rough but conservative "safe windows" by number of defensive timeouts.
+    // These assume:
+    // - You’ll take all available downs (up to 4 snaps),
+    // - Defense uses TOs optimally after plays,
+    // - You let the play clock bleed between snaps when TOs are gone.
+    //
+    // The idea: if secondsLeft is *less* than these numbers, you can kneel
+    // every snap and never give the ball back.
+    let safeWindow;
+  
+    switch (timeoutsDefense) {
+      case 0:
+        // With no timeouts, you can usually kill 2 full play clocks +
+        // some slack (e.g. 1:20–1:30 range in real games).
+        safeWindow = 2 * playClock + 5;   // ~85s with a 40s clock
+        break;
+  
+      case 1:
+        // One timeout lets them stop one between-play bleed.
+        // You still can usually burn > 1 full clock + a bit.
+        safeWindow = playClock + 5;       // ~45s
+        break;
+  
+      case 2:
+        // Two timeouts: they can stop things twice, so you need the clock
+        // already pretty low before you can just kneel it out.
+        safeWindow = 30;                  // ~half a minute
+        break;
+  
+      default: // 3+ timeouts
+        // Three timeouts: they can stop almost every between-play bleed.
+        // You basically need the clock almost dead.
+        safeWindow = 20;                  // very conservative
+        break;
     }
-    if (timeoutsDefense === 1) {
-      return secondsLeft <= playClock + 10 + 8; // kneel, TO, kneel sequence
-    }
-    if (timeoutsDefense === 2) {
-      return secondsLeft <= playClock + 10 + 8 + 8;
-    }
-    // With all 3 TOs, you usually need 4 snaps; keep it conservative:
-    return secondsLeft <= playClock + 10 + 8 + 8 + 8;
+  
+    return secondsLeft <= safeWindow;
   }
-
+  
   function getDefenseTimeouts(state, defenseSide) {
     const halfKey = state.quarter <= 2 ? "H1" : "H2";
     return state.timeouts?.[defenseSide]?.[halfKey] ?? 0;
   }
+  
 
   
   /**
@@ -2552,6 +2587,9 @@ if (newYard <= 0) {
       return dist
         ? `${punterName} punts ${dist} yards`
         : `${punterName} punts`;
+    }
+    if (playType === "kneel") {
+      return `${passerName} run for a loss of ${Math.abs(yards)} yards`;
     }
     if (playType === "pass") {
       if (outcome.sack) {
