@@ -17,7 +17,6 @@ import {
     Player,
     Team,
     League,
-    ALL_POSITIONS,
   } from "./data_models.js";
   
   // -----------------------------------------------------------------------------
