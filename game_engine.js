@@ -252,8 +252,8 @@ class RNG {
     // ---- NEW: League targeting & team tilt (for YPC/YPA and punts/game) ----
     targetYPC: 4.4,           // league yards/rush you want the sim to hover around
     targetYPA: 7.3,           // league yards/pass (incl. incompletions)
-    runScaleGlobal: 0.81,     // gentle global nudge; tune after a 1k-game run
-    passScaleGlobal: 0.98,    // gentle global nudge; tune after a 1k-game run
+    runScaleGlobal: 0.71,     // gentle global nudge; tune after a 1k-game run
+    passScaleGlobal: 1.03,    // gentle global nudge; tune after a 1k-game run
   
     useRealBaselines: false,  // flip to true when you pass per-team tables
     realBaselines: null,      // shape: { [teamName|id]: { ypc, ypa, punts, tb } }
@@ -1616,7 +1616,7 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
     // ---------------- Base run/pass tendency ----------------
     // Pass advantage relative to coverage -> baseline pass probability
     const passAdv = (offPass - defCover) / 18;
-    let basePassProb = logistic(passAdv) - 0.09; // ~0.3–0.7 most of the time
+    let basePassProb = logistic(passAdv) - 0.14; // ~0.3–0.7 most of the time
   
     // Situation tweaks
     const isObviousPass =
