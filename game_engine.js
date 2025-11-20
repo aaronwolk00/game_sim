@@ -984,8 +984,8 @@ function simulateRunPlay(state, offenseUnits, defenseUnits, rng) {
   
     // Slightly higher OOB chance late/when trailing or on longer gains
     const { offenseSide } = getOffenseDefense(state);
-    const hurry    = isLateGameHurry(state, offenseSide);
-    const oobProb  = (hurry ? 0.20 : 0.12) + (yards >= 10 ? 0.08 : 0);
+    const hurry      = isLateGameHurry(state, offenseSide);
+    const oobProb    = (hurry ? 0.20 : 0.12) + (yards >= 10 ? 0.08 : 0);
     const outOfBounds = !micro.fumble && rng.next() < oobProb;
   
     const inPlayTime = estimateInPlayTime(
@@ -993,12 +993,12 @@ function simulateRunPlay(state, offenseUnits, defenseUnits, rng) {
       rng
     );
   
-    // TD/safety from this play alone (spot clamps prevent overrun)
+    // TD/safety from this play alone
     const prospective = state.ballYardline + yards;
     const touchdown   = prospective >= 100;
     const safety      = prospective <= 0;
   
-    // Fumbles from micro-engine, but damped to reduce total turnovers
+    // Fumbles from micro-engine, but damped
     const rawFumble = !!micro.fumble;
     const fumble    = rawFumble && (rng.next() < 0.6); // keep ~60% of fumble flags
   
@@ -1088,7 +1088,7 @@ function simulateRunPlay(state, offenseUnits, defenseUnits, rng) {
     const sack       = !!micro.sack;
     const completion = !!micro.completion;
   
-    // Incomplete when not completed, no INT, no sack, no fumble.
+    // Incomplete when not completed, no INT, no sack, no fumble
     const incomplete = !completion && !interception && !sack && !fumble;
   
     // Out of bounds only on completed passes
@@ -1131,6 +1131,7 @@ function simulateRunPlay(state, offenseUnits, defenseUnits, rng) {
       micro,
     };
   }
+  
   
 
   
