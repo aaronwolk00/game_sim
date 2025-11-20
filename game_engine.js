@@ -290,6 +290,11 @@ class RNG {
       winner: null,
 
       playerStats: {},
+
+      momentum: {
+        home: 0,
+        away: 0,
+      },
     };
   }
   
@@ -1486,9 +1491,8 @@ function simulatePassPlay(state, offenseUnits, defenseUnits, rng) {
   
     // Incomplete if we didn't complete, and no INT/sack/fumble
     const incomplete = !completion && !interception && !sack && !fumble;
-    if (incomplete) {
-        raw = 0;
-      }
+    if (incomplete) raw = 0;
+
   
     const prospective = state.ballYardline + yards;
     const touchdown   = prospective >= 100;
