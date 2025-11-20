@@ -1773,77 +1773,84 @@ if (newYard <= 0) {
     return tags;
   }
 
-  // Build a play log entry after outcome is applied
-  function buildPlayLog(state, decision, outcome) {
-    const {
-      offenseSide,
-      defenseSide,
-      offenseTeam,
-      defenseTeam,
-    } = getOffenseDefense(state);
-
+// Build a play log entry after outcome is applied
+function buildPlayLog(state, decision, outcome, preState, offenseSide, defenseSide, offenseTeam, defenseTeam) {
+    // Fallbacks so older call sites (if any) don’t explode
+    if (!preState) {
+      preState = {
+        down: state.down,
+        distance: state.distance,
+        yardline: state.ballYardline,
+        clockSec: state.clockSec,
+        quarter: state.quarter,
+      };
+    }
+    if (!offenseTeam || !defenseTeam || !offenseSide || !defenseSide) {
+      const sides = getOffenseDefense(state);
+      offenseSide  = sides.offenseSide;
+      defenseSide  = sides.defenseSide;
+      offenseTeam  = sides.offenseTeam;
+      defenseTeam  = sides.defenseTeam;
+    }
+  
     const playType = outcome.playType || decision.type || "run";
-
+  
     const text = describePlay(
       decision,
       outcome,
       offenseTeam.teamName || offenseTeam.teamId
     );
-
-    // Use PRE-PLAY state for what fans expect to see on the ticker
+  
+    // Use PRE-PLAY state for ticker display
     const snapQuarter   = preState.quarter;
     const snapClockSec  = preState.clockSec;
     const snapDown      = preState.down;
     const snapDistance  = preState.distance;
     const snapYardline  = preState.yardline;
-
+  
     const downAndDistance = formatDownAndDistance(
-        snapDown,
-        snapDistance,
-        snapYardline
+      snapDown,
+      snapDistance,
+      snapYardline
     );
-
+  
     const tags = buildTags(decision, outcome);
-
-    const isScoring = !!(
-      outcome.touchdown ||
-      outcome.safety ||
-      outcome.fieldGoalGood
-    );
-
+  
+    const isScoring = !!(outcome.touchdown || outcome.safety || outcome.fieldGoalGood);
     const isTurnover = !!(
-      outcome.turnover &&
-      !outcome.fieldGoalAttempt &&
-      !outcome.punt &&
-      !outcome.safety
+      outcome.turnover && !outcome.fieldGoalAttempt && !outcome.punt && !outcome.safety
     );
-
+  
     const log = {
       playId: state.playId,
       driveId: state.driveId,
-      quarter: snapQuarter,
+  
+      // Display at snap-time
+      quarter:  snapQuarter,
       clockSec: snapClockSec,
+  
       offense: offenseSide,
       defense: defenseSide,
       offenseTeamId: offenseTeam.teamId,
       defenseTeamId: defenseTeam.teamId,
       offenseTeamName: offenseTeam.teamName,
       defenseTeamName: defenseTeam.teamName,
-      down: snapDown,
-      distance: snapDistance,
+  
+      // Ticker shows the *pre-snap* situation
+      down:         snapDown,
+      distance:     snapDistance,
       ballYardline: snapYardline,
+  
+      // Keep both pre/post for analytics
+      preDown:          snapDown,
+      preDistance:      snapDistance,
+      preBallYardline:  snapYardline,
+      postDown:         state.down,
+      postDistance:     state.distance,
+      postBallYardline: state.ballYardline,
+  
       decisionType: decision.type,
       playType,
-
-      // Keep BOTH: pre-snap (for UI) and post-play (for analytics/next snap)
-      preDown: snapDown,
-      preDistance: snapDistance,
-      preBallYardline: snapYardline,
-      postDown: state.down,
-      postDistance: state.distance,
-      postBallYardline: state.ballYardline,
-
-      // Description fields the UI is looking for:
       text,
       description: text,
       desc: text,
@@ -1852,13 +1859,14 @@ if (newYard <= 0) {
       isScoring,
       isTurnover,
       highImpact: isScoring || isTurnover,
-
-      // Raw outcome data
+  
+      // Raw outcome data (includes clockRunoff, etc.)
       ...outcome,
     };
-
+  
     return log;
   }
+  
   
   // -----------------------------------------------------------------------------
   // Quarter / game boundary handling
