@@ -903,49 +903,74 @@ function simulateDrive(state) {
     const cfg = state.cfg || {};
     const touchbackRate = Number.isFinite(cfg.kickoffTouchbackRate) ? cfg.kickoffTouchbackRate : 0.75;
   
-    // Decide touchback vs return
-    const isTouchback = rng.next() < touchbackRate;
+    // Decide touchback vs return with a real catch point
+    const isTouchback = rng.next() < (
+        state.cfg.kickoffTouchbackLeagueAvg ?? state.cfg.kickoffTouchbackRate ?? 0.65
+    );
+
     let desc = "";
-    let startYardline = 35; // default for touchback
-    let returnYds = 0;
-  
-    if (!isTouchback) {
-      // Simple return model: average ~25-28 yard line; clamp inside [10, 45]
-      // We simulate the *ending* yardline for the receiving team.
-      const base = 28 + Math.round((rng.next() - 0.5) * 12); // ~[22..34]
-      startYardline = clamp(base, 10, 45);
-      returnYds = startYardline - 25; // relative to a neutral TB spot for text
+    let timeElapsed = 0;
+
+    if (isTouchback) {
+        // Touchback (new rule: own 35)
+        const preClock = state.clockSec;
+        timeElapsed = Math.round(rng.nextRange(0, 2));
+        state.clockSec = Math.max(0, state.clockSec - timeElapsed);
+
+        state.ballYardline = 35;
+        state.down = 1;
+        state.distance = 10;
+
+        const kickingTeam   = kickingSide === "home" ? state.homeTeam : state.awayTeam;
+        const receivingSide = (kickingSide === "home") ? "away" : "home";
+        const receivingTeam = receivingSide === "home" ? state.homeTeam : state.awayTeam;
+
+        desc = `${kickingTeam.teamName} kickoff: touchback. ${receivingTeam.teamName} start at 35`;
+
+        addSpecialPlayLog(state, {
+        specialType: "kickoff",
+        description: desc,
+        timeElapsed,
+        offenseSide: kickingSide,
+        yardsGained: 0,
+        displayClockSec: preClock
+        });
+        return;
     }
-  
-    // Small clock burn on live returns; zero on touchbacks is allowed but we’ll
-    // burn up to 2s anyway to help realism.
+
+    // Returned kick: choose a catch point and a return distance
+    // Catch point: -2..0 means end zone, 0..5 means at/near goal line to the 5
+    const catchAt = Math.round(rng.nextRange(-2, 5));
+    // Return distance: center ~24 with wide spread, clamp to realistic range
+    const returnYds = clamp(Math.round(normal(rng, 24, 8)), 10, 60);
+
+    // Ending yardline from receiving goal line
+    const endYard = clamp(Math.max(0, catchAt) + returnYds, 1, 99);
+
+    // Small live time for a return; 0–2s for quick dead-ball moments
     const preClock = state.clockSec;
-    const timeElapsed = isTouchback ? Math.round(rng.nextRange(0, 2))
-                                    : Math.max(2, Math.round(rng.nextRange(3, 6)));
+    timeElapsed = Math.max(2, Math.round(rng.nextRange(3, 6)));
     state.clockSec = Math.max(0, state.clockSec - timeElapsed);
-  
-    // Set the receiving team as offense on its new drive
-    state.ballYardline = startYardline;
-    state.down         = 1;
-    state.distance     = 10;
-  
-    // Build kickoff log as a special play under the NEW driveId (already bumped)
-    const receivingSide = state.possession; // after flip
+
+    state.ballYardline = endYard;
+    state.down = 1;
+    state.distance = 10;
+
     const kickingTeam   = kickingSide === "home" ? state.homeTeam : state.awayTeam;
-    const receivingTeam = receivingSide === "home" ? state.homeTeam : state.awayTeam;
-  
-    desc = isTouchback
-      ? `${kickingTeam.teamName} kickoff: touchback. ${receivingTeam.teamName} start at 35`
-      : `${kickingTeam.teamName} kickoff returned ${Math.max(0, returnYds)} yards to the ${receivingSide === "home" ? "OWN" : "OWN"} ${startYardline}`;
-  
+    const receivingSide = (kickingSide === "home") ? "away" : "home";
+    const fromText = (catchAt <= 0) ? "end zone" : `OWN ${catchAt}`;
+
+    desc = `${kickingTeam.teamName} kickoff returned ${returnYds} yards from the ${fromText} to the OWN ${endYard}`;
+
     addSpecialPlayLog(state, {
-      specialType: "kickoff",
-      description: desc,
-      timeElapsed,
-      offenseSide: kickingSide, // kicking team shown as offense for the kickoff play
-      yardsGained: 0,
-      displayClockSec: preClock
+        specialType: "kickoff",
+        description: desc,
+        timeElapsed,
+        offenseSide: kickingSide,
+        yardsGained: 0,
+        displayClockSec: preClock
     });
+
   }
   
   /**
@@ -1461,6 +1486,9 @@ function simulatePassPlay(state, offenseUnits, defenseUnits, rng) {
   
     // Incomplete if we didn't complete, and no INT/sack/fumble
     const incomplete = !completion && !interception && !sack && !fumble;
+    if (incomplete) {
+        raw = 0;
+      }
   
     const prospective = state.ballYardline + yards;
     const touchdown   = prospective >= 100;
@@ -1713,7 +1741,7 @@ function simulatePunt(state, specialOff, rng) {
         );
 
     // Snap→whistle sanity clamp (live action only)
-    inPlayTime = clamp(inPlayTime, 3, 8.5);
+    inPlayTime = clamp(inPlayTime, 3.5, 8.5);
 
     // Late-clock windows where going out of bounds actually stops the clock
     const under2FirstHalf =
@@ -1751,6 +1779,35 @@ function simulatePunt(state, specialOff, rng) {
     const clockRunoff = Math.max(0, prevClock - newClock);
     outcome.clockRunoff = clockRunoff; // used by drives/TOP
     state.clockSec = newClock;
+
+    // ---------- Special case: Incomplete pass — no yardline change ----------
+    if (isIncompletion) {
+        // Series handling at prior LOS
+        if (state.down === 4) {
+        // Turnover on downs at the LOS
+        const spotLOS = preState ? preState.yardline : state.ballYardline;
+        state.possession    = (offenseSide === "home") ? "away" : "home";
+        state.ballYardline  = 100 - clamp(spotLOS, 1, 99);
+        state.down          = 1;
+        state.distance      = 10;
+        outcome.endOfDrive  = true;
+    
+        state.events.push({
+            type: "turnover_on_downs",
+            offense: offenseSide,
+            defense: defenseSide,
+            quarter: state.quarter,
+            clockSec: state.clockSec,
+            score: cloneScore(state.score),
+        });
+        } else {
+        // Just the next down; distance & spot unchanged
+        state.down += 1;
+        }
+        state.playId += 1;
+        return;
+    }
+    
 
   
     // ------------------------------- Results ------------------------------------
