@@ -484,44 +484,6 @@ class RNG {
     return buildGameResult(state);
   }
 
-  // Kickoff helper: use after TD/FG (or safety if you want)
-  function applyKickoff(state, kickingSide) {
-    const { cfg, rng } = state;
-    const receiving = kickingSide === "home" ? "away" : "home";
-  
-    // Small time cost for the kickoff play
-    const kickoffTime = rng.nextRange(5, 9);
-    state.clockSec = Math.max(0, state.clockSec - kickoffTime);
-  
-    // Touchback? (new rule: kickoff touchback to the 35)
-    const tbRate = cfg.kickoffTouchbackRate ?? 0.75;
-    if (rng.next() < tbRate) {
-      state.possession = receiving;
-      state.ballYardline = 35; // kickoff touchback spot (per your rule)
-      state.events.push({
-        type: "kickoff",
-        touchback: true,
-        quarter: state.quarter,
-        clockSec: state.clockSec,
-      });
-      return;
-    }
-  
-    // Simple return model: caught ~goal line to the 5, return ~15–35 yards
-    const catchDepth = Math.round(rng.nextRange(-2, 5)); // -2 means in end zone
-    const returnYds = clamp(Math.round(normal(rng, 22, 8)), 5, 60);
-    const spot = clamp(Math.max(0, catchDepth) + returnYds, 1, 99);
-  
-    state.possession = receiving;
-    state.ballYardline = spot;
-    state.events.push({
-      type: "kickoff",
-      touchback: false,
-      returnYards: returnYds,
-      quarter: state.quarter,
-      clockSec: state.clockSec,
-    });
-  }
   
   
 // Simulate a single drive: from current state until change of possession
@@ -1756,11 +1718,11 @@ if (newYard <= 0) {
     let safetyProb = 0;
   
     if (fieldPos <= 2 && yardsLoss >= 2) {
-      safetyProb = 0.7;     // very backed up and big loss
+      safetyProb = 0.50;     // very backed up and big loss
     } else if (fieldPos <= 5 && yardsLoss >= 3) {
-      safetyProb = 0.4;
+      safetyProb = 0.25;
     } else if (fieldPos <= 8 && yardsLoss >= 5) {
-      safetyProb = 0.2;
+      safetyProb = 0.05;
     }
   
     if (rng.next() < safetyProb) {
