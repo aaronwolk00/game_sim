@@ -273,15 +273,43 @@ class RNG {
       // Down & distance
       down: 1,
       distance: 10,
+  
       // Drive meta
       driveId: 1,
       playId: 1,
   
-      // Kickers (may be null -> we handle gracefully)
+      // Kickers / QBs (may be null -> we handle gracefully)
       homeKicker,
       awayKicker,
       homeQB,
       awayQB,
+  
+      // Momentum: offensive momentum per side (−1 .. +1, 0 = neutral)
+      momentum: {
+        home: 0,
+        away: 0,
+      },
+  
+      // Timeouts: 3 per half, tracked separately.
+      // quarter <= 2 -> H1, quarter >= 3 -> H2.
+      timeouts: {
+        home: { H1: 3, H2: 3 },
+        away: { H1: 3, H2: 3 },
+      },
+  
+      // Clock intent for the NEXT offensive snap by side
+      clockIntent: {
+        home: {
+          forceSpike: false,
+          forceKneel: false,
+          boundsPreference: "normal", // "normal" | "sideline" | "middle"
+        },
+        away: {
+          forceSpike: false,
+          forceKneel: false,
+          boundsPreference: "normal",
+        },
+      },
   
       // Logs
       drives: [],
@@ -289,15 +317,11 @@ class RNG {
       events: [],
       isFinal: false,
       winner: null,
-
+  
       playerStats: {},
-
-      momentum: {
-        home: 0,
-        away: 0,
-      },
     };
   }
+  
   
   function cloneScore(score) {
     return { home: score.home, away: score.away };
@@ -1055,7 +1079,8 @@ function simulateDrive(state) {
   
   
   // Play simulation
-  function simulatePlay(state) {
+// Play simulation
+function simulatePlay(state) {
     const { rng } = state;
     const {
       offenseTeam,
@@ -1063,11 +1088,14 @@ function simulateDrive(state) {
       offenseSide,
       defenseSide,
     } = getOffenseDefense(state);
-
+  
     const offenseUnits = getUnitProfiles(offenseTeam).offense;
     const defenseUnits = getUnitProfiles(defenseTeam).defense;
-    const specialOff = getUnitProfiles(offenseTeam).special;
-
+    const specialOff  = getUnitProfiles(offenseTeam).special;
+  
+    // ⬇️ ADD THIS: compute puntBias from team tilt
+    const puntBias = computePuntBias(state, offenseTeam);
+  
     // Snapshot of state *before* the play for logging
     const preState = {
       down: state.down,
@@ -1076,7 +1104,7 @@ function simulateDrive(state) {
       clockSec: state.clockSec,
       quarter: state.quarter,
     };
-
+  
     const situation = {
       down: preState.down,
       distance: preState.distance,
@@ -1087,10 +1115,10 @@ function simulateDrive(state) {
         offenseSide === "home"
           ? state.score.home - state.score.away
           : state.score.away - state.score.home,
-      puntBias,
+      puntBias,                     // now defined
       offMomentum: state.momentum?.[offenseSide] ?? 0
     };
-
+  
     const decision = choosePlayType(
       situation,
       offenseUnits,
@@ -1098,7 +1126,7 @@ function simulateDrive(state) {
       specialOff,
       rng
     );
-
+  
     let playOutcome;
     switch (decision.type) {
       case "run":
@@ -1108,12 +1136,7 @@ function simulateDrive(state) {
         playOutcome = simulatePassPlay(state, offenseUnits, defenseUnits, rng);
         break;
       case "field_goal":
-        playOutcome = simulateFieldGoal(
-          state,
-          offenseUnits,
-          specialOff,
-          rng
-        );
+        playOutcome = simulateFieldGoal(state, offenseUnits, specialOff, rng);
         break;
       case "punt":
         playOutcome = simulatePunt(state, specialOff, rng);
@@ -1121,11 +1144,9 @@ function simulateDrive(state) {
       default:
         playOutcome = simulateRunPlay(state, offenseUnits, defenseUnits, rng);
     }
-
-    // Apply outcome (updates score, clock, field position, possession, etc.)
+  
     applyPlayOutcomeToState(state, playOutcome, preState);
-
-    // Build a richer log using pre-play context & original offense/defense
+  
     const playLog = buildPlayLog(
       state,
       decision,
@@ -1137,9 +1158,10 @@ function simulateDrive(state) {
       defenseTeam
     );
     state.plays.push(playLog);
-
+  
     return playLog;
   }
+  
 
   
 
