@@ -943,83 +943,87 @@ function simulateDrive(state) {
   
   
   
-  // ------------------------ Run play -----------------------------------------
-  function simulateRunPlay(state, offenseUnits, defenseUnits, rng) {
+// ------------------------ Run play -----------------------------------------
+function simulateRunPlay(state, offenseUnits, defenseUnits, rng) {
     const runUnit   = offenseUnits.run || {};
     const defRun    = defenseUnits.runFit || {};
     const runOff    = runUnit.overall ?? 60;
     const frontRunD = defRun.overall ?? 60;
-
+  
     const yardline = state.ballYardline;
     const down     = state.down;
     const distance = state.distance;
-
+  
     // Box heuristic
     let boxCount = 7;
     if (yardline < 10 || yardline > 90) boxCount = 8;
-    if (distance >= 8)                 boxCount = 6;
-    if (down === 1 && distance >= 10)  boxCount = 6;
-
+    if (distance >= 8)                  boxCount = 6;
+    if (down === 1 && distance >= 10)   boxCount = 6;
+  
     let boxLightness = 0;
     if (boxCount <= 6) boxLightness = 0.7;
     else if (boxCount >= 8) boxLightness = -0.7;
-
+  
     const params = {
-        olRunBlockRating: runOff,
-        rbVisionRating: runOff,
-        rbPowerRating: runOff,
-        rbElusivenessRating: runOff,
-        frontRunDefRating: frontRunD,
-        boxCount,
-        boxLightness,
-        yardline,
-        down,
-        distance,
+      olRunBlockRating: runOff,
+      rbVisionRating: runOff,
+      rbPowerRating: runOff,
+      rbElusivenessRating: runOff,
+      frontRunDefRating: frontRunD,
+      boxCount,
+      boxLightness,
+      yardline,
+      down,
+      distance,
     };
-
+  
     const micro   = sampleRunOutcome(params, rng) || {};
     const raw     = Number.isFinite(micro.yardsGained) ? micro.yardsGained : 0;
     const maxGain = Math.max(0, 100 - state.ballYardline);
     const yards   = Math.round(clamp(raw, -8, maxGain));
-
+  
     // Slightly higher OOB chance late/when trailing or on longer gains
     const { offenseSide } = getOffenseDefense(state);
-    const hurry   = isLateGameHurry(state, offenseSide);
-    const oobProb = (hurry ? 0.20 : 0.12) + (yards >= 10 ? 0.08 : 0);
+    const hurry    = isLateGameHurry(state, offenseSide);
+    const oobProb  = (hurry ? 0.20 : 0.12) + (yards >= 10 ? 0.08 : 0);
     const outOfBounds = !micro.fumble && rng.next() < oobProb;
-
-    const inPlayTime = estimateInPlayTime({ playType: "run", yardsGained: yards }, rng);
-
+  
+    const inPlayTime = estimateInPlayTime(
+      { playType: "run", yardsGained: yards },
+      rng
+    );
+  
     // TD/safety from this play alone (spot clamps prevent overrun)
     const prospective = state.ballYardline + yards;
     const touchdown   = prospective >= 100;
     const safety      = prospective <= 0;
-
+  
     // Fumbles from micro-engine, but damped to reduce total turnovers
     const rawFumble = !!micro.fumble;
-    const fumble = rawFumble && (rng.next() < 0.6); // keep ~60% of fumble flags
-
+    const fumble    = rawFumble && (rng.next() < 0.6); // keep ~60% of fumble flags
+  
     return {
-        playType: "run",
-        yardsGained: yards,
-        inPlayTime,
-        timeElapsed: inPlayTime,      // keep legacy field; total added later
-        turnover: fumble,
-        interception: false,
-        sack: false,
-        completion: false,
-        incomplete: false,
-        outOfBounds,
-        touchdown,
-        safety,
-        fieldGoalAttempt: false,
-        fieldGoalGood: false,
-        punt: false,
-        endOfDrive: false,
-        micro,
+      playType: "run",
+      yardsGained: yards,
+      inPlayTime,
+      timeElapsed: inPlayTime,      // keep legacy field; total added later
+      turnover: fumble,
+      interception: false,
+      sack: false,
+      completion: false,
+      incomplete: false,
+      outOfBounds,
+      touchdown,
+      safety,
+      fieldGoalAttempt: false,
+      fieldGoalGood: false,
+      punt: false,
+      endOfDrive: false,
+      micro,
     };
-    }
-
+  }
+  
+  
   // ------------------------ Pass play ------------------------------------------
   function simulatePassPlay(state, offenseUnits, defenseUnits, rng) {
     const passUnit = offenseUnits.pass || {};
@@ -1028,90 +1032,106 @@ function simulateDrive(state) {
     const passOff  = passUnit.overall ?? 60;
     const coverDef = cover.overall ?? 60;
     const rushDef  = rush.overall ?? 60;
-
+  
     const yardline = state.ballYardline;
     const down     = state.down;
     const distance = state.distance;
-
+  
     const params = {
-        qbAccuracyRating: passOff,
-        qbProcessingRating: passOff,
-        qbUnderPressureRating: passOff - 5,
-        olPassBlockRating: passOff,
-        dlPassRushRating: rushDef,
-        wrRouteRating: passOff,
-        wrReleaseRating: passOff,
-        wrSpeedRating: clamp(passOff + 5, 40, 99),
-        wrHandsRating: clamp(passOff, 40, 99),
-        wrContestedCatchRating: clamp(passOff - 2, 40, 99),
-        dbManRating: coverDef,
-        dbZoneRating: coverDef,
-        dbPressRating: clamp(coverDef - 2, 40, 99),
-        dbSpeedRating: clamp(coverDef + 2, 40, 99),
-        dbBallSkillsRating: coverDef,
-        yardline,
-        down,
-        distance,
-        coverageType: (down === 3 && distance <= 6) ? "man" : (down === 2 && distance >= 8) ? "zone" : "mixed",
-        situationalAggression: (down >= 3 && distance >= 7) ? 0.6 : 0.5,
-        throwAggressiveness: clamp(0.45 + (distance >= 10 ? 0.1 : 0) + (state.quarter >= 4 ? 0.15 : 0), 0.25, 0.9),
+      qbAccuracyRating: passOff,
+      qbProcessingRating: passOff,
+      qbUnderPressureRating: passOff - 5,
+      olPassBlockRating: passOff,
+      dlPassRushRating: rushDef,
+      wrRouteRating: passOff,
+      wrReleaseRating: passOff,
+      wrSpeedRating: clamp(passOff + 5, 40, 99),
+      wrHandsRating: clamp(passOff, 40, 99),
+      wrContestedCatchRating: clamp(passOff - 2, 40, 99),
+      dbManRating: coverDef,
+      dbZoneRating: coverDef,
+      dbPressRating: clamp(coverDef - 2, 40, 99),
+      dbSpeedRating: clamp(coverDef + 2, 40, 99),
+      dbBallSkillsRating: coverDef,
+      yardline,
+      down,
+      distance,
+      coverageType:
+        (down === 3 && distance <= 6)
+          ? "man"
+          : (down === 2 && distance >= 8)
+          ? "zone"
+          : "mixed",
+      situationalAggression: (down >= 3 && distance >= 7) ? 0.6 : 0.5,
+      throwAggressiveness: clamp(
+        0.45 +
+          (distance >= 10 ? 0.1 : 0) +
+          (state.quarter >= 4 ? 0.15 : 0),
+        0.25,
+        0.9
+      ),
     };
-
+  
     const micro   = samplePassOutcome(params, rng) || {};
     const raw     = Number.isFinite(micro.yardsGained) ? micro.yardsGained : 0;
     const maxGain = Math.max(0, 100 - state.ballYardline);
     const yards   = Math.round(clamp(raw, -15, maxGain));
-
-    const sack         = !!micro.sack;
-    const completion   = !!micro.completion;
-
-    // Incomplete when not completed, no INT, no sack, no fumble.
-    const incomplete   = !completion && !interception && !sack && !fumble;
-
-    // Out of bounds only on completed passes
-    const { offenseSide } = getOffenseDefense(state);
-    const hurry          = isLateGameHurry(state, offenseSide);
-    const outOfBounds    = completion && !interception && !sack && rng.next() < (hurry ? 0.35 : 0.25);
-
-    const inPlayTime = estimateInPlayTime(
-        { playType: "pass", sack, incomplete },
-        rng
-    );
-
-    const prospective = state.ballYardline + yards;
-    const touchdown   = prospective >= 100;
-    const safety      = prospective <= 0;
-
-    // Sack != automatic turnover; interception or fumble do
+  
+    // Turnover flags from micro-engine
     const interceptionRaw = !!micro.interception;
     const fumbleRaw       = !!micro.fumble;
-
+  
     // Dampen raw turnover flags from micro-engine
     const interception = interceptionRaw && (rng.next() < 0.6);
     const fumble       = fumbleRaw       && (rng.next() < 0.6);
-
+  
+    const sack       = !!micro.sack;
+    const completion = !!micro.completion;
+  
+    // Incomplete when not completed, no INT, no sack, no fumble.
+    const incomplete = !completion && !interception && !sack && !fumble;
+  
+    // Out of bounds only on completed passes
+    const { offenseSide } = getOffenseDefense(state);
+    const hurry       = isLateGameHurry(state, offenseSide);
+    const outOfBounds =
+      completion &&
+      !interception &&
+      !sack &&
+      rng.next() < (hurry ? 0.35 : 0.25);
+  
+    const inPlayTime = estimateInPlayTime(
+      { playType: "pass", sack, incomplete },
+      rng
+    );
+  
+    const prospective = state.ballYardline + yards;
+    const touchdown   = prospective >= 100;
+    const safety      = prospective <= 0;
+  
     const turnover = interception || fumble;
-
+  
     return {
-        playType: "pass",
-        yardsGained: yards,
-        inPlayTime,
-        timeElapsed: inPlayTime,      // keep legacy field; total added later
-        turnover,
-        interception,
-        sack,
-        completion,
-        incomplete,
-        outOfBounds,
-        touchdown,
-        safety,
-        fieldGoalAttempt: false,
-        fieldGoalGood: false,
-        punt: false,
-        endOfDrive: false,
-        micro,
+      playType: "pass",
+      yardsGained: yards,
+      inPlayTime,
+      timeElapsed: inPlayTime,      // keep legacy field; total added later
+      turnover,
+      interception,
+      sack,
+      completion,
+      incomplete,
+      outOfBounds,
+      touchdown,
+      safety,
+      fieldGoalAttempt: false,
+      fieldGoalGood: false,
+      punt: false,
+      endOfDrive: false,
+      micro,
     };
-    }
+  }
+  
 
   
   
