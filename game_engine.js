@@ -118,8 +118,10 @@ class RNG {
    * If the prior play stops the clock to the next snap (incomplete, OOB in 2:00,
    * scoring, turnover, punt), this returns 0.
    */
-  function estimateBetweenPlayTime(state, outcome, preState, rng, offenseSide) {
-    // Anything that resets series / stops-to-next-snap => 0 runoff
+   function estimateBetweenPlayTime(state, outcome, preState, rng, offenseSide) {
+    const cfg = state.cfg || {};
+  
+    // Situations that stop the clock until the next snap
     if (
       outcome.touchdown ||
       outcome.safety ||
@@ -132,44 +134,79 @@ class RNG {
       return 0;
     }
   
-    const twoMin = isTwoMinute(state);
-    const hurry  = isLateGameHurry(state, offenseSide);
-    const t = (a, b) => Math.round(rng.nextRange(a, b));
+    // Out-of-bounds: 0 inside 2:00; small restart runoff outside 2:00
+    if (outcome.outOfBounds) {
+      if (isTwoMinute(state)) return 0;
+      return Math.round(rng.nextRange(cfg.oobRestartMin, cfg.oobRestartMax));
+    }
   
-    // Out of bounds: 0 inside 2:00; small restart runoff outside 2:00
-    if (outcome.outOfBounds) return twoMin ? 0 : t(4, 8);
+    // Normal in-bounds runoff (huddle/sub/presnap), faster in hurry-up
+    const hurry = isLateGameHurry(state, offenseSide);
+    let base = Math.round(
+      rng.nextRange(
+        hurry ? cfg.betweenPlayHurryMin : cfg.betweenPlayNormalMin,
+        hurry ? cfg.betweenPlayHurryMax : cfg.betweenPlayNormalMax
+      )
+    );
   
-    // Normal in-bounds play: snap→whistle + huddle/sub/presnap runoff
-    return hurry ? t(8, 14) : t(18, 30);
+    // Apply one-time "quarter break setup" if flagged
+    if (state._quarterBreakSetup) {
+      base += (cfg.quarterBreakSetupExtra || 0);
+      state._quarterBreakSetup = false;
+    }
+  
+    return base;
   }
+  
   
   
   // -----------------------------------------------------------------------------
   // Game config / types
   // -----------------------------------------------------------------------------
   const DEFAULT_CONFIG = {
-    quarterLengthSec: 900, // 15 minutes
+    quarterLengthSec: 900,
     numQuarters: 4,
     maxOvertimeQuarters: 1,
     allowTies: true,
-    // baseline scoring / big play tuning (slightly toned down)
-    baseRunMean: 3.0,      // was 3.5
-    baseRunStd: 2.5,       // was 3.0
-    basePassMean: 5.0,     // was 5.8
-    basePassStd: 5.0,      // was 6.0
+  
+    // Micro layer (leave if used there)
+    baseRunMean: 3.0,
+    baseRunStd: 2.5,
+    basePassMean: 5.0,
+    basePassStd: 5.0,
     sackMeanLoss: -6,
-    turnoverBaseProb: 0.025,  // was 0.015 (more turnovers)
+    turnoverBaseProb: 0.025,
+  
     // FG
-    fgBaseProb: 0.72,         // was 0.75
+    fgBaseProb: 0.72,
     fgAccuracyWeight: 0.003,
-    // Punting
-    puntBaseDistance: 42,
+  
+    // Punting realism
+    puntBaseDistance: 45, // was 42 → slightly stronger modern punting
     puntStd: 7,
-    // Kickoffs
-    kickoffTouchbackRate: 0.643,
+  
+    // Kickoffs (modern rules)
+    kickoffTouchbackRate: 0.85, // was 0.643 → closer to current TB rates
+  
+    // PAT strategy/quality knobs
+    xpMakeProb: 0.94,
+    twoPtMakeProb: 0.48,
+  
+    // Pace knobs (snap-to-snap minus in-play time)
+    betweenPlayNormalMin: 18,
+    betweenPlayNormalMax: 30,
+    betweenPlayHurryMin: 8,
+    betweenPlayHurryMax: 14,
+    oobRestartMin: 4,
+    oobRestartMax: 8,
+  
+    // Small setup runoff applied to the FIRST play after a quarter break
+    quarterBreakSetupExtra: 6,
+  
     // Logging verbosity
     keepPlayByPlay: true,
   };
+  
   
   function createConfig(options = {}) {
     return { ...DEFAULT_CONFIG, ...options };
@@ -340,7 +377,10 @@ class RNG {
   
 // Simulate a single drive: from current state until change of possession
 // (score, turnover, punt, turnover-on-downs, end of half/game).
+// Simulate a single drive: from current state until change of possession
+// (score, turnover, punt, turnover-on-downs, end of half/game).
 function simulateDrive(state) {
+    const driveId        = state.driveId;   // capture this drive's ID up front
     const startingScore   = cloneScore(state.score);
     const startingQuarter = state.quarter;
     const startingClock   = state.clockSec;
@@ -391,10 +431,12 @@ function simulateDrive(state) {
       return sum;
     }, 0);
   
-    // NEW: duration = sum of per-play clockRunoff, not startClock - endClock.
-    // This avoids the "drive hits 0:00 then clock reset to 900" bug.
-    const durationSec = drivePlays.reduce(
-      (sum, p) => sum + (Number.isFinite(p.clockRunoff) ? p.clockRunoff : 0),
+    // NEW: duration = sum of per-play clockRunoff for ALL plays with this driveId
+    const durationSec = state.plays.reduce(
+      (sum, p) =>
+        p.driveId === driveId
+          ? sum + (Number.isFinite(p.clockRunoff) ? p.clockRunoff : 0)
+          : sum,
       0
     );
   
@@ -413,9 +455,9 @@ function simulateDrive(state) {
   
     const playIndices = drivePlays.map((_, idx) => startingPlayIndex + idx);
   
-    // Write the drive row now (PAT already included in time/indices if any)
+    // Write the drive row now
     state.drives.push({
-      driveId: state.driveId,
+      driveId,
       offense: offenseSide,                 // "home" | "away"
       teamId: offenseTeam.teamId,
       offenseTeamId: offenseTeam.teamId,
@@ -434,7 +476,6 @@ function simulateDrive(state) {
   
     // Decide how the next drive should start
     if (!state.isFinal && state.clockSec > 0) {
-      // Detect pure quarter break (no scoring / no explicit end-of-drive type)
       const quarterBreakOnly =
         state.quarter !== startingQuarter &&
         state.clockSec === state.cfg.quarterLengthSec &&
@@ -457,7 +498,6 @@ function simulateDrive(state) {
         state.driveId     += 1;
         startNewDrive(state, lastPlay, "Kickoff after score");
   
-        // Log kickoff (as its own play) and set receiving team's starting field pos.
         doKickoff(state, /*kickingSide=*/ offenseSide);
         return;
       }
@@ -474,7 +514,7 @@ function simulateDrive(state) {
           specialType: "free_kick",
           description: "Free kick: touchback to the 35",
           timeElapsed: 0,
-          offenseSide: offenseSide === "home" ? "away" : "home", // returning team on new drive
+          offenseSide: offenseSide === "home" ? "away" : "home",
           yardsGained: 0,
         });
         return;
@@ -497,6 +537,7 @@ function simulateDrive(state) {
       startNewDrive(state, lastPlay, "New drive after change of possession");
     }
   }
+  
   
   
   // Register a new drive meta entry (start placeholder)
@@ -692,7 +733,7 @@ function simulateDrive(state) {
   /**
    * Generic helper to append a special play log (kickoff, free_kick, admin plays).
    */
-  function addSpecialPlayLog(state, opts) {
+   function addSpecialPlayLog(state, opts) {
     const {
       specialType,
       description,
@@ -731,6 +772,7 @@ function simulateDrive(state) {
       highImpact: false,
       yardsGained,
       timeElapsed,
+      clockRunoff: timeElapsed,    // <-- NEW: assign all special-play time to drive
       turnover: false,
       touchdown: false,
       safety: false,
@@ -743,6 +785,7 @@ function simulateDrive(state) {
     state.plays.push(log);
     return log;
   }
+  
   
   
   // Play simulation
@@ -831,62 +874,61 @@ function simulateDrive(state) {
   }
 
   
-  // Choose between run / pass / FG / punt based on situation and unit strengths
-// Choose between run / pass / FG / punt with late-game 4th-down logic
-function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) {
+
+  // Choose between run / pass / FG / punt with late-game 4th-down logic
+  function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) {
     const { down, distance, yardline, quarter, clockSec, scoreDiff } = situation;
   
     const offPass = offenseUnits.pass?.overall ?? 60;
-    const offRun = offenseUnits.run?.overall ?? 60;
+    const offRun  = offenseUnits.run?.overall  ?? 60;
     const defCover = defenseUnits.coverage?.overall ?? 60;
-    const defRun = defenseUnits.runFit?.overall ?? 60;
+    const defRun   = defenseUnits.runFit?.overall   ?? 60;
   
-    // Base pass tendency from rating difference
     const passAdv = (offPass - defCover) / 15;
     let basePassProb = logistic(passAdv);
   
-    // Situation adjustments
     const isObviousPass = (down === 3 && distance >= 6) || (down === 4 && distance >= 3);
-    const isObviousRun = distance <= 2 && down <= 3 && yardline <= 80;
+    const isObviousRun  = distance <= 2 && down <= 3 && yardline <= 80;
     if (isObviousPass) basePassProb = Math.max(basePassProb, 0.7);
     if (isObviousRun)  basePassProb = Math.min(basePassProb, 0.3);
   
-    // End-of-half/game aggression: if trailing late, pass more
+    // Throw more when trailing late
     if (quarter >= 4 && clockSec <= 120 && scoreDiff < 0) {
       basePassProb = Math.max(basePassProb, 0.8);
     }
   
-    // --- 4th down decisions ----------------------------------------------------
+    // ---------------- 4th down decisions ----------------
     if (down === 4) {
       const yardsToGoal = 100 - yardline;
-      const kAcc = specialOff.kicking?.accuracy ?? 60;
-      const inFGrange = yardsToGoal <= 37; // ~54 yarder
-      const mustGoLate = (quarter >= 4 && clockSec <= 120 && scoreDiff < 0); // TRAILING late -> go
-      const goTerritory = yardline >= 60 && distance <= 3; // plus territory & short
+      const inFGrange = yardsToGoal <= 37; // ~54-yarder
+      const oneScoreGame = Math.abs(scoreDiff) <= 8;
+      const under5 = (quarter >= 4 && clockSec <= 300);
   
-      // If trailing late (e.g., your 0:48 example): always go, regardless of field position.
-      if (mustGoLate) {
+      // MUST-GO: trailing (or tied) one-score in last 5:00
+      if (under5 && oneScoreGame && scoreDiff <= 0) {
         return { type: distance >= 3 ? "pass" : "run" };
       }
   
-      // If tie/leading and in FG range, prefer FG unless very short to go.
-      if (inFGrange && distance > 1) {
+      // Early/mid-game go-territory: plus territory & short
+      const goTerritory = (yardline >= 60 && distance <= 3);
+  
+      // Prefer FG when reasonable and not a great go-for-it spot
+      if (inFGrange && distance > 1 && !(goTerritory && scoreDiff < 0)) {
         return { type: "field_goal" };
       }
   
-      // If not in FG range:
-      //   - Punt when backed up and not in "go" territory
-      //   - Otherwise go for it
+      // Punt when backed up and no strong reason to go
       const shouldPunt = yardline <= 60 && !goTerritory && !inFGrange;
       if (shouldPunt) return { type: "punt" };
   
-      // Go for it (choose run/pass by tendency)
+      // Otherwise, go for it using tendency
       return rng.next() < basePassProb ? { type: "pass" } : { type: "run" };
     }
   
     // Non-4th downs: choose run/pass
     return rng.next() < basePassProb ? { type: "pass" } : { type: "run" };
   }
+  
   
   
   // ------------------------ Run play -----------------------------------------
@@ -1128,121 +1170,6 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
     };
   }
 
-
-  function logSpecialPlay(state, play) {
-    // Minimal, safe logger for non-yardage plays (XP, 2PT, Kickoff)
-    const { offenseSide, defenseSide, offenseTeam, defenseTeam } = getOffenseDefense(state);
-  
-    state.clockSec = Math.max(0, state.clockSec - (play.timeElapsed ?? 0));
-  
-    state.plays.push({
-      playId: state.playId++,
-      driveId: state.driveId,
-      quarter: state.quarter,
-      clockSec: state.clockSec,
-      offense: offenseSide,
-      defense: defenseSide,
-      offenseTeamId: offenseTeam.teamId,
-      defenseTeamId: defenseTeam.teamId,
-      offenseTeamName: offenseTeam.teamName,
-      defenseTeamName: defenseTeam.teamName,
-      down: state.down,
-      distance: state.distance,
-      ballYardline: state.ballYardline,
-      decisionType: play.playType,
-      playType: play.playType,
-      text: play.text,
-      description: play.text,
-      downAndDistance: formatDownAndDistance(state.down, state.distance, state.ballYardline),
-      tags: play.tags || [],
-      isScoring: !!play.isScoring,
-      highImpact: !!play.isScoring,
-      // carry result fields we’ll use later
-      resultingYardline: play.resultingYardline,
-      touchback: play.touchback,
-    });
-  }
-  
-  // Decide XP vs 2-pt and log the attempt; also add points.
-  function addPAT(state, offenseSide, rng) {
-    const isLate = state.quarter >= 4 && state.clockSec <= 180;
-    // Score diff from offense perspective AFTER TD was added:
-    const diff = offenseSide === "home"
-      ? state.score.home - state.score.away
-      : state.score.away - state.score.home;
-  
-    // Very light book:
-    // - If down 2 after TD late -> go for 2, else kick.
-    const goForTwo = (isLate && diff === -2);
-  
-    if (goForTwo) {
-      const p = 0.48; // league-ish
-      const good = rng.next() < p;
-      if (good) {
-        if (offenseSide === "home") state.score.home += 2; else state.score.away += 2;
-      }
-      logSpecialPlay(state, {
-        playType: "two_point",
-        text: good ? "Two-point try is good" : "Two-point try fails",
-        timeElapsed: rng.nextRange(5, 8),
-        tags: ["2PT", ...(good ? ["SCORE"] : [])],
-        isScoring: good,
-      });
-    } else {
-      const p = 0.96; // XP success
-      const good = rng.next() < p;
-      if (good) {
-        if (offenseSide === "home") state.score.home += 1; else state.score.away += 1;
-      }
-      logSpecialPlay(state, {
-        playType: "extra_point",
-        text: good ? "Extra point is good" : "Extra point is no good",
-        timeElapsed: rng.nextRange(4, 7),
-        tags: ["XP", ...(good ? ["SCORE"] : [])],
-        isScoring: good,
-      });
-    }
-  
-    state.events.push({
-      type: "score",
-      subtype: "pat",
-      offense: offenseSide,
-      points: 0, // points already applied above
-      quarter: state.quarter,
-      clockSec: state.clockSec,
-      score: cloneScore(state.score),
-    });
-  }
-  
-  // Log a kickoff play. We DO NOT change possession here; simulateDrive will pick it up.
-  function addKickoff(state, offenseSide, rng, { from } = {}) {
-    const touchback = rng.next() < (state.cfg.kickoffTouchbackRate ?? 0.75);
-    let resultingYardline;
-    let text;
-    let t = 0;
-  
-    if (touchback) {
-      // New rule request: kickoff touchback to the 35
-      resultingYardline = 35;
-      text = "Kickoff: touchback (ball at 35)";
-      t = 0; // allow 0s as requested
-    } else {
-      // Return to ~20–40 with some variance
-      const retTo = Math.round(clamp(normal(state.rng, 28, 6), 15, 45));
-      resultingYardline = retTo;
-      text = `Kickoff returned to the ${retTo}`;
-      t = rng.nextRange(5, 8);
-    }
-  
-    logSpecialPlay(state, {
-      playType: "kickoff",
-      text,
-      timeElapsed: t,
-      tags: ["KICKOFF"],
-      resultingYardline,
-      touchback,
-    });
-  }
   
   
 // -----------------------------------------------------------------------------
