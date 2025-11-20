@@ -224,8 +224,16 @@ class RNG {
     betweenPlayNormalMax: 40,
     betweenPlayHurryMin: 6,
     betweenPlayHurryMax: 18,
-    oobRestartMin: 18,
-    oobRestartMax: 28,
+    oobRestartMin: 24,
+    oobRestartMax: 35,
+
+    // Play clock (NFL-style)
+    playClockNormal: 40,
+    playClockAdmin: 25,
+
+    // Timeout / icing tweaks
+    timeoutAdminSeconds: 0,   // how many game seconds a timeout consumes
+    iceKickerPenalty: 0.02,   // reduce FG make prob by ~2% when iced
   
     // First play after a quarter break
     quarterBreakSetupExtra: 6,
