@@ -572,18 +572,19 @@ function simulateDrive(state) {
   
   /* ----------------------- Helpers added for realism ------------------------ */
   
-  /**
-   * Logs a PAT (XP or 2-pt) as its own play and mutates score/clock.
-   * Returns the play log object (so caller can include it in drivePlays).
-   */
-   function handlePAT(state, scoringSide) {
+/**
+ * Logs a PAT (XP or 2-pt) as its own play and mutates the score.
+ * IMPORTANT: PAT is an **untimed** down — we do NOT change state.clockSec.
+ * This function assumes the TD points (6) have already been added.
+ */
+ function handlePAT(state, scoringSide) {
     const rng = state.rng;
     const cfg = state.cfg || {};
   
     const xpMakeProb    = Number.isFinite(cfg.xpMakeProb)    ? cfg.xpMakeProb    : 0.94;
     const twoPtMakeProb = Number.isFinite(cfg.twoPtMakeProb) ? cfg.twoPtMakeProb : 0.48;
   
-    // Score diff from the scoring team's perspective *after* the TD was added.
+    // Score diff from offense perspective *after* TD already applied
     const scoreDiff =
       scoringSide === "home"
         ? state.score.home - state.score.away
@@ -592,21 +593,13 @@ function simulateDrive(state) {
     const lateQ4 = (state.quarter >= 4 && state.clockSec <= 120);
     let attemptTwo = false;
   
-    // Simple decision model:
-    // - Down 2 late in Q4 -> always go for 2.
-    // - Trailing late -> sometimes go for 2.
-    // - Otherwise, occasionally.
     if (lateQ4 && scoreDiff === -2) {
-      attemptTwo = true;
+      attemptTwo = true;                       // textbook "down 2" situation
     } else if (lateQ4 && scoreDiff < 0) {
-      attemptTwo = rng.next() < 0.30;
+      attemptTwo = rng.next() < 0.30;          // trailing late → sometimes aggressive
     } else {
-      attemptTwo = rng.next() < 0.05;
+      attemptTwo = rng.next() < 0.05;          // occasional 2-pt try earlier
     }
-  
-    // PAT is an *untimed* down: no game clock movement.
-    const timeElapsed = 0;
-    const clockRunoff = 0;
   
     let made = false;
     let desc = "";
@@ -616,18 +609,16 @@ function simulateDrive(state) {
       if (made) {
         if (scoringSide === "home") state.score.home += 2;
         else                        state.score.away += 2;
-  
+        desc = "Two-point try is good";
         state.events.push({
           type: "score",
           subtype: "two_point",
           offense: scoringSide,
           points: 2,
           quarter: state.quarter,
-          clockSec: state.clockSec,
+          clockSec: state.clockSec,  // same as TD time (untimed down)
           score: cloneScore(state.score),
         });
-  
-        desc = "Two-point try is good";
       } else {
         desc = "Two-point try fails";
       }
@@ -636,18 +627,16 @@ function simulateDrive(state) {
       if (made) {
         if (scoringSide === "home") state.score.home += 1;
         else                        state.score.away += 1;
-  
+        desc = "Extra point is good";
         state.events.push({
           type: "score",
           subtype: "extra_point",
           offense: scoringSide,
           points: 1,
           quarter: state.quarter,
-          clockSec: state.clockSec,
+          clockSec: state.clockSec,  // same as TD time (untimed down)
           score: cloneScore(state.score),
         });
-  
-        desc = "Extra point is good";
       } else {
         desc = "Extra point is no good";
       }
@@ -657,13 +646,11 @@ function simulateDrive(state) {
     const defenseSide = scoringSide === "home" ? "away" : "home";
     const defenseTeam = scoringSide === "home" ? state.awayTeam : state.homeTeam;
   
-    const text = `${offenseTeam.teamName} ${desc}`;
-  
     const log = {
       playId: state.playId++,
-      driveId: state.driveId, // stays with the scoring drive
+      driveId: state.driveId,           // PAT stays with the scoring drive
       quarter: state.quarter,
-      clockSec: state.clockSec,   // unchanged (untimed)
+      clockSec: state.clockSec,         // unchanged (untimed)
       offense: scoringSide,
       defense: defenseSide,
       offenseTeamId: offenseTeam.teamId,
@@ -674,27 +661,19 @@ function simulateDrive(state) {
       distance: null,
       ballYardline: null,
       decisionType: attemptTwo ? "two_point" : "extra_point",
-      playType: attemptTwo ? "two_point" : "extra_point",
-  
-      text,
-      description: text,
-      desc: text,
+      playType:    attemptTwo ? "two_point" : "extra_point",
+      text: `${offenseTeam.teamName} ${desc}`,
+      description: `${offenseTeam.teamName} ${desc}`,
+      desc: `${offenseTeam.teamName} ${desc}`,
       downAndDistance: "",
-  
       tags: attemptTwo
         ? (made ? ["2PT", "SCORE"] : ["2PT"])
         : (made ? ["XP", "SCORE"] : ["XP"]),
-  
       isScoring: made,
       isTurnover: false,
       highImpact: made,
-  
       yardsGained: 0,
-  
-      // PAT is untimed in game-clock terms:
-      timeElapsed,
-      clockRunoff,          // <- 0, so it won’t affect drive duration / TOP
-  
+      timeElapsed: 0,          // <-- PAT is *untimed*
       turnover: false,
       touchdown: false,
       safety: false,
@@ -706,7 +685,8 @@ function simulateDrive(state) {
   
     state.plays.push(log);
     return log;
-  }  
+  }
+  
   
   /**
    * Logs a kickoff play (time may be 0–6s) and sets the receiving team's
@@ -1000,7 +980,7 @@ function simulateDrive(state) {
     const micro   = sampleRunOutcome(params, rng) || {};
     const raw     = Number.isFinite(micro.yardsGained) ? micro.yardsGained : 0;
     const maxGain = Math.max(0, 100 - state.ballYardline);
-    const yards   = Math.round(clamp(raw, -15, maxGain));
+    const yards   = Math.round(clamp(raw, -8, maxGain));
 
     // Slightly higher OOB chance late/when trailing or on longer gains
     const { offenseSide } = getOffenseDefense(state);
@@ -1015,12 +995,16 @@ function simulateDrive(state) {
     const touchdown   = prospective >= 100;
     const safety      = prospective <= 0;
 
+    // Fumbles from micro-engine, but damped to reduce total turnovers
+    const rawFumble = !!micro.fumble;
+    const fumble = rawFumble && (rng.next() < 0.6); // keep ~60% of fumble flags
+
     return {
         playType: "run",
         yardsGained: yards,
         inPlayTime,
         timeElapsed: inPlayTime,      // keep legacy field; total added later
-        turnover: !!micro.fumble,
+        turnover: fumble,
         interception: false,
         sack: false,
         completion: false,
@@ -1076,10 +1060,8 @@ function simulateDrive(state) {
     const micro   = samplePassOutcome(params, rng) || {};
     const raw     = Number.isFinite(micro.yardsGained) ? micro.yardsGained : 0;
     const maxGain = Math.max(0, 100 - state.ballYardline);
-    const yards   = Math.round(clamp(raw, -20, maxGain));
+    const yards   = Math.round(clamp(raw, -15, maxGain));
 
-    const interception = !!micro.interception;
-    const fumble       = !!micro.fumble;
     const sack         = !!micro.sack;
     const completion   = !!micro.completion;
 
@@ -1099,7 +1081,16 @@ function simulateDrive(state) {
     const prospective = state.ballYardline + yards;
     const touchdown   = prospective >= 100;
     const safety      = prospective <= 0;
-    const turnover    = interception || fumble;
+
+    // Sack != automatic turnover; interception or fumble do
+    const interceptionRaw = !!micro.interception;
+    const fumbleRaw       = !!micro.fumble;
+
+    // Dampen raw turnover flags from micro-engine
+    const interception = interceptionRaw && (rng.next() < 0.6);
+    const fumble       = fumbleRaw       && (rng.next() < 0.6);
+
+    const turnover = interception || fumble;
 
     return {
         playType: "pass",
@@ -1129,33 +1120,49 @@ function simulateDrive(state) {
     const { cfg } = state;
     const { offenseSide } = getOffenseDefense(state);
   
-    const yardsToGoal = 100 - state.ballYardline;
-    const kickDistance = yardsToGoal + 17; // LOS + 17
+    const yardsToGoal   = 100 - state.ballYardline;
+    const kickDistance  = yardsToGoal + 17; // LOS + 17 (standard NFL)
   
     const kAcc = specialOff.kicking?.accuracy ?? 60;
-    const kPow = specialOff.kicking?.power ?? 60;
+    const kPow = specialOff.kicking?.power   ?? 60;
   
-    // Distance penalty ramps up aggressively beyond ~35, plus extra after ~48
-    const distancePenalty = Math.max(0, kickDistance - 35) * 0.018;
-    const longBonusPenalty = Math.max(0, kickDistance - 48) * 0.012;
+    // Baseline make rate as a function of distance, before kicker adjustment.
+    // Designed to approximate:
+    //  - ~90% in low 30s
+    //  - high 70s–low 80s in the 40s
+    //  - mid 60s in low 50s
+    let base;
+    if (kickDistance <= 35) {
+      // 20–35: from ~0.97 down to ~0.90
+      base = 0.97 - 0.004 * Math.max(0, kickDistance - 20);
+    } else if (kickDistance <= 45) {
+      // 36–45: from ~0.90 down to ~0.75
+      base = 0.90 - 0.015 * (kickDistance - 35);
+    } else if (kickDistance <= 55) {
+      // 46–55: from ~0.75 down to ~0.55
+      base = 0.75 - 0.02 * (kickDistance - 45);
+    } else {
+      // 56+: fall off a cliff
+      base = 0.55 - 0.03 * (kickDistance - 55);
+    }
   
-    let prob =
-      cfg.fgBaseProb +
-      cfg.fgAccuracyWeight * (kAcc - 70) +
-      0.002 * (kPow - 70) -
-      distancePenalty -
-      longBonusPenalty;
+    // Kicker quality adjustments — small but meaningful
+    const accAdj = 0.002 * (kAcc - 70);  // ±0.06 across 40–100 rating
+    const powAdj = 0.0015 * (kPow - 70); // ±0.045 across 40–100 rating
   
-    prob = clamp(prob, 0.05, 0.96);
+    let prob = base + accAdj + powAdj;
+    prob = clamp(prob, 0.05, 0.99);
   
     const made = rng.next() < prob;
+  
+    // Live clock on FGs is small — ~5–8 seconds from snap to whistle + minimal admin
     const timeElapsed = rng.nextRange(5, 9);
   
     return {
       playType: "field_goal",
       yardsGained: 0,
       timeElapsed,
-      turnover: !made,
+      turnover: !made,           // miss -> ball to defense
       touchdown: false,
       safety: false,
       fieldGoalAttempt: true,
@@ -1166,6 +1173,7 @@ function simulateDrive(state) {
       offenseSide,
     };
   }
+  
   
   
   // ------------------------ Punt ----------------------------------------------
@@ -1332,11 +1340,30 @@ function simulateDrive(state) {
     // Normal offensive play (run/pass)
     let newYard = state.ballYardline + (outcome.yardsGained || 0);
   
-    // Safety
-    if (newYard <= 0) {
-      if (defenseSide === "home") state.score.home += 2;
-      else                        state.score.away += 2;
+// Safety candidate (ball carrier driven back toward own end zone)
+if (newYard <= 0) {
+    const fieldPos = state.ballYardline; // where the play started
+    const yardsLoss = outcome.yardsGained < 0 ? -outcome.yardsGained : 0;
   
+    // Only a subset of these become true safeties. Most end up as being tackled
+    // very close to the goal line.
+    let safetyProb = 0;
+  
+    if (fieldPos <= 2 && yardsLoss >= 2) {
+      safetyProb = 0.7;     // very backed up and big loss
+    } else if (fieldPos <= 5 && yardsLoss >= 3) {
+      safetyProb = 0.4;
+    } else if (fieldPos <= 8 && yardsLoss >= 5) {
+      safetyProb = 0.2;
+    }
+  
+    if (rng.next() < safetyProb) {
+      // True safety
+      if (defenseSide === "home") {
+        state.score.home += 2;
+      } else {
+        state.score.away += 2;
+      }
       state.events.push({
         type: "score",
         subtype: "safety",
@@ -1347,16 +1374,21 @@ function simulateDrive(state) {
         score: cloneScore(state.score),
       });
   
-      // Possession flips; free kick/drive start handled by simulateDrive
+      // Defense gets the ball after a safety (approximate at own 25)
       state.possession = defenseSide;
-      state.ballYardline = 25; // temporary spot; simulateDrive will set up free kick/touchback semantics
+      state.ballYardline = 25;
       state.down = 1;
       state.distance = 10;
       outcome.safety = true;
       outcome.endOfDrive = true;
       state.playId += 1;
       return;
+    } else {
+      // Not a safety — just pinned at the 1.
+      newYard = 1;
     }
+  }
+  
   
     // Touchdown (PAT handled later in simulateDrive → handlePAT)
     if (newYard >= 100) {
