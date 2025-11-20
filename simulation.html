@@ -737,6 +737,37 @@
         </div>
 
         <div class="section-divider"></div>
+        <!-- Player Box Score -->
+        <div class="field-group">
+            <label>Player Box Score</label>
+            <div class="table-wrapper" id="player-stats-wrapper">
+            <table id="player-stats-table">
+                <thead>
+                <tr>
+                    <th>Player</th>
+                    <th>Team</th>
+                    <th>Pos</th>
+                    <th>C/Att</th>
+                    <th>PYds</th>
+                    <th>PTD</th>
+                    <th>INT</th>
+                    <th>RAtt</th>
+                    <th>RYds</th>
+                    <th>RTD</th>
+                    <th>Tgt</th>
+                    <th>Rec</th>
+                    <th>RecYds</th>
+                    <th>RecTD</th>
+                    <th>FG</th>
+                    <th>XP</th>
+                    <th>Punts</th>
+                </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+            </div>
+        </div>
+        
 
         <!-- Scoreboard -->
         <div class="scoreboard" aria-label="Scoreboard">
@@ -979,6 +1010,7 @@
       driveTableBody: document.querySelector('#drive-summary-table tbody'),
       teamStatsBody: document.querySelector('#team-stats-table tbody'),
       playLog: document.getElementById('play-log-container'),
+      playerStatsBody: document.querySelector('#player-stats-table tbody'),
     };
 
     // ----- STATE -------------------------------------------------------------
@@ -1299,6 +1331,7 @@
       clearElement(dom.driveTableBody);
       clearElement(dom.teamStatsBody);
       clearElement(dom.playLog);
+      clearElement(dom.playerStatsBody);
 
       // placeholder log
       const div = document.createElement('div');
@@ -1408,6 +1441,83 @@
       addRow(getTeamLabel(currentAwayTeam), away);
     }
 
+    function renderPlayerBoxScore(result) {
+        const tbody = dom.playerStatsBody;
+        if (!tbody) return;
+        clearElement(tbody);
+
+        const statsObj = (result && result.playerStats) || {};
+        const rows = Object.values(statsObj);
+
+        if (!rows.length) return;
+
+        const homeId = currentHomeTeam?.teamId || currentHomeTeam?.id;
+        const awayId = currentAwayTeam?.teamId || currentAwayTeam?.id;
+        const homeLabel = getTeamLabel(currentHomeTeam);
+        const awayLabel = getTeamLabel(currentAwayTeam);
+
+        const anyStat = (r) => {
+            const vals = [
+            r.passAtt, r.passCmp, r.passYds, r.passTD, r.passInt,
+            r.rushAtt, r.rushYds, r.rushTD,
+            r.targets, r.receptions, r.recYds, r.recTD,
+            r.fgAtt, r.fgMade, r.xpAtt, r.xpMade,
+            r.puntAtt, r.puntYds
+            ].map(v => Number(v) || 0);
+            return vals.some(v => v > 0);
+        };
+
+        const posOrder = { QB:0, RB:1, HB:1, FB:1, WR:2, TE:3, K:4, P:5, DL:6, LB:6, DB:6 };
+
+        rows
+            .filter(anyStat)
+            .sort((a, b) => {
+            const ta = a.teamId === homeId ? 0 : a.teamId === awayId ? 1 : 2;
+            const tb = b.teamId === homeId ? 0 : b.teamId === awayId ? 1 : 2;
+            if (ta !== tb) return ta - tb;
+            const pa = posOrder[a.position] ?? 9;
+            const pb = posOrder[b.position] ?? 9;
+            if (pa !== pb) return pa - pb;
+            const ya = (Number(a.passYds||0) + Number(a.recYds||0) + Number(a.rushYds||0));
+            const yb = (Number(b.passYds||0) + Number(b.recYds||0) + Number(b.rushYds||0));
+            return yb - ya;
+            })
+            .forEach(r => {
+            const teamLabel =
+                r.teamId === homeId ? homeLabel :
+                r.teamId === awayId ? awayLabel :
+                (r.teamName || r.teamId || '');
+            const pos = r.position || '';
+            const cAtt = `${r.passCmp||0}/${r.passAtt||0}`;
+            const fg = `${r.fgMade||0}/${r.fgAtt||0}`;
+            const xp = `${r.xpMade||0}/${r.xpAtt||0}`;
+            const punts = `${r.puntAtt||0}${(r.puntAtt>0) ? `, ${Math.round(r.puntYds||0)}y` : ''}`;
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${r.name || r.playerId || ''}</td>
+                <td>${teamLabel}</td>
+                <td>${pos}</td>
+                <td>${cAtt}</td>
+                <td>${r.passYds||0}</td>
+                <td>${r.passTD||0}</td>
+                <td>${r.passInt||0}</td>
+                <td>${r.rushAtt||0}</td>
+                <td>${r.rushYds||0}</td>
+                <td>${r.rushTD||0}</td>
+                <td>${r.targets||0}</td>
+                <td>${r.receptions||0}</td>
+                <td>${r.recYds||0}</td>
+                <td>${r.recTD||0}</td>
+                <td>${fg}</td>
+                <td>${xp}</td>
+                <td>${punts}</td>
+            `;
+            tbody.appendChild(tr);
+            });
+        }
+
+
     function appendPlayEntries(plays, maxIndex = Infinity) {
       clearElement(dom.playLog);
       if (!plays.length) return;
@@ -1464,6 +1574,7 @@
       renderScoreboardFromResult(result);
       renderDriveSummary(result);
       renderTeamStats(result);
+      renderPlayerBoxScore(result);
       const plays = getPlayLogFromResult(result);
       appendPlayEntries(plays);
 
@@ -1503,6 +1614,7 @@
       // For simplicity, scoreboard always shows final score once sim is run.
       renderScoreboardFromResult(currentResult);
       renderTeamStats(currentResult);
+      renderPlayerBoxScore(currentResult);
     }
 
     // ----- EVENT HANDLERS ----------------------------------------------------

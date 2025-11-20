@@ -1026,22 +1026,7 @@ function simulateDrive(state) {
     // With all 3 TOs, you usually need 4 snaps; keep it conservative:
     return secondsLeft <= playClock + 10 + 8 + 8 + 8;
   }
-  
-  // In your play-caller:
-  const canKneel = victoryFormationAvailable({
-    quarter: state.quarter,
-    secondsLeft: state.clock.seconds,
-    offenseLead: state.offenseScore - state.defenseScore,
-    timeoutsDefense: state.timeouts.defense,
-    playClock: 40
-  });
-  
-  if (canKneel) {
-    call = 'KNEEL';
-  }
-  
-  
-  
+
   
   /**
    * Logs a kickoff play (time may be 0–6s) and sets the receiving team's
