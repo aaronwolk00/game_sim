@@ -274,6 +274,8 @@ class RNG {
       events: [],
       isFinal: false,
       winner: null,
+
+      playerStats: {},
     };
   }
   
@@ -316,7 +318,131 @@ class RNG {
       },
     };
   }
+
+  // -----------------------------------------------------------------------------
+  // Player helpers & stat accumulation
+  // -----------------------------------------------------------------------------
+
+  function getPlayerKey(player) {
+    if (!player) return null;
+    return (
+      player.playerId ||
+      player.id ||
+      player.ID ||
+      player.uid ||
+      player.name ||
+      player.fullName ||
+      player.displayName ||
+      null
+    );
+  }
   
+  function getPlayerName(player) {
+    if (!player) return "";
+    return (
+      player.displayName ||
+      player.fullName ||
+      player.name ||
+      player.playerName ||
+      player.shortName ||
+      String(player.playerId || player.id || "")
+    );
+  }
+  
+  function ensurePlayerRow(state, player, side) {
+    if (!player) return null;
+    const key = getPlayerKey(player);
+    if (!key) return null;
+  
+    const team =
+      side === "home" ? state.homeTeam : state.awayTeam;
+  
+    if (!state.playerStats[key]) {
+      state.playerStats[key] = {
+        playerId: key,
+        name: getPlayerName(player),
+        teamId: team?.teamId ?? null,
+        teamName: team?.teamName ?? null,
+        side, // "home" | "away"
+        position: player.position || player.pos || null,
+  
+        // passing
+        passAtt: 0,
+        passCmp: 0,
+        passYds: 0,
+        passTD: 0,
+        passInt: 0,
+  
+        // rushing
+        rushAtt: 0,
+        rushYds: 0,
+        rushTD: 0,
+  
+        // receiving
+        targets: 0,
+        receptions: 0,
+        recYds: 0,
+        recTD: 0,
+  
+        // kicking
+        fgAtt: 0,
+        fgMade: 0,
+        xpAtt: 0,
+        xpMade: 0,
+      };
+    }
+  
+    return state.playerStats[key];
+  }
+  
+  // Pull out key offensive skill players from depth chart / starters
+  function getOffensiveSkillPlayers(team) {
+    const qb = team.getStarter?.("QB") || null;
+  
+    // Depth chart can be an object like { WR: [...], RB: [...], TE: [...] }
+    const dc = team.depthChart || {};
+  
+    const rbList = dc["RB"] || dc["HB"] || [];
+    const wrList = dc["WR"] || [];
+    const teList = dc["TE"] || [];
+  
+    const rb1 = rbList[0] || null;
+    const rb2 = rbList[1] || null;
+  
+    const wr1 = wrList[0] || null;
+    const wr2 = wrList[1] || null;
+    const wr3 = wrList[2] || null;
+  
+    const te1 = teList[0] || null;
+  
+    return { qb, rb1, rb2, wr1, wr2, wr3, te1 };
+  }
+  
+  // Choose a receiving target from skill group
+  function chooseReceivingTarget(skill, rng) {
+    const candidates = [];
+  
+    // Slightly favor WR1/WR2, then slot/TE, then RB checkdown
+    if (skill.wr1) candidates.push({ p: skill.wr1, w: 3 });
+    if (skill.wr2) candidates.push({ p: skill.wr2, w: 3 });
+    if (skill.wr3) candidates.push({ p: skill.wr3, w: 2 });
+    if (skill.te1) candidates.push({ p: skill.te1, w: 2 });
+    if (skill.rb1) candidates.push({ p: skill.rb1, w: 1 });
+  
+    if (!candidates.length) return null;
+  
+    const totalW = candidates.reduce((s, c) => s + c.w, 0);
+    let r = rng.nextRange(0, totalW);
+    for (const c of candidates) {
+      if (r < c.w) return c.p;
+      r -= c.w;
+    }
+    return candidates[0].p;
+  }
+  
+
+
+
   // -----------------------------------------------------------------------------
   // Drive / Play Loop
   // -----------------------------------------------------------------------------
@@ -1086,11 +1212,25 @@ function simulateRunPlay(state, offenseUnits, defenseUnits, rng) {
     const down     = state.down;
     const distance = state.distance;
   
+    // --- identify rusher (RB1 most of the time, occasional QB keep/scramble) ---
+    const { offenseTeam, offenseSide } = getOffenseDefense(state);
+    const skill = getOffensiveSkillPlayers(offenseTeam);
+  
+    let rusher = skill.rb1 || skill.qb || null;
+    // very small chance of QB keep on obvious pass looks
+    if (!rusher || (down >= 2 && distance >= 8 && rng.next() < 0.12)) {
+      rusher = skill.qb || rusher;
+    }
+  
+    const rusherRow = ensurePlayerRow(state, rusher, offenseSide);
+    const rusherId   = getPlayerKey(rusher);
+    const rusherName = getPlayerName(rusher);
+  
     // Box heuristic
     let boxCount = 7;
     if (yardline < 10 || yardline > 90) boxCount = 8;
-    if (distance >= 8)                  boxCount = 6;
-    if (down === 1 && distance >= 10)   boxCount = 6;
+    if (distance >= 8)                 boxCount = 6;
+    if (down === 1 && distance >= 10)  boxCount = 6;
   
     let boxLightness = 0;
     if (boxCount <= 6) boxLightness = 0.7;
@@ -1110,49 +1250,41 @@ function simulateRunPlay(state, offenseUnits, defenseUnits, rng) {
     };
   
     const micro   = sampleRunOutcome(params, rng) || {};
-
-    let raw = Number.isFinite(micro.yardsGained) ? micro.yardsGained : 0;
+    const raw     = Number.isFinite(micro.yardsGained) ? micro.yardsGained : 0;
     const maxGain = Math.max(0, 100 - state.ballYardline);
-
-    // Gentle buff to positive runs, softer negatives to reduce TFL + safeties
-    if (raw > 0) {
-    raw *= 1.08;   // +8% on positive runs
-    }
-
-    const yards = Math.round(clamp(raw, -4, maxGain));
-
+    const yards   = Math.round(clamp(raw, -8, maxGain));
   
-    // Slightly higher OOB chance late/when trailing or on longer gains
-    const { offenseSide } = getOffenseDefense(state);
-    const hurry      = isLateGameHurry(state, offenseSide);
-    const oobProb    = (hurry ? 0.20 : 0.12) + (yards >= 10 ? 0.08 : 0);
-    const outOfBounds = !micro.fumble && rng.next() < oobProb;
-  
-    const inPlayTime = estimateInPlayTime(
-      { playType: "run", yardsGained: yards },
-      rng
-    );
-  
-    // TD/safety from this play alone
     const prospective = state.ballYardline + yards;
     const touchdown   = prospective >= 100;
     const safety      = prospective <= 0;
   
-    // Fumbles from micro-engine, but damped
+    // damp fumbles a bit
     const rawFumble = !!micro.fumble;
-    const fumble    = rawFumble && (rng.next() < 0.6); // keep ~60% of fumble flags
+    const fumble    = rawFumble && (rng.next() < 0.6);
+  
+    // in-play time – if your micro engine gives it, use that, else estimate
+    const inPlayTime = Number.isFinite(micro.timeElapsed)
+      ? clamp(micro.timeElapsed, 3, 8.5)
+      : clamp(3 + Math.abs(yards) * 0.2 + rng.nextRange(-0.5, 0.5), 3, 8.5);
+  
+    // --- accumulate rushing stats for rusher ---
+    if (rusherRow) {
+      rusherRow.rushAtt += 1;
+      rusherRow.rushYds += yards;
+      if (touchdown) rusherRow.rushTD += 1;
+    }
   
     return {
       playType: "run",
       yardsGained: yards,
       inPlayTime,
-      timeElapsed: inPlayTime,      // keep legacy field; total added later
+      timeElapsed: inPlayTime,   // legacy field, used by clock
       turnover: fumble,
       interception: false,
       sack: false,
       completion: false,
       incomplete: false,
-      outOfBounds,
+      outOfBounds: false,        // OOB flag handled by macro clock logic if you want later
       touchdown,
       safety,
       fieldGoalAttempt: false,
@@ -1160,12 +1292,17 @@ function simulateRunPlay(state, offenseUnits, defenseUnits, rng) {
       punt: false,
       endOfDrive: false,
       micro,
+  
+      // NEW: player wiring
+      rusherId,
+      rusherName,
     };
   }
   
   
-  // ------------------------ Pass play ------------------------------------------
-  function simulatePassPlay(state, offenseUnits, defenseUnits, rng) {
+  
+// ------------------------ Pass play ------------------------------------------
+function simulatePassPlay(state, offenseUnits, defenseUnits, rng) {
     const passUnit = offenseUnits.pass || {};
     const cover    = defenseUnits.coverage || {};
     const rush     = defenseUnits.passRush || {};
@@ -1176,6 +1313,38 @@ function simulateRunPlay(state, offenseUnits, defenseUnits, rng) {
     const yardline = state.ballYardline;
     const down     = state.down;
     const distance = state.distance;
+  
+    const { offenseTeam, offenseSide } = getOffenseDefense(state);
+    const skill = getOffensiveSkillPlayers(offenseTeam);
+    const qb   = skill.qb || offenseTeam.getStarter?.("QB") || null;
+    const rec  = chooseReceivingTarget(skill, rng);
+  
+    const qbRow  = ensurePlayerRow(state, qb, offenseSide);
+    const recRow = ensurePlayerRow(state, rec, offenseSide);
+  
+    const passerId   = getPlayerKey(qb);
+    const passerName = getPlayerName(qb);
+    const receiverId   = getPlayerKey(rec);
+    const receiverName = getPlayerName(rec);
+  
+    const coverageType =
+      (down === 3 && distance <= 6) ? "man" :
+      (down === 2 && distance >= 8) ? "zone" : "mixed";
+  
+    // Score diff from offense POV
+    const scoreDiff =
+      state.possession === "home"
+        ? state.score.home - state.score.away
+        : state.score.away - state.score.home;
+  
+    let situationalAggression = 0.5;
+    if (down >= 3 && distance >= 7) situationalAggression = 0.6;
+    if (state.quarter >= 4 && scoreDiff < 0) situationalAggression = 0.7;
+  
+    let throwAggressiveness = 0.45;
+    if (distance >= 10) throwAggressiveness += 0.1;
+    if (state.quarter >= 4 && scoreDiff < 0) throwAggressiveness += 0.15;
+    throwAggressiveness = clamp(throwAggressiveness, 0.25, 0.9);
   
     const params = {
       qbAccuracyRating: passOff,
@@ -1196,80 +1365,79 @@ function simulateRunPlay(state, offenseUnits, defenseUnits, rng) {
       yardline,
       down,
       distance,
-      coverageType:
-        (down === 3 && distance <= 6)
-          ? "man"
-          : (down === 2 && distance >= 8)
-          ? "zone"
-          : "mixed",
-      situationalAggression: (down >= 3 && distance >= 7) ? 0.6 : 0.5,
-      throwAggressiveness: clamp(
-        0.45 +
-          (distance >= 10 ? 0.1 : 0) +
-          (state.quarter >= 4 ? 0.15 : 0),
-        0.25,
-        0.9
-      ),
+      coverageType,
+      situationalAggression,
+      throwAggressiveness,
     };
   
     const micro   = samplePassOutcome(params, rng) || {};
-
-    let raw = Number.isFinite(micro.yardsGained) ? micro.yardsGained : 0;
+    const raw     = Number.isFinite(micro.yardsGained) ? micro.yardsGained : 0;
     const maxGain = Math.max(0, 100 - state.ballYardline);
-
-    // Slightly bigger buff to positive passes, gently trim worst negatives
-    if (raw > 0) {
-    raw *= 1.12;   // +12% on positive pass gains
-    }
-
-    const yards = Math.round(clamp(raw, -10, maxGain));
-
+    const yards   = Math.round(clamp(raw, -15, maxGain));
   
-    // Turnover flags from micro-engine
+    const sackRaw         = !!micro.sack;
+    const completionRaw   = !!micro.completion;
     const interceptionRaw = !!micro.interception;
     const fumbleRaw       = !!micro.fumble;
   
     // Dampen raw turnover flags from micro-engine
     const interception = interceptionRaw && (rng.next() < 0.6);
     const fumble       = fumbleRaw       && (rng.next() < 0.6);
+    const turnover     = interception || fumble;
   
-    const sack       = !!micro.sack;
-    const completion = !!micro.completion;
+    const sack       = sackRaw;
+    const completion = completionRaw && !interception;
   
-    // Incomplete when not completed, no INT, no sack, no fumble
+    // Incomplete if we didn't complete, and no INT/sack/fumble
     const incomplete = !completion && !interception && !sack && !fumble;
-  
-    // Out of bounds only on completed passes
-    const { offenseSide } = getOffenseDefense(state);
-    const hurry       = isLateGameHurry(state, offenseSide);
-    const outOfBounds =
-      completion &&
-      !interception &&
-      !sack &&
-      rng.next() < (hurry ? 0.35 : 0.25);
-  
-    const inPlayTime = estimateInPlayTime(
-      { playType: "pass", sack, incomplete },
-      rng
-    );
   
     const prospective = state.ballYardline + yards;
     const touchdown   = prospective >= 100;
     const safety      = prospective <= 0;
   
-    const turnover = interception || fumble;
+    const inPlayTime = Number.isFinite(micro.timeElapsed)
+      ? clamp(micro.timeElapsed, 3, 8.5)
+      : clamp(
+          3 +
+            (sack ? 1.5 : 0) +
+            (completion ? 0.2 * Math.max(0, yards) : 0) +
+            rng.nextRange(-0.5, 0.5),
+          3,
+          8.5
+        );
+  
+    // --- accumulate QB stats ---
+    if (qbRow) {
+      qbRow.passAtt += 1;
+      if (completion) {
+        qbRow.passCmp  += 1;
+        qbRow.passYds  += yards;
+        if (touchdown) qbRow.passTD += 1;
+      }
+      if (interception) qbRow.passInt += 1;
+    }
+  
+    // --- accumulate receiver stats ---
+    if (recRow) {
+      recRow.targets += 1;
+      if (completion) {
+        recRow.receptions += 1;
+        recRow.recYds     += yards;
+        if (touchdown) recRow.recTD += 1;
+      }
+    }
   
     return {
       playType: "pass",
       yardsGained: yards,
       inPlayTime,
-      timeElapsed: inPlayTime,      // keep legacy field; total added later
+      timeElapsed: inPlayTime,
       turnover,
       interception,
       sack,
       completion,
       incomplete,
-      outOfBounds,
+      outOfBounds: false,  // you can wire explicit OOB later if desired
       touchdown,
       safety,
       fieldGoalAttempt: false,
@@ -1277,8 +1445,15 @@ function simulateRunPlay(state, offenseUnits, defenseUnits, rng) {
       punt: false,
       endOfDrive: false,
       micro,
+  
+      // NEW: player wiring
+      passerId,
+      passerName,
+      receiverId,
+      receiverName,
     };
   }
+  
   
   
 
@@ -1362,6 +1537,18 @@ function simulateFieldGoal(state, offenseUnits, specialOff, rng) {
   
     // Live clock on FGs: snap → whistle + brief admin
     const timeElapsed = rng.nextRange(5, 9);
+
+    const kicker = offenseSide === "home" ? state.homeKicker : state.awayKicker;
+    const kickerRow = ensurePlayerRow(state, kicker, offenseSide);
+    const kickerId   = getPlayerKey(kicker);
+    const kickerName = getPlayerName(kicker);
+
+    // ... after you decide `made`:
+
+    if (kickerRow) {
+    kickerRow.fgAtt += 1;
+    if (made) kickerRow.fgMade += 1;
+    }
   
     return {
       playType: "field_goal",
@@ -1376,6 +1563,8 @@ function simulateFieldGoal(state, offenseUnits, specialOff, rng) {
       endOfDrive: true,
       kickDistance: rawDistance,
       offenseSide,
+      kickerId,
+      kickerName,
     };
   }
   
@@ -1720,8 +1909,14 @@ if (newYard <= 0) {
     const yards = Number.isFinite(outcome.yardsGained) ? outcome.yardsGained : 0;
     const suffixTD = outcome.touchdown ? " — TOUCHDOWN" : "";
   
+    const rusherName   = outcome.rusherName   || team;
+    const passerName   = outcome.passerName   || team;
+    const receiverName = outcome.receiverName || "";
+  
     if (playType === "kickoff") {
-      return outcome.touchback ? `${team} kickoff for a touchback` : `${team} kickoff returned`;
+      return outcome.touchback
+        ? `${team} kickoff for a touchback`
+        : `${team} kickoff returned`;
     }
     if (playType === "extra_point") {
       return `${team} extra point ${outcome.isScoring ? "is good" : "is no good"}`;
@@ -1732,25 +1927,48 @@ if (newYard <= 0) {
     if (playType === "field_goal") {
       const dist = Math.round(outcome.kickDistance || 0);
       return outcome.fieldGoalGood
-        ? (dist ? `${team} field goal from ${dist} yards is good` : `${team} field goal is good`)
-        : (dist ? `${team} misses field goal from ${dist} yards` : `${team} misses field goal`);
+        ? (dist
+            ? `${team} field goal from ${dist} yards is good`
+            : `${team} field goal is good`)
+        : (dist
+            ? `${team} misses field goal from ${dist} yards`
+            : `${team} misses field goal`);
     }
     if (playType === "punt") {
       const dist = Math.round(outcome.puntDistance || 0);
       return dist ? `${team} punts ${dist} yards` : `${team} punts`;
     }
     if (playType === "pass") {
-      if (outcome.sack) return `${team} sacked for a loss of ${Math.abs(yards)} yards`;
-      if (outcome.interception) return `${team} pass intercepted`;
-      if (yards > 0) return `${team} pass complete for ${yards} yards${suffixTD}`;
-      if (yards < 0) return `${team} pass complete for -${Math.abs(yards)} yards`;
-      return `Incomplete pass`;
+      if (outcome.sack) {
+        return `${passerName} sacked for a loss of ${Math.abs(yards)} yards`;
+      }
+      if (outcome.interception) {
+        return `${passerName} pass intercepted`;
+      }
+      if (!outcome.completion || outcome.incomplete) {
+        return `${passerName} incomplete pass`;
+      }
+      if (yards > 0) {
+        return receiverName
+          ? `${passerName} to ${receiverName} for ${yards} yards${suffixTD}`
+          : `${passerName} pass complete for ${yards} yards${suffixTD}`;
+      }
+      if (yards < 0) {
+        return receiverName
+          ? `${passerName} to ${receiverName} for -${Math.abs(yards)} yards`
+          : `${passerName} pass complete for -${Math.abs(yards)} yards`;
+      }
+      return receiverName
+        ? `${passerName} to ${receiverName} for no gain`
+        : `${passerName} pass for no gain`;
     }
+  
     // run
-    if (yards > 0) return `${team} run for ${yards} yards${suffixTD}`;
-    if (yards < 0) return `${team} run for a loss of ${Math.abs(yards)} yards`;
-    return `${team} run for no gain`;
+    if (yards > 0) return `${rusherName} run for ${yards} yards${suffixTD}`;
+    if (yards < 0) return `${rusherName} run for a loss of ${Math.abs(yards)} yards`;
+    return `${rusherName} run for no gain`;
   }
+  
   
 
   function buildTags(decision, outcome) {
@@ -2014,7 +2232,8 @@ function buildGameResult(state) {
       drives: state.drives,
       plays: state.plays,
       events: state.events,
-      teamStats,              // <— new, used by simulation.html
+      teamStats,
+      playerStats: state.playerStats,
     };
   }
   
