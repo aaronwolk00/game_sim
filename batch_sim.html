@@ -214,6 +214,7 @@
         // usage metrics
         qbPassAtt: new Stat(),
         qbPassCmp: new Stat(),
+        sacks: new Stat(),
 
         // NEW: QB rushing
         qbRushYds: new Stat(),
@@ -732,10 +733,11 @@
       // NEW: turnover breakdown
       rows.push(rowHTML('Interceptions',        B.turnoversInt.toRow(fmt2)));
       rows.push(rowHTML('Fumbles lost',         B.turnoversFum.toRow(fmt2)));
+      rows.push(rowHTML('Sacks',         B.sacks.toRow(fmt2), 'Both teams combined'));
 
       // usage
       rows.push(rowHTML('QB pass attempts',       B.qbPassAtt.toRow(fmt2), 'Both teams combined'));
-      rows.push(rowHTML('QB completions',         B.qbPassCmp.toRow(fmt2), 'Both teams combined'));
+      rows.push(rowHTML('QB completions',         B.qbPassCmp.toRow(fmt2), 'Both teams combined'));    
       rows.push(rowHTML('QB rush yards',          B.qbRushYds.toRow(fmt2), 'All QBs, both teams'));
       rows.push(rowHTML('RB receiving yards',     B.rbRecYds.toRow(fmt2),  'All RB/HB, both teams'));
       rows.push(rowHTML('RB1 rushing yards',      B.rb1RushYds.toRow(fmt2), 'Top RB per side, summed'));
