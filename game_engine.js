@@ -1924,15 +1924,15 @@ function simulateKneelPlay(state, rng) {
         const candidates = [];
         
         // RB usage: RB1 heavy, RB2 meaningful
-        if (skill.rb1) candidates.push({ p: skill.rb1, w: 65 });
+        if (skill.rb1) candidates.push({ p: skill.rb1, w: 64 });
         if (skill.rb2) candidates.push({ p: skill.rb2, w: 25 });
         
         // Occasional WR carries (jet sweeps, end-arounds)
-        if (skill.wr3) candidates.push({ p: skill.wr3, w: 5 });
-        if (skill.wr2) candidates.push({ p: skill.wr2, w: 3 });
+        if (skill.wr3) candidates.push({ p: skill.wr3, w: 3 });
+        if (skill.wr2) candidates.push({ p: skill.wr2, w: 2 });
         
         // Rare designed QB run
-        if (skill.qb)  candidates.push({ p: skill.qb, w: 2 });
+        if (skill.qb)  candidates.push({ p: skill.qb, w: 6 });
         
         let rusher = null;
         if (candidates.length) {
@@ -2149,11 +2149,11 @@ function simulateKneelPlay(state, rng) {
     const fumbleRaw       = !!micro.fumble;
   
     // Dampen raw turnover flags from micro-engine
-    const interception = interceptionRaw && (rng.next() < 0.45);
-    const fumble       = fumbleRaw       && (rng.next() < 0.45);
+    const interception = interceptionRaw && (rng.next() < 0.50);
+    const fumble       = fumbleRaw       && (rng.next() < 0.50);
     const turnover     = interception || fumble;
   
-    const sack       = sackRaw && (rng.next() < 0.65);
+    const sack       = sackRaw && (rng.next() < 0.55);
     let completion = completionRaw && !interception;
   
     // Incomplete if we didn't complete, and no INT/sack/fumble
