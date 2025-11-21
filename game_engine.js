@@ -182,7 +182,7 @@ class RNG {
       base += Math.round(rng.nextRange(2, 4));
     }
   
-    // One-time “quarter break setup” (already in your pipeline)
+    // One-time “quarter break setup”
     if (state._quarterBreakSetup) {
       base += (cfg.quarterBreakSetupExtra || 0);
       state._quarterBreakSetup = false;
@@ -569,32 +569,57 @@ class RNG {
     const wr1 = wrList[0] || null;
     const wr2 = wrList[1] || null;
     const wr3 = wrList[2] || null;
+    const wr4 = wrList[3] || null;
   
     const te1 = teList[0] || null;
+    const te2 = teList[1] || null;
   
-    return { qb, rb1, rb2, wr1, wr2, wr3, te1 };
+    return { qb, rb1, rb2, wr1, wr2, wr3, wr4, te1, te2 };
   }
   
   // Choose a receiving target from skill group
   function chooseReceivingTarget(skill, rng) {
+    const { rb1, rb2, wr1, wr2, wr3, wr4, te1, te2 } = skill;
     const candidates = [];
   
-    // Slightly favor WR1/WR2, then slot/TE, then RB checkdown
-    if (skill.wr1) candidates.push({ p: skill.wr1, w: 3 });
-    if (skill.wr2) candidates.push({ p: skill.wr2, w: 3 });
-    if (skill.wr3) candidates.push({ p: skill.wr3, w: 2 });
-    if (skill.te1) candidates.push({ p: skill.te1, w: 2 });
-    if (skill.rb1) candidates.push({ p: skill.rb1, w: 1 });
+    function add(player, baseWeight) {
+      if (!player) return;
+      candidates.push({ p: player, w: baseWeight });
+    }
+  
+    // Rough modern NFL-ish target split:
+    // WRs ~55–65%, TEs ~20–25%, RBs ~15–20%.
+    // We implement that as relative weights; actual shares depend
+    // on who is on the field.
+  
+    // Wide receivers
+    add(wr1, 5.0);   // primary
+    add(wr2, 3.6);   // strong secondary
+    add(wr3, 2.3);   // slot / tertiary
+    add(wr4, 0.4);   
+  
+    // Tight ends — give TE2 a real but smaller slice
+    add(te1, 3.0);
+    add(te2, 1.0);   // this alone should push TE2 into the 5–8% range
+  
+    // Running backs in the pass game
+    add(rb1, 2.0);
+    add(rb2, 1.2);
   
     if (!candidates.length) return null;
   
-    const totalW = candidates.reduce((s, c) => s + c.w, 0);
+    const totalW = candidates.reduce((sum, c) => sum + c.w, 0);
     let r = rng.nextRange(0, totalW);
+  
     for (const c of candidates) {
-      if (r < c.w) return c.p;
+      if (r < c.w) {
+        return c.p;
+      }
       r -= c.w;
     }
-    return candidates[0].p;
+  
+    // Fallback; numerically we should never get here
+    return candidates[candidates.length - 1].p;
   }
   
 
@@ -2185,15 +2210,26 @@ function simulateKneelPlay(state, rng) {
         );
   
     // --- accumulate QB stats ---
+    // Treat sacks as dropbacks but *not* official pass attempts.
     if (qbRow) {
-      qbRow.passAtt += 1;
-      if (completion) {
-        qbRow.passCmp  += 1;
-        qbRow.passYds  += yards;
-        if (touchdown) qbRow.passTD += 1;
+      const ballThrown = !sack; // true for completions, incompletions, INTs
+
+      if (ballThrown) {
+        // Official pass attempt
+        qbRow.passAtt += 1;
+
+        if (completion) {
+          qbRow.passCmp += 1;
+          qbRow.passYds += yards;
+          if (touchdown) qbRow.passTD += 1;
+        }
+
+        if (interception) {
+          qbRow.passInt += 1;
+        }
       }
-      if (interception) qbRow.passInt += 1;
     }
+
   
     // --- accumulate receiver stats ---
     if (recRow) {
