@@ -252,7 +252,7 @@ class RNG {
     // League targeting & team tilt (for YPC/YPA and punts/game) ----
     targetYPC: 4.4,           // league yards/rush you want the sim to hover around
     targetYPA: 7.3,           // league yards/pass (incl. incompletions)
-    runScaleGlobal: 0.61,     // gentle global nudge; tune after a 1k-game run
+    runScaleGlobal: 0.51,     // gentle global nudge; tune after a 1k-game run
     passScaleGlobal: 1.09,    // gentle global nudge; tune after a 1k-game run
   
     useRealBaselines: false,  // flip to true when you pass per-team tables
@@ -1999,7 +1999,7 @@ function simulateKneelPlay(state, rng) {
         // in-play time – if your micro engine gives it, use that, else estimate
         const inPlayTime = Number.isFinite(micro.timeElapsed)
         ? clamp(micro.timeElapsed, 3, 8.5)
-        : clamp(3 + Math.abs(yards) * 0.2 + rng.nextRange(-0.5, 0.5), 3, 8.5);
+        : clamp(3 + Math.abs(yards) * 0.2 + rng.nextRange(-0.5, 0.5), 3.5, 8.5);
     
         // --- accumulate rushing stats for rusher ---
         if (rusherRow) {
@@ -2127,7 +2127,7 @@ function simulateKneelPlay(state, rng) {
     const fumble       = fumbleRaw       && (rng.next() < 0.45);
     const turnover     = interception || fumble;
   
-    const sack       = sackRaw && (rng.next() < 0.45);
+    const sack       = sackRaw && (rng.next() < 0.65);
     let completion = completionRaw && !interception;
   
     // Incomplete if we didn't complete, and no INT/sack/fumble
@@ -2136,7 +2136,7 @@ function simulateKneelPlay(state, rng) {
     // Completion boost: occasionally turn an "incomplete" into a
     // short checkdown completion, mostly affecting % but not much yardage.
     if (incomplete && !sack && !interception && !fumble) {
-      const boost = 0.24; // tune 0.18–0.25 if needed
+      const boost = 0.27; // tune 0.18–0.25 if needed
       if (rng.next() < boost) {
         completion = true;
         incomplete = false;

@@ -541,7 +541,7 @@ function clamp(x, lo, hi) {
    */
   export function samplePassOutcome(params, rng) {
     const {
-      qbAccuracyRating = 65,
+      qbAccuracyRating = 60,
       qbProcessingRating = 60,
       qbUnderPressureRating = 60,
       olPassBlockRating = 60,
