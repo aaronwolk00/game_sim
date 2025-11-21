@@ -306,17 +306,18 @@
     // ---------------------------- Config --------------------------------------
     const PARAMS = new URLSearchParams(location.search);
 
-    // Allow ?players=<url> override; otherwise default to your Layer 3 roster URL.
-    const RAW_PLAYERS_PARAM = (PARAMS.get('players') || '').replace('/refs/heads/', '/');
+    // Optional override: ?players=<full CSV URL>
+    const RAW_PLAYERS_PARAM = PARAMS.get('players') || '';
+
     const DEFAULT_LAYER3_URL =
       'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/layer3_rosters.csv';
 
+    // If players= is provided, use that as-is; otherwise fall back to your default.
     const EFFECTIVE_ROSTER_URL = RAW_PLAYERS_PARAM || DEFAULT_LAYER3_URL;
 
-    const CSV_URLS = [
-      EFFECTIVE_ROSTER_URL,
-      DEFAULT_LAYER3_URL
-    ];
+    // Only need one URL in the list for now; we’ll still keep the retry logic.
+    const CSV_URLS = [EFFECTIVE_ROSTER_URL];
+
 
     // ------------------------ DOM lookup helpers ------------------------------
     const dom = {
@@ -357,19 +358,27 @@
 
     // ------------------------- CSV helpers ------------------------------------
     async function fetchCsvText() {
-      let lastErr = null;
-      for (const url of CSV_URLS) {
-        try {
-          const res = await fetch(url, { cache: 'no-store', mode: 'cors' });
-          if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-          const txt = await res.text();
-          return { txt, url };
-        } catch (e) {
-          lastErr = e;
+    let lastErr = null;
+
+    for (const url of CSV_URLS) {
+      try {
+        console.log('Attempting to fetch roster CSV from:', url);
+        const res = await fetch(url, { cache: 'no-store', mode: 'cors' });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status} ${res.statusText}`);
         }
+        const txt = await res.text();
+        console.log('Successfully loaded roster CSV from:', url);
+        return { txt, url };
+      } catch (e) {
+        console.error('Roster CSV fetch failed for URL:', url, e);
+        lastErr = e;
       }
-      throw lastErr || new Error('CSV not reachable');
     }
+
+    throw lastErr || new Error('CSV not reachable from any configured URL');
+  }
+
 
     function parseCsvToRows(text) {
       text = String(text || '').replace(/^\uFEFF/, ''); // strip BOM
