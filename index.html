@@ -716,6 +716,11 @@
         dom.btnSim.href = simHref;
       }
 
+      if (dom.btnGm) {
+        const GmHref = `gm_dashboard_ui.html?players=${encodeURIComponent(EFFECTIVE_ROSTER_URL)}`;
+        dom.btnGm.href = GmHref;
+      }
+
       if (dom.btnBatch) {
         // You can change n=500 to any default you like; user can override via querystring
         const batchHref = `batch_sim.html?players=${encodeURIComponent(EFFECTIVE_ROSTER_URL)}&n=500`;
