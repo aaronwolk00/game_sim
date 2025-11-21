@@ -99,8 +99,9 @@ class RNG {
   
     // Hurry-up if: late in 2nd (<= 1:30) or late in 4th (<= 4:00) and behind/tied.
     return (
-      (state.quarter === 2 && state.clockSec <= 90) ||
-      (state.quarter === 4 && state.clockSec <= 240 && diff <= 0)
+      (state.quarter === 2 && state.clockSec <= 75) ||
+      (state.quarter === 4 && state.clockSec <= 120 && diff <= 0) ||
+      (state.quarter === 4 && state.clockSec <= 240 && diff <= -9)
     );
   }
   
