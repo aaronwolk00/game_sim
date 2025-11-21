@@ -290,6 +290,10 @@
     // ---------- Per-game extraction ----------
     // ---------- Per-game extraction ----------
     function summarizeGame(result, homeTeam, awayTeam){
+      const num = (v) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : 0;
+      }
       const home = result.teamStats?.home || {plays:0,yardsTotal:0,rushYards:0,passYards:0,turnovers:0};
       const away = result.teamStats?.away || {plays:0,yardsTotal:0,rushYards:0,passYards:0,turnovers:0};
 
@@ -337,7 +341,6 @@
       let countedPlays = 0;
       let playsInBounds = 0;
       let playsOOB = 0;
-      let sacks = 0;
 
       // NEW: pass / run counts
       let passPlays = 0;
@@ -384,7 +387,7 @@
           }
         }
 
-        if (p.sack) sacks++;
+
 
         // Turnover breakdown – only “true” TOs (exclude punts/missed FGs/safeties)
         const trueTurnover =
@@ -477,6 +480,33 @@
 
       const rb1RushYds = homeRB1RushYds + awayRB1RushYds;
       const rb2RushYds = homeRB2RushYds + awayRB2RushYds;
+
+      // ---------- Sacks (team -> players -> PBP fallback) ----------
+      // 1) Try teamStats naming variants
+      let sacks =
+        num((home && (home.sacks ?? home.defSacks ?? home.teamSacks)) || 0) +
+        num((away && (away.sacks ?? away.defSacks ?? away.teamSacks)) || 0);
+
+      // 2) If still zero, try playerStats (defenders), common keys: sacks / defSacks
+      if (sacks === 0) {
+        sacks = (players || []).reduce(
+          (sum, pl) => sum + num(pl.defSacks ?? pl.sacks),
+          0
+        );
+      }
+
+      // 3) If still zero, scan PBP if present (various encodings)
+      if (sacks === 0 && Array.isArray(result.plays)) {
+        for (const p of result.plays) {
+          const tags = Array.isArray(p?.tags) ? p.tags.map(t => String(t).toUpperCase()) : [];
+          const passResultSack = String(p?.passResult || '').toLowerCase() === 'sack';
+          const anySackFlag = !!(p?.sack || p?.isSack || p?.sacked || passResultSack);
+          const tagIsSack = tags.includes('SACK');
+
+          if (anySackFlag || tagIsSack) sacks++;
+        }
+      }
+
 
 
       return {
@@ -583,6 +613,7 @@
         B.secPerPlay.push(g.secPerPlay);
         B.playsInBounds.push(g.playsInBounds);
         B.playsOOB.push(g.playsOOB);
+        B.sacks.push(g.sacks);
 
         // NEW: play-type counts
         B.passPlays.push(g.passPlays);
