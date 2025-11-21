@@ -1,0 +1,857 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>NFL Sim — Batch Simulator</title>
+<style>
+  :root{
+    --bg:#0b1220;--panel:#121a2a;--card:#0e1630;--text:#eef2ff;--muted:#93a0b1;--accent:#5eead4;
+    --ok:#4ade80;--warn:#f59e0b;--bad:#f87171;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;background:var(--bg);color:var(--text);
+    font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+    display:flex;flex-direction:column;align-items:center;gap:14px;padding:18px;
+  }
+  main{width:min(1100px,96vw);display:grid;gap:16px}
+  h1{margin:0;font-size:22px;letter-spacing:.2px}
+  .panel{background:var(--panel);border-radius:14px;padding:14px}
+  .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+  label{font-size:12px;color:var(--muted)}
+  input,select,button{
+    background:var(--card);color:var(--text);border:1px solid #1e2a43;
+    border-radius:10px;padding:8px 10px;font-size:14px
+  }
+  input[type="number"]{width:110px}
+  button{cursor:pointer}
+  button.primary{background:var(--accent);color:#0b1220;border-color:transparent;font-weight:600}
+  .grid{display:grid;gap:12px}
+  .two{grid-template-columns:1fr 1fr}
+  .three{grid-template-columns:repeat(3,1fr)}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{padding:8px;border-bottom:1px solid #1e2a43;text-align:left}
+  th{color:var(--muted);font-weight:600}
+  .muted{color:var(--muted)}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:#1b2640;color:var(--muted);font-size:12px}
+  progress{width:100%;height:12px}
+  .small{font-size:12px}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .warn{color:var(--warn)}
+  .ok{color:var(--ok)}
+</style>
+</head>
+<body>
+  <main>
+    <header class="panel">
+      <h1>Batch Simulator</h1>
+      <div class="muted small">Run many games and summarize realistic ranges for scores, yards, plays, drives, etc. Uses your current engine &amp; roster CSV.</div>
+    </header>
+
+    <section class="panel grid">
+      <div class="row">
+        <label>Players CSV URL</label>
+        <input id="playersUrl" class="mono" placeholder="raw.githubusercontent.com/.../layer3_rosters.csv" />
+      </div>
+      <div class="row">
+        <label># Games (n)</label>
+        <input id="numGames" type="number" min="1" max="10000" step="1" value="500" />
+        <label>Home (teamId optional)</label>
+        <input id="homeTeam" placeholder="e.g., IND" />
+        <label>Away (teamId optional)</label>
+        <input id="awayTeam" placeholder="e.g., CAR" />
+        <label>Seed (optional)</label>
+        <input id="seed" type="number" placeholder="e.g., 123" />
+        <label>Keep PBP</label>
+        <select id="keepPBP">
+          <option value="0" selected>No (faster)</option>
+          <option value="1">Yes</option>
+        </select>
+      </div>
+      <div class="row">
+        <button id="btnLoad" class="primary">Load Teams</button>
+        <button id="btnRun">Run Batch</button>
+        <button id="btnCSV">Download per-game CSV</button>
+        <span id="status" class="pill">Idle</span>
+      </div>
+      <progress id="prog" max="1" value="0"></progress>
+      <div id="notes" class="small muted"></div>
+    </section>
+
+    <section class="panel">
+      <h3 style="margin:0 0 10px">Aggregates (per game)</h3>
+      <table id="aggTable">
+        <thead>
+          <tr>
+            <th>Metric</th><th>Avg</th><th>Std</th><th>Min</th><th>Max</th><th class="muted">Notes</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div class="small muted" id="aggMeta"></div>
+    </section>
+
+    <section class="panel">
+      <h3 style="margin:0 0 10px">Per-side &amp; composition</h3>
+      <table id="sideTable">
+        <thead>
+          <tr>
+            <th>Metric</th><th>Home Avg</th><th>Away Avg</th><th class="muted">Notes</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <h3 style="margin:0 0 10px">Scoring breakdown (per game)</h3>
+      <table id="scoreTable">
+        <thead>
+          <tr>
+            <th>Type</th><th>Avg Count</th><th class="muted">How counted</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script type="module">
+    import { loadLeague } from './data_models.js';
+    import { simulateGame } from './game_engine.js';
+
+    // ---------- URL params ----------
+    const P = new URLSearchParams(location.search);
+    const defaultCSV = 'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/layer3_rosters.csv';
+    const csvParam = (P.get('players') || '').replace('/refs/heads/', '/');  // tolerate refs/heads form
+    const playersURL = csvParam || defaultCSV;
+
+    const nParam = +(P.get('n') || 500);
+    const homeParam = P.get('home') || '';
+    const awayParam = P.get('away') || '';
+    const seedParam = P.get('seed'); // may be null
+
+    // ---------- DOM ----------
+    const el = (id)=>document.getElementById(id);
+    el('playersUrl').value = playersURL;
+    el('numGames').value = nParam;
+    if (homeParam) el('homeTeam').value = homeParam;
+    if (awayParam) el('awayTeam').value = awayParam;
+    if (seedParam!=null) el('seed').value = seedParam;
+
+    const status = el('status');
+    const prog = el('prog');
+    const notes = el('notes');
+    const aggBody = document.querySelector('#aggTable tbody');
+    const aggMeta = el('aggMeta');
+    const sideBody = document.querySelector('#sideTable tbody');
+    const scoreBody = document.querySelector('#scoreTable tbody');
+
+    function setStatus(text){ status.textContent = text; }
+    function setNote(text){ notes.textContent = text; }
+
+    // ---------- Stats helpers ----------
+    class Stat {
+      constructor(){
+        this.n = 0;
+        this.mean = 0;
+        this.M2 = 0;
+        this.min = Infinity;
+        this.max = -Infinity;
+      }
+      push(x){
+        const v = Number.isFinite(x) ? x : 0;
+        this.n++;
+        const delta = v - this.mean;
+        this.mean += delta / this.n;
+        this.M2 += delta * (v - this.mean);
+        if (v < this.min) this.min = v;
+        if (v > this.max) this.max = v;
+      }
+      std(){
+        return this.n > 1 ? Math.sqrt(this.M2 / (this.n - 1)) : 0;
+      }
+      toRow(fmt=(v)=>v.toFixed(2), notes=''){
+        return [fmt(this.mean), fmt(this.std()), fmt(this.min), fmt(this.max), notes];
+      }
+    }
+
+    function makeBuckets(){
+      return {
+        // overall per-game
+        totalPts: new Stat(),
+        totalYards: new Stat(),
+        rushYds: new Stat(),
+        passYds: new Stat(),
+        plays: new Stat(),
+        drives: new Stat(),
+        turnovers: new Stat(),
+        ypp: new Stat(),
+        avgDriveSec: new Stat(),
+        playsPerDrive: new Stat(),
+
+        // timing / play-shape metrics
+        secPerPlay: new Stat(),
+        playsInBounds: new Stat(),
+        playsOOB: new Stat(),
+
+        // NEW: play-type counts
+        passPlays: new Stat(),
+        runPlays: new Stat(),
+
+        // NEW: 4th-down behavior
+        fourthDowns: new Stat(),
+        fourthGoForIt: new Stat(),
+
+        // scoring counts
+        td: new Stat(),
+        fgMade: new Stat(),
+        fgAtt: new Stat(),
+        safety: new Stat(),
+
+        // usage metrics
+        qbPassAtt: new Stat(),
+        qbPassCmp: new Stat(),
+        sacks: new Stat(),
+
+        // NEW: QB rushing
+        qbRushYds: new Stat(),
+
+        // NEW: WR/TE receiving yards (top usage guys per side)
+        wr1RecYds: new Stat(),
+        wr2RecYds: new Stat(),
+        wr3RecYds: new Stat(),
+        te1RecYds: new Stat(),
+        te2RecYds: new Stat(),
+
+        // NEW: RB receiving yards (all RB/HB on both teams)
+        rbRecYds: new Stat(),
+
+        // NEW: RB rushing yards by “RB1/RB2” (top 2 RB rushers per side)
+        rb1RushYds: new Stat(),
+        rb2RushYds: new Stat(),
+
+        // NEW: turnover breakdown
+        turnoversInt: new Stat(),
+        turnoversFum: new Stat(),
+
+        // per side
+        homePts: new Stat(), awayPts: new Stat(),
+        homeYards: new Stat(), awayYards: new Stat(),
+        homePlays: new Stat(), awayPlays: new Stat(),
+        homeTOPsec: new Stat(), awayTOPsec: new Stat(),
+        homeRush: new Stat(), awayRush: new Stat(),
+        homePass: new Stat(), awayPass: new Stat(),
+
+        // per-game CSV rows
+        perGameRows: []
+      };
+    }
+
+
+
+
+
+    // ---------- League loading ----------
+    let TEAMS = [];
+    let TEAM_BY_ID = new Map();
+
+    async function loadTeams(){
+      setStatus('Loading rosters…');
+      const url = (el('playersUrl').value || '').trim();
+      if (!url) throw new Error('Players CSV URL required');
+      const league = await loadLeague(url);
+      TEAMS = league.teams || league || [];
+      TEAM_BY_ID = new Map(
+        TEAMS.map(t => [String(t.teamId || t.id || t.name).trim(), t])
+      );
+      setStatus(`Loaded ${TEAMS.length} teams`);
+      setNote('Use teamIds (as in your CSV) for home/away, or leave blank to randomize each trial.');
+    }
+
+    // ---------- Random helpers ----------
+    function pickRandomTeam(){
+      return TEAMS[Math.floor(Math.random() * TEAMS.length)];
+    }
+
+    function resolveTeam(tag){
+      if (!tag) return null;
+      const key = String(tag).trim();
+      const exact = TEAM_BY_ID.get(key);
+      if (exact) return exact;
+      const lc = key.toLowerCase();
+      return TEAMS.find(
+        t => String(t.teamName || t.name || t.teamId).toLowerCase() === lc
+      ) || null;
+    }
+
+    // ---------- Per-game extraction ----------
+    // ---------- Per-game extraction ----------
+    function summarizeGame(result, homeTeam, awayTeam){
+      const home = result.teamStats?.home || {plays:0,yardsTotal:0,rushYards:0,passYards:0,turnovers:0};
+      const away = result.teamStats?.away || {plays:0,yardsTotal:0,rushYards:0,passYards:0,turnovers:0};
+
+      const homePts = result.score.home;
+      const awayPts = result.score.away;
+      const pts   = homePts + awayPts;
+      const yards = (home.yardsTotal || 0) + (away.yardsTotal || 0);
+      const rush  = (home.rushYards  || 0) + (away.rushYards  || 0);
+      const pass  = (home.passYards  || 0) + (away.passYards  || 0);
+      const plays = (home.plays      || 0) + (away.plays      || 0);
+      const drives = (result.drives || []).length;
+      const tovs = (home.turnovers || 0) + (away.turnovers || 0);
+      const ypp = plays > 0 ? yards / plays : 0;
+
+      // Drive-based time of possession
+      let totalDriveSec = 0;
+      let homeTOP = 0, awayTOP = 0;
+      for (const d of (result.drives || [])){
+        const sec = Number(d.durationSec) || 0;
+        totalDriveSec += sec;
+        if (d.offense === 'home') homeTOP += sec;
+        else if (d.offense === 'away') awayTOP += sec;
+      }
+      const avgDriveSec = drives > 0 ? totalDriveSec / drives : 0;
+      const playsPerDrive = drives > 0 ? plays / drives : 0;
+
+      // FG, TD, safety counts
+      let fgAtt = 0, fgMade = 0;
+      for (const p of (result.plays || [])){
+        if (p.fieldGoalAttempt){
+          fgAtt++;
+          if (p.fieldGoalGood) fgMade++;
+        }
+      }
+      let td = 0, safety = 0;
+      for (const e of (result.events || [])){
+        if (e.type === 'score'){
+          if (e.subtype === 'touchdown') td++;
+          if (e.subtype === 'safety') safety++;
+        }
+      }
+
+      // ---------- Play-shape & decision metrics ----------
+      let totalClockRunoff = 0;
+      let countedPlays = 0;
+      let playsInBounds = 0;
+      let playsOOB = 0;
+      let sacks = 0;
+
+      // NEW: pass / run counts
+      let passPlays = 0;
+      let runPlays = 0;
+
+      // NEW: 4th-down usage
+      let fourthDowns = 0;
+      let fourthGoForIt = 0;
+
+      // NEW: turnover breakdown
+      let turnoversInt = 0;
+      let turnoversFum = 0;
+
+      for (const p of (result.plays || [])){
+        const pt = p.playType || p.decisionType || '';
+        const isOffSnap =
+          pt === 'run' || pt === 'pass' || pt === 'field_goal' ||
+          pt === 'punt' || pt === 'kneel' || pt === 'spike';
+
+        // Pass / run counts
+        if (pt === 'pass') passPlays++;
+        if (pt === 'run')  runPlays++;
+
+        // 4th-down counts (use preDown, which is frozen at snap)
+        if (isOffSnap && p.preDown === 4){
+          fourthDowns++;
+          // "Go for it" = offensive play, not punt or FG
+          if (pt === 'run' || pt === 'pass' || pt === 'kneel' || pt === 'spike'){
+            fourthGoForIt++;
+          }
+        }
+
+        // Clock / bounds stats
+        if (isOffSnap){
+          const runoff = Number(p.clockRunoff);
+          if (Number.isFinite(runoff)){
+            totalClockRunoff += runoff;
+          }
+          countedPlays++;
+
+          if (pt === 'run' || pt === 'pass'){
+            if (p.outOfBounds) playsOOB++;
+            else playsInBounds++;
+          }
+        }
+
+        if (p.sack) sacks++;
+
+        // Turnover breakdown – only “true” TOs (exclude punts/missed FGs/safeties)
+        const trueTurnover =
+          p.turnover && !p.fieldGoalAttempt && !p.punt && !p.safety;
+        if (trueTurnover){
+          if (p.interception) turnoversInt++;
+          else                turnoversFum++;
+        }
+      }
+
+      const secPerPlay = countedPlays > 0 ? totalClockRunoff / countedPlays : 0;
+
+
+      // ---------- Player usage metrics from playerStats ----------
+      const ps = result.playerStats || {};
+      const players = Object.values(ps);
+
+      const homePlayers = players.filter(p => p.side === 'home');
+      const awayPlayers = players.filter(p => p.side === 'away');
+
+      // QBs by pass attempts (for attempts/completions)
+      const byPass = (list) =>
+        list
+          .filter(p => p.position === 'QB')
+          .sort((a,b) => (b.passAtt || 0) - (a.passAtt || 0));
+
+      const homeQBs = byPass(homePlayers);
+      const awayQBs = byPass(awayPlayers);
+      const homeQB = homeQBs[0] || null;
+      const awayQB = awayQBs[0] || null;
+
+      const qbPassAtt =
+        (homeQB?.passAtt || 0) + (awayQB?.passAtt || 0);
+      const qbPassCmp =
+        (homeQB?.passCmp || 0) + (awayQB?.passCmp || 0);
+
+      // NEW: QB rush yards (all QBs on both teams)
+      const qbRushYds = players
+        .filter(p => p.position === 'QB')
+        .reduce((s,p) => s + (p.rushYds || 0), 0);
+
+      // Position sets
+      const rbPos = new Set(['RB','HB']);
+      const wrPos = new Set(['WR']);
+      const tePos = new Set(['TE']);
+
+      // Helper: sort by receiving yards for a given position set
+      const byRecv = (list, posSet) =>
+        list
+          .filter(p => posSet.has(p.position))
+          .sort((a,b) => (b.recYds || 0) - (a.recYds || 0));
+
+      const homeWRs = byRecv(homePlayers, wrPos);
+      const awayWRs = byRecv(awayPlayers, wrPos);
+      const homeTEs = byRecv(homePlayers, tePos);
+      const awayTEs = byRecv(awayPlayers, tePos);
+
+      // WR1–WR3 receiving yards (top 3 WRs per side, summed across both teams)
+      const wr1RecYds =
+        (homeWRs[0]?.recYds || 0) + (awayWRs[0]?.recYds || 0);
+      const wr2RecYds =
+        (homeWRs[1]?.recYds || 0) + (awayWRs[1]?.recYds || 0);
+      const wr3RecYds =
+        (homeWRs[2]?.recYds || 0) + (awayWRs[2]?.recYds || 0);
+
+      // TE1–TE2 receiving yards (top 2 TEs per side)
+      const te1RecYds =
+        (homeTEs[0]?.recYds || 0) + (awayTEs[0]?.recYds || 0);
+      const te2RecYds =
+        (homeTEs[1]?.recYds || 0) + (awayTEs[1]?.recYds || 0);
+
+      // RB receiving yards (all RB/HB on both teams)
+      const rbRecYds = players
+        .filter(p => rbPos.has(p.position))
+        .reduce((s,p) => s + (p.recYds || 0), 0);
+
+            // RB1/RB2 rushing yards (top 2 RBs by rush attempts per side)
+      const byRushRB = (list) =>
+        list
+          .filter(p => rbPos.has(p.position))
+          .sort((a,b) => (b.rushAtt || 0) - (a.rushAtt || 0));
+
+      const homeRBs = byRushRB(homePlayers);
+      const awayRBs = byRushRB(awayPlayers);
+
+      const homeRB1RushYds = homeRBs[0]?.rushYds || 0;
+      const homeRB2RushYds = homeRBs[1]?.rushYds || 0;
+      const awayRB1RushYds = awayRBs[0]?.rushYds || 0;
+      const awayRB2RushYds = awayRBs[1]?.rushYds || 0;
+
+      const rb1RushYds = homeRB1RushYds + awayRB1RushYds;
+      const rb2RushYds = homeRB2RushYds + awayRB2RushYds;
+
+
+      return {
+        homePts, awayPts,
+        pts, yards, rush, pass, plays, drives, tovs, ypp, avgDriveSec, playsPerDrive,
+        homeYards: home.yardsTotal || 0,
+        awayYards: away.yardsTotal || 0,
+        homePlays: home.plays || 0,
+        awayPlays: away.plays || 0,
+        homeRush: home.rushYards || 0,
+        awayRush: away.rushYards || 0,
+        homePass: home.passYards || 0,
+        awayPass: away.passYards || 0,
+        homeTOP, awayTOP,
+        td, fgAtt, fgMade, safety,
+
+        // play-shape metrics
+        secPerPlay,
+        playsInBounds,
+        playsOOB,
+        sacks,
+
+        // NEW: play type + 4th-down usage
+        passPlays,
+        runPlays,
+        fourthDowns,
+        fourthGoForIt,
+
+        // NEW: turnover breakdown
+        turnoversInt,
+        turnoversFum,
+
+        // usage
+        qbPassAtt,
+        qbPassCmp,
+        qbRushYds,
+        wr1RecYds,
+        wr2RecYds,
+        wr3RecYds,
+        te1RecYds,
+        te2RecYds,
+        rbRecYds,
+        rb1RushYds,
+        rb2RushYds
+      };
+
+    }
+
+
+    // ---------- Globals for last batch ----------
+    let LAST_ROWS = null;
+
+    // ---------- Batch run ----------
+    async function runBatch(){
+      if (!TEAMS.length) await loadTeams();
+
+      const n = Math.max(1, Math.min(10000, +el('numGames').value || 500));
+      const keepPBP = el('keepPBP').value === '1';
+      const seedBase = el('seed').value !== '' ? +el('seed').value : null;
+
+      const fixedHome = resolveTeam(el('homeTeam').value.trim());
+      const fixedAway = resolveTeam(el('awayTeam').value.trim());
+
+      if ((el('homeTeam').value||'').trim() && !fixedHome){
+        setNote(`Warning: could not resolve home team "${el('homeTeam').value}"`);
+      }
+      if ((el('awayTeam').value||'').trim() && !fixedAway){
+        setNote(`Warning: could not resolve away team "${el('awayTeam').value}"`);
+      }
+
+      prog.max = n;
+      prog.value = 0;
+      setStatus('Running…');
+
+      const B = makeBuckets();
+
+      for (let i = 0; i < n; i++){
+        const home = fixedHome || pickRandomTeam();
+        let away  = fixedAway || pickRandomTeam();
+
+        if (!fixedAway && away.teamId === home.teamId){
+          away = pickRandomTeam();
+        }
+
+        const res = simulateGame(home, away, {
+          keepPlayByPlay: keepPBP,
+          seed: seedBase != null ? (seedBase + i) : undefined
+        });
+
+        const g = summarizeGame(res, home, away);
+
+        B.totalPts.push(g.pts);
+        B.totalYards.push(g.yards);
+        B.rushYds.push(g.rush);
+        B.passYds.push(g.pass);
+        B.plays.push(g.plays);
+        B.drives.push(g.drives);
+        B.turnovers.push(g.tovs);
+        B.ypp.push(g.ypp);
+        B.avgDriveSec.push(g.avgDriveSec);
+        B.playsPerDrive.push(g.playsPerDrive);
+
+        // timing / shape
+        B.secPerPlay.push(g.secPerPlay);
+        B.playsInBounds.push(g.playsInBounds);
+        B.playsOOB.push(g.playsOOB);
+
+        // NEW: play-type counts
+        B.passPlays.push(g.passPlays);
+        B.runPlays.push(g.runPlays);
+
+        // NEW: 4th-down usage
+        B.fourthDowns.push(g.fourthDowns);
+        B.fourthGoForIt.push(g.fourthGoForIt);
+
+
+        // scoring
+        B.td.push(g.td);
+        B.fgAtt.push(g.fgAtt);
+        B.fgMade.push(g.fgMade);
+        B.safety.push(g.safety);
+
+        // per side
+        B.homePts.push(g.homePts);
+        B.awayPts.push(g.awayPts);
+        B.homeYards.push(g.homeYards);
+        B.awayYards.push(g.awayYards);
+        B.homePlays.push(g.homePlays);
+        B.awayPlays.push(g.awayPlays);
+        B.homeRush.push(g.homeRush);
+        B.awayRush.push(g.awayRush);
+        B.homePass.push(g.homePass);
+        B.awayPass.push(g.awayPass);
+        B.homeTOPsec.push(g.homeTOP);
+        B.awayTOPsec.push(g.awayTOP);
+
+        // usage
+        B.qbPassAtt.push(g.qbPassAtt);
+        B.qbPassCmp.push(g.qbPassCmp);
+        B.qbRushYds.push(g.qbRushYds);
+        B.wr1RecYds.push(g.wr1RecYds);
+        B.wr2RecYds.push(g.wr2RecYds);
+        B.wr3RecYds.push(g.wr3RecYds);
+        B.te1RecYds.push(g.te1RecYds);
+        B.te2RecYds.push(g.te2RecYds);
+        B.rbRecYds.push(g.rbRecYds);
+        B.rb1RushYds.push(g.rb1RushYds);
+        B.rb2RushYds.push(g.rb2RushYds);
+
+        // turnover breakdown
+        B.turnoversInt.push(g.turnoversInt);
+        B.turnoversFum.push(g.turnoversFum);
+
+
+        B.perGameRows.push({
+          game: i + 1,
+          homeId: home.teamId, awayId: away.teamId,
+          homePts: g.homePts, awayPts: g.awayPts, totalPts: g.pts,
+          yards: g.yards, rush: g.rush, pass: g.pass,
+          plays: g.plays, drives: g.drives, turnovers: g.tovs, ypp: g.ypp.toFixed(3),
+          avgDriveSec: g.avgDriveSec.toFixed(2), playsPerDrive: g.playsPerDrive.toFixed(2),
+          td: g.td, fgAtt: g.fgAtt, fgMade: g.fgMade, safety: g.safety,
+          homeYards: g.homeYards, awayYards: g.awayYards,
+          homePlays: g.homePlays, awayPlays: g.awayPlays,
+          homeRush: g.homeRush, awayRush: g.awayRush,
+          homePass: g.homePass, awayPass: g.awayPass,
+          homeTOPsec: g.homeTOP.toFixed(2), awayTOPsec: g.awayTOP.toFixed(2),
+
+          // timing / shape (per game)
+          secPerPlay: g.secPerPlay.toFixed(3),
+          playsInBounds: g.playsInBounds,
+          playsOOB: g.playsOOB,
+          sacks: g.sacks,
+
+          // play-type & 4th-down usage
+          passPlays: g.passPlays,
+          runPlays: g.runPlays,
+          fourthDowns: g.fourthDowns,
+          fourthGoForIt: g.fourthGoForIt,
+
+          // turnover breakdown
+          turnoversInt: g.turnoversInt,
+          turnoversFum: g.turnoversFum,
+
+          // usage (per game, both teams combined)
+          qbPassAtt: g.qbPassAtt,
+          qbPassCmp: g.qbPassCmp,
+          qbRushYds: g.qbRushYds,
+          wr1RecYds: g.wr1RecYds,
+          wr2RecYds: g.wr2RecYds,
+          wr3RecYds: g.wr3RecYds,
+          te1RecYds: g.te1RecYds,
+          te2RecYds: g.te2RecYds,
+          rbRecYds: g.rbRecYds,
+          rb1RushYds: g.rb1RushYds,
+          rb2RushYds: g.rb2RushYds
+        });
+
+
+
+        if ((i % 25) === 0){
+          await new Promise(r => setTimeout(r, 0));
+        }
+        prog.value = i + 1;
+      }
+
+      LAST_ROWS = B.perGameRows;
+      renderAggregates(B, n);
+      setStatus('Done');
+    }
+
+    // ---------- Render ----------
+    function rowHTML(c1, arr, note=''){
+      const [avg,std,min,max,notes] = arr;
+      const safeNotes = note || notes || '';
+      return `<tr>
+        <td class="mono">${c1}</td>
+        <td>${avg}</td><td>${std}</td><td>${min}</td><td>${max}</td>
+        <td class="muted small">${safeNotes}</td>
+      </tr>`;
+    }
+
+    function renderAggregates(B, n){
+      const fmt2 = (v)=>Number(v).toFixed(2);
+      const rows = [];
+      rows.push(rowHTML('Total points', B.totalPts.toRow(fmt2), 'Home+Away'));
+      rows.push(rowHTML('Total yards',  B.totalYards.toRow(fmt2)));
+      rows.push(rowHTML('Rush yards',   B.rushYds.toRow(fmt2)));
+      rows.push(rowHTML('Pass yards',   B.passYds.toRow(fmt2)));
+      rows.push(rowHTML('Plays',        B.plays.toRow(fmt2)));
+      rows.push(rowHTML('Drives',       B.drives.toRow(fmt2)));
+      rows.push(rowHTML('Turnovers',    B.turnovers.toRow(fmt2)));
+      rows.push(rowHTML('Yards/play',   B.ypp.toRow(fmt2)));
+      rows.push(rowHTML('Avg drive sec',B.avgDriveSec.toRow(fmt2)));
+      rows.push(rowHTML('Plays/drive',  B.playsPerDrive.toRow(fmt2)));
+
+      // timing / shape
+      rows.push(rowHTML('Seconds per play',     B.secPerPlay.toRow(fmt2)));
+      rows.push(rowHTML('Plays in bounds',      B.playsInBounds.toRow(fmt2)));
+      rows.push(rowHTML('Plays out of bounds',  B.playsOOB.toRow(fmt2)));
+
+      // NEW: play-type / 4th-down metrics
+      rows.push(rowHTML('Passing plays',        B.passPlays.toRow(fmt2)));
+      rows.push(rowHTML('Rushing plays',        B.runPlays.toRow(fmt2)));
+      rows.push(rowHTML('4th downs',            B.fourthDowns.toRow(fmt2)));
+      rows.push(rowHTML('Go-for-it on 4th',     B.fourthGoForIt.toRow(fmt2)));
+
+      // scoring
+      rows.push(rowHTML('FG attempts',  B.fgAtt.toRow(fmt2)));
+      rows.push(rowHTML('FG made',      B.fgMade.toRow(fmt2)));
+      rows.push(rowHTML('Touchdowns',   B.td.toRow(fmt2)));
+      rows.push(rowHTML('Safeties',     B.safety.toRow(fmt2)));
+
+      // NEW: turnover breakdown
+      rows.push(rowHTML('Interceptions',        B.turnoversInt.toRow(fmt2)));
+      rows.push(rowHTML('Fumbles lost',         B.turnoversFum.toRow(fmt2)));
+      rows.push(rowHTML('Sacks',         B.sacks.toRow(fmt2), 'Both teams combined'));
+
+      // usage
+      rows.push(rowHTML('QB pass attempts',       B.qbPassAtt.toRow(fmt2), 'Both teams combined'));
+      rows.push(rowHTML('QB completions',         B.qbPassCmp.toRow(fmt2), 'Both teams combined'));    
+      rows.push(rowHTML('QB rush yards',          B.qbRushYds.toRow(fmt2), 'All QBs, both teams'));
+      rows.push(rowHTML('RB receiving yards',     B.rbRecYds.toRow(fmt2),  'All RB/HB, both teams'));
+      rows.push(rowHTML('RB1 rushing yards',      B.rb1RushYds.toRow(fmt2), 'Top RB per side, summed'));
+      rows.push(rowHTML('RB2 rushing yards',      B.rb2RushYds.toRow(fmt2), 'Second RB per side, summed'));
+      rows.push(rowHTML('WR1 receiving yards',    B.wr1RecYds.toRow(fmt2), 'Top WR per side, summed'));
+      rows.push(rowHTML('WR2 receiving yards',    B.wr2RecYds.toRow(fmt2), 'Second WR per side, summed'));
+      rows.push(rowHTML('WR3 receiving yards',    B.wr3RecYds.toRow(fmt2), 'Third WR per side, summed'));
+      rows.push(rowHTML('TE1 receiving yards',    B.te1RecYds.toRow(fmt2), 'Top TE per side, summed'));
+      rows.push(rowHTML('TE2 receiving yards',    B.te2RecYds.toRow(fmt2), 'Second TE per side, summed'));
+
+
+      aggBody.innerHTML = rows.join('');
+
+      const homeTOPavg = B.homeTOPsec.mean;
+      const awayTOPavg = B.awayTOPsec.mean;
+      aggMeta.textContent =
+        `Trials: ${n}. Avg TOP (sec) — Home: ${homeTOPavg.toFixed(1)}, ` +
+        `Away: ${awayTOPavg.toFixed(1)}. Combined: ${(homeTOPavg + awayTOPavg).toFixed(1)}.`;
+
+      const side = [];
+      side.push(`<tr><td class="mono">Points</td><td>${B.homePts.mean.toFixed(2)}</td><td>${B.awayPts.mean.toFixed(2)}</td><td class="muted small">Per side</td></tr>`);
+      side.push(`<tr><td class="mono">Yards</td><td>${B.homeYards.mean.toFixed(2)}</td><td>${B.awayYards.mean.toFixed(2)}</td><td></td></tr>`);
+      side.push(`<tr><td class="mono">Plays</td><td>${B.homePlays.mean.toFixed(2)}</td><td>${B.awayPlays.mean.toFixed(2)}</td><td></td></tr>`);
+      side.push(`<tr><td class="mono">Rush yards</td><td>${B.homeRush.mean.toFixed(2)}</td><td>${B.awayRush.mean.toFixed(2)}</td><td></td></tr>`);
+      side.push(`<tr><td class="mono">Pass yards</td><td>${B.homePass.mean.toFixed(2)}</td><td>${B.awayPass.mean.toFixed(2)}</td><td></td></tr>`);
+      side.push(`<tr><td class="mono">Time of possession (sec)</td><td>${homeTOPavg.toFixed(1)}</td><td>${awayTOPavg.toFixed(1)}</td><td></td></tr>`);
+      sideBody.innerHTML = side.join('');
+
+      const score = [];
+      score.push(`<tr><td class="mono">Touchdowns</td><td>${B.td.mean.toFixed(2)}</td><td class="muted small">From events</td></tr>`);
+      score.push(`<tr><td class="mono">FG attempts</td><td>${B.fgAtt.mean.toFixed(2)}</td><td class="muted small">From plays</td></tr>`);
+      score.push(`<tr><td class="mono">FG made</td><td>${B.fgMade.mean.toFixed(2)}</td><td class="muted small">From plays</td></tr>`);
+      score.push(`<tr><td class="mono">Safeties</td><td>${B.safety.mean.toFixed(2)}</td><td class="muted small">From events</td></tr>`);
+      scoreBody.innerHTML = score.join('');
+    }
+
+    // ---------- CSV ----------
+    function toCSV(rows){
+      if (!rows || !rows.length) return '';
+      const headers = Object.keys(rows[0]);
+      const esc = (v)=>{
+        const s = String(v);
+        return (s.includes(',') || s.includes('"') || s.includes('\n'))
+          ? `"${s.replace(/"/g,'""')}"`
+          : s;
+      };
+      const out = [headers.join(',')];
+      for (const r of rows){
+        out.push(headers.map(h => esc(r[h] ?? '')).join(','));
+      }
+      return out.join('\n');
+    }
+
+    function downloadCSV(rows, name='batch_sim_results.csv'){
+      const csv = toCSV(rows);
+      if (!csv){
+        setNote('No results to download.');
+        return;
+      }
+      const blob = new Blob([csv], {type:'text/csv'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // ---------- Wire up ----------
+    el('btnLoad').addEventListener('click', async ()=>{
+      try{
+        await loadTeams();
+      }catch(err){
+        setStatus('Error');
+        setNote(String(err));
+        console.error(err);
+      }
+    });
+
+    el('btnRun').addEventListener('click', async ()=>{
+      try{
+        await loadTeams(); // safe if already loaded
+        document.querySelector('#aggTable tbody').innerHTML = '';
+        document.querySelector('#sideTable tbody').innerHTML = '';
+        document.querySelector('#scoreTable tbody').innerHTML = '';
+        LAST_ROWS = null;
+        await runBatch();
+      }catch(err){
+        setStatus('Error');
+        setNote(String(err));
+        console.error(err);
+      }
+    });
+
+    el('btnCSV').addEventListener('click', ()=>{
+      if (!LAST_ROWS || !LAST_ROWS.length){
+        setNote('No results yet. Run a batch first.');
+        return;
+      }
+      downloadCSV(LAST_ROWS, 'batch_sim_results.csv');
+    });
+
+    // auto-load on open (respect query params)
+    (async function boot(){
+      try{
+        await loadTeams();
+        setStatus('Ready');
+        setNote('Optionally set n/home/away/seed in the fields (or querystring), then Run.');
+      }catch(err){
+        setStatus('Error');
+        setNote(String(err));
+        console.error(err);
+      }
+    })();
+  </script>
+</body>
+</html>
