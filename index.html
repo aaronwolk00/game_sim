@@ -283,10 +283,14 @@
           type="search"
           placeholder="Filter by team name or ID…" />
         <button id="btn-clear" class="btn" type="button">Clear</button>
-        <!-- NEW: Simulation button -->
+      
+        <!-- NEW: GM Dashboard button -->
+        <a id="btn-gm" class="btn" href="#">GM Dashboard</a>
+      
+        <!-- Existing buttons -->
         <a id="btn-sim" class="btn" href="#">Simulation</a>
         <a id="btn-batch" class="btn" href="#">Batch Sim</a>
-      </div>
+      </div>      
     </div>
 
     <div class="summary-bar">
@@ -323,9 +327,11 @@
       errorBox: document.getElementById('error-box'),
       searchInput: document.getElementById('search-input'),
       btnClear: document.getElementById('btn-clear'),
-      btnSim: document.getElementById('btn-sim'), // <-- NEW
+      btnGm: document.getElementById('btn-gm'),   // <-- GM Dashboard
+      btnSim: document.getElementById('btn-sim'),
       btnBatch: document.getElementById('btn-batch')
     };
+
 
     function setStatus(state, msg) {
       // state: 'loading' | 'ready' | 'error'
