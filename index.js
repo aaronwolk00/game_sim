@@ -20,24 +20,45 @@
  * @property {number} version
  * @property {string} franchiseId
  * @property {string} franchiseName
- * @property {string} teamCode
+ * @property {string} [teamName]               // e.g. "Chicago Bears"
+ * @property {string} teamCode                 // e.g. "CHI"
  * @property {number} seasonYear
  * @property {number} weekIndex
  * @property {string} record
  * @property {string} phase
  * @property {string} lastPlayedISO
+ *
  * @property {Object} accolades
  * @property {number} accolades.seasons
  * @property {number} accolades.playoffAppearances
  * @property {number} accolades.divisionTitles
  * @property {number} accolades.championships
+ *
  * @property {Object} gmJob
  * @property {number} gmJob.contractYears
  * @property {number} gmJob.currentYear
  * @property {string} gmJob.status
+ * @property {number} [gmJob.salaryPerYearMillions]
+ * @property {number} [gmJob.contractTotalMillions]
+ * @property {number} [gmJob.ageYears]
+ * @property {number} [gmJob.birthYear]
+ *
  * @property {Object} leagueSummary
  * @property {number} leagueSummary.teams
  * @property {number} leagueSummary.seasonsSimmed
+ *
+ * @property {Object} [realismOptions]
+ * @property {boolean} [realismOptions.injuriesOn]
+ * @property {string} [realismOptions.capMode]
+ * @property {string} [realismOptions.difficulty]
+ * @property {boolean} [realismOptions.ironman]
+ *
+ * @property {Object} [ownerExpectation]
+ * @property {string} [ownerExpectation.patience]
+ * @property {number} [ownerExpectation.targetYear]
+ * @property {number} [ownerExpectation.baselineWins]
+ *
+ * @property {number} [gmCredibility]          // hidden meta scale, 0–100
  */
 
 const SAVE_KEY_LAST_FRANCHISE = "franchiseGM_lastFranchise";
@@ -69,36 +90,61 @@ function generateNewFranchiseId() {
 
 /**
  * Build a default FranchiseSave, then allow overrides.
- * In the real app, you'd construct this from actual league init logic
- * after team selection.
+ * Used primarily when migrating legacy saves into the new shape.
  */
 function buildDefaultFranchiseSave(overrides) {
   const now = new Date().toISOString();
+  const seasonYear = new Date().getFullYear();
+  const gmAgeStart = 40;
+
   const base = {
     version: 1,
     franchiseId: generateNewFranchiseId(),
     franchiseName: "Franchise",
+    teamName: "Franchise",
     teamCode: "XXX",
-    seasonYear: new Date().getFullYear(),
-    weekIndex: 1,
+    seasonYear,
+    weekIndex: 0,
     record: "0-0",
-    phase: "Preseason",
+    phase: "Offseason (Post-Super Bowl)",
     lastPlayedISO: now,
+
     accolades: {
       seasons: 0,
       playoffAppearances: 0,
       divisionTitles: 0,
       championships: 0
     },
+
     gmJob: {
-      contractYears: 5,
+      contractYears: 2,
       currentYear: 1,
-      status: "stable"
+      status: "active",
+      salaryPerYearMillions: 1.0,
+      contractTotalMillions: 2.0,
+      ageYears: gmAgeStart,
+      birthYear: seasonYear - gmAgeStart
     },
+
     leagueSummary: {
       teams: 32,
       seasonsSimmed: 0
-    }
+    },
+
+    realismOptions: {
+      injuriesOn: true,
+      capMode: "realistic",
+      difficulty: "simulation",
+      ironman: true
+    },
+
+    ownerExpectation: {
+      patience: "average",
+      targetYear: seasonYear + 2,
+      baselineWins: 9
+    },
+
+    gmCredibility: 45
   };
 
   return Object.assign(base, overrides || {});
@@ -126,6 +172,7 @@ function migrateLegacySave(legacy) {
 
   const migrated = buildDefaultFranchiseSave({
     franchiseName: teamName,
+    teamName,
     teamCode: "XXX",
     seasonYear,
     record,
@@ -139,6 +186,7 @@ function migrateLegacySave(legacy) {
 
 /**
  * Basic validation for versioned FranchiseSave.
+ * Only checks core fields so we stay tolerant of future additions.
  */
 function isValidFranchiseSave(obj) {
   if (!obj || typeof obj !== "object") return false;
@@ -170,6 +218,7 @@ function loadLastFranchise() {
       return parsed;
     }
 
+    // Legacy saves: no version field but have teamName.
     if (!parsed.version && parsed.teamName) {
       return migrateLegacySave(parsed);
     }
@@ -248,6 +297,23 @@ function mergeSaveSummary(base, patch) {
       patch.leagueSummary
     );
   }
+  if (patch && patch.realismOptions) {
+    result.realismOptions = Object.assign(
+      {},
+      base.realismOptions || {},
+      patch.realismOptions
+    );
+  }
+  if (patch && patch.ownerExpectation) {
+    result.ownerExpectation = Object.assign(
+      {},
+      base.ownerExpectation || {},
+      patch.ownerExpectation
+    );
+  }
+  if (patch && typeof patch.gmCredibility === "number") {
+    result.gmCredibility = patch.gmCredibility;
+  }
 
   return result;
 }
@@ -305,7 +371,7 @@ function navigateToFranchise() {
 /**
  * Navigate to team_select.html where you'll:
  * - pick a team
- * - name the franchise
+ * - negotiate the GM contract
  * - build full league state
  * - call saveLastFranchise() with the real FranchiseSave
  */
@@ -379,7 +445,9 @@ function updateAccoladesUI(save) {
 function updateContinueUI(save) {
   const continueCard = document.querySelector("[data-continue-card]");
   const continueMeta = document.querySelector("[data-continue-meta]");
-  const continueNameSub = document.getElementById("continue-franchise-name-sub");
+  const continueNameSub = document.getElementById(
+    "continue-franchise-name-sub"
+  );
   const continueButtons = document.querySelectorAll("[data-continue-button]");
   const renameButton = document.getElementById("btn-rename-franchise");
   const accoladesToggle = document.getElementById("btn-toggle-accolades");
@@ -419,14 +487,33 @@ function updateContinueUI(save) {
 
   continueCard.classList.remove("is-disabled");
 
-  const weekDisplay =
-    save.weekIndex != null ? `Week ${save.weekIndex}` : "Week –";
+  // Week label: avoid showing "Week 0" for offseason.
+  let weekDisplay = "Week –";
+  if (
+    typeof save.weekIndex === "number" &&
+    save.weekIndex > 0 &&
+    save.phase &&
+    save.phase.toLowerCase().includes("season")
+  ) {
+    weekDisplay = `Week ${save.weekIndex}`;
+  } else if (
+    save.phase &&
+    save.phase.toLowerCase().includes("offseason")
+  ) {
+    weekDisplay = "Offseason";
+  }
+
   const lastPlayed = formatLastPlayed(save.lastPlayedISO);
   const metaLine = `Year ${save.seasonYear} \u2013 ${weekDisplay} \u2022 ${save.record} \u2022 ${save.phase}`;
 
-  continueNameSub.textContent = `${save.franchiseName} (${save.teamCode})`;
+  const displayName = save.franchiseName || save.teamName || "Franchise";
+  const teamCode = save.teamCode || "";
+
+  const nameWithTeam = teamCode ? `${displayName} (${teamCode})` : displayName;
+
+  continueNameSub.textContent = nameWithTeam;
   continueMeta.innerHTML = `
-    <strong>${save.franchiseName} (${save.teamCode})</strong>
+    <strong>${nameWithTeam}</strong>
     <small>${metaLine}<span> \u2022 Last played: ${lastPlayed}</span></small>
   `;
 
@@ -566,7 +653,7 @@ function bindLandingEventListeners() {
   const continueButtons = document.querySelectorAll("[data-continue-button]");
   const renameButton = document.getElementById("btn-rename-franchise");
   const accoladesToggle = document.getElementById("btn-toggle-accolades");
-  const accoladesPanel = document.querySelector("[data-accolades-panel");
+  const accoladesPanel = document.querySelector("[data-accolades-panel]");
 
   function handleStartNewFranchiseClick() {
     const existing = loadLastFranchise();
@@ -592,7 +679,7 @@ function bindLandingEventListeners() {
     const save = loadLastFranchise();
     if (!save) return;
 
-    const currentName = save.franchiseName || "";
+    const currentName = save.franchiseName || save.teamName || "";
     const nextName = window.prompt(
       "Enter a new franchise name:",
       currentName
@@ -652,7 +739,7 @@ function bindLandingEventListeners() {
     renameButton.addEventListener("click", handleRenameFranchise);
   }
 
-  if (accoladesToggle) {
+  if (accoladesToggle && accoladesPanel) {
     accoladesToggle.addEventListener("click", handleAccoladesToggle);
   }
 
@@ -667,7 +754,7 @@ function initLanding() {
   const existingSave = loadLastFranchise();
   updateContinueUI(existingSave);
   bindLandingEventListeners();
-  setupToolLinks(); // new: wire up the Rosters / Simulation / Batch Sim links
+  setupToolLinks(); // wire up the Rosters / Simulation / Batch Sim links
 }
 
 if (document.readyState === "loading") {
