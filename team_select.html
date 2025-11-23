@@ -1,1627 +1,1125 @@
-// team_select.js
-//
-// Franchise GM – Team selection & GM contract screen.
-// This page is the first step after the landing page:
-// - Choose an open GM job.
-// - Propose a contract (years + salary).
-// - If the owner accepts, build a FranchiseSave object and go to franchise.html.
-//
-// Future systems (job market, interviews, multi-career meta, age/retirement)
-// will hook into the structures defined here.
-
-/**
- * @typedef {Object} FranchiseSave
- * @property {number} version
- * @property {string} franchiseId
- * @property {string} franchiseName
- * @property {string} teamName      // compat / display helper
- * @property {string} teamCode
- * @property {number} seasonYear
- * @property {number} weekIndex
- * @property {string} phase
- * @property {string} record
- * @property {string} lastPlayedISO
- *
- * @property {Object} accolades
- * @property {number} accolades.seasons
- * @property {number} accolades.playoffAppearances
- * @property {number} accolades.divisionTitles
- * @property {number} accolades.championships
- *
- * @property {Object} gmJob
- * @property {number} gmJob.contractYears
- * @property {number} gmJob.currentYear
- * @property {number} gmJob.salaryPerYearMillions
- * @property {number} gmJob.contractTotalMillions
- * @property {string} gmJob.status
- * @property {number} gmJob.ageYears
- * @property {number} gmJob.birthYear
- *
- * @property {Object} leagueSummary
- * @property {number} leagueSummary.teams
- * @property {number} leagueSummary.seasonsSimmed
- *
- * @property {Object} realismOptions
- * @property {boolean} realismOptions.injuriesOn
- * @property {string} realismOptions.capMode
- * @property {string} realismOptions.difficulty
- * @property {boolean} realismOptions.ironman
- *
- * @property {Object} ownerExpectation
- * @property {string} ownerExpectation.patience
- * @property {number} ownerExpectation.targetYear
- * @property {number} ownerExpectation.baselineWins
- *
- * @property {number} gmCredibility // hidden meta scale, 0–100
- */
-
-// ---------------------------
-// Constants / team data
-// ---------------------------
-
-const SAVE_KEY_LAST_FRANCHISE = "franchiseGM_lastFranchise";
-
-/**
- * 32-team league data.
- * Stubbed context (last season record, 3-year record, etc.) will eventually be
- * replaced by real sim-generated history.
- *
- * ownerPatience: "patient" | "average" | "impatient"
- * marketProfile: text used both for flavor and to infer pressure level.
- */
-const TEAMS = [
-  // AFC East
-  {
-    teamCode: "BUF",
-    city: "Buffalo",
-    name: "Bills",
-    conference: "AFC",
-    division: "East",
-    lastSeasonRecord: "9-8",
-    lastThreeYearsRecord: "27-24",
-    lastPlayoffAppearance: 2023,
-    allPros: 2,
-    ownerProfile: "Average patience; expects regular playoff contention.",
-    ownerPatience: "average",
-    marketProfile: "Small-to-mid market; strong local pressure.",
-    rosterSnapshot: "Roster: playoff-caliber core, aging pieces on defense."
-  },
-  {
-    teamCode: "MIA",
-    city: "Miami",
-    name: "Dolphins",
-    conference: "AFC",
-    division: "East",
-    lastSeasonRecord: "10-7",
-    lastThreeYearsRecord: "28-23",
-    lastPlayoffAppearance: 2023,
-    allPros: 1,
-    ownerProfile: "Impatient; expects deep playoff runs soon.",
-    ownerPatience: "impatient",
-    marketProfile: "Big market feel; media expects fireworks.",
-    rosterSnapshot: "Roster: explosive offense, questions in the trenches."
-  },
-  {
-    teamCode: "NE",
-    city: "New England",
-    name: "Patriots",
-    conference: "AFC",
-    division: "East",
-    lastSeasonRecord: "5-12",
-    lastThreeYearsRecord: "18-33",
-    lastPlayoffAppearance: 2021,
-    allPros: 0,
-    ownerProfile: "Average patience; expects modernized roster build.",
-    ownerPatience: "average",
-    marketProfile: "Legacy brand; regional pressure remains high.",
-    rosterSnapshot: "Roster: transition phase, no clear long-term QB."
-  },
-  {
-    teamCode: "NYJ",
-    city: "New York",
-    name: "Jets",
-    conference: "AFC",
-    division: "East",
-    lastSeasonRecord: "6-11",
-    lastThreeYearsRecord: "19-30",
-    lastPlayoffAppearance: 2010,
-    allPros: 1,
-    ownerProfile: "Impatient; wants visible progress quickly.",
-    ownerPatience: "impatient",
-    marketProfile: "Big market; intense media and fan scrutiny.",
-    rosterSnapshot: "Roster: strong defense, volatile offense and health questions."
-  },
-
-  // AFC North
-  {
-    teamCode: "BAL",
-    city: "Baltimore",
-    name: "Ravens",
-    conference: "AFC",
-    division: "North",
-    lastSeasonRecord: "12-5",
-    lastThreeYearsRecord: "33-18",
-    lastPlayoffAppearance: 2023,
-    allPros: 3,
-    ownerProfile: "Patient but demanding; expects consistent contention.",
-    ownerPatience: "patient",
-    marketProfile: "Smaller market; football-centric expectations.",
-    rosterSnapshot: "Roster: franchise QB in place, physical identity intact."
-  },
-  {
-    teamCode: "CIN",
-    city: "Cincinnati",
-    name: "Bengals",
-    conference: "AFC",
-    division: "North",
-    lastSeasonRecord: "9-8",
-    lastThreeYearsRecord: "32-19",
-    lastPlayoffAppearance: 2023,
-    allPros: 2,
-    ownerProfile: "Average patience; expects playoff contention while QB is in his prime.",
-    ownerPatience: "average",
-    marketProfile: "Smaller market with heightened expectations.",
-    rosterSnapshot: "Roster: high-end passing game, cap decisions looming."
-  },
-  {
-    teamCode: "CLE",
-    city: "Cleveland",
-    name: "Browns",
-    conference: "AFC",
-    division: "North",
-    lastSeasonRecord: "8-9",
-    lastThreeYearsRecord: "24-27",
-    lastPlayoffAppearance: 2023,
-    allPros: 1,
-    ownerProfile: "Impatient; short leash if results stall.",
-    ownerPatience: "impatient",
-    marketProfile: "Long-suffering fanbase; emotional swings tied to performance.",
-    rosterSnapshot: "Roster: strong defense, offense in flux."
-  },
-  {
-    teamCode: "PIT",
-    city: "Pittsburgh",
-    name: "Steelers",
-    conference: "AFC",
-    division: "North",
-    lastSeasonRecord: "9-8",
-    lastThreeYearsRecord: "26-25",
-    lastPlayoffAppearance: 2023,
-    allPros: 1,
-    ownerProfile: "Patient; values stability and discipline.",
-    ownerPatience: "patient",
-    marketProfile: "Traditional market; expects tough, competitive football.",
-    rosterSnapshot: "Roster: physical defense, offense searching for identity."
-  },
-
-  // AFC South
-  {
-    teamCode: "HOU",
-    city: "Houston",
-    name: "Texans",
-    conference: "AFC",
-    division: "South",
-    lastSeasonRecord: "10-7",
-    lastThreeYearsRecord: "20-31",
-    lastPlayoffAppearance: 2023,
-    allPros: 1,
-    ownerProfile: "Patient; embracing long-term build around young core.",
-    ownerPatience: "patient",
-    marketProfile: "Large market; expectations rising quickly.",
-    rosterSnapshot: "Roster: ascending QB and weapons, defense still maturing."
-  },
-  {
-    teamCode: "IND",
-    city: "Indianapolis",
-    name: "Colts",
-    conference: "AFC",
-    division: "South",
-    lastSeasonRecord: "9-8",
-    lastThreeYearsRecord: "21-30",
-    lastPlayoffAppearance: 2020,
-    allPros: 1,
-    ownerProfile: "Average patience; wants meaningful games in December.",
-    ownerPatience: "average",
-    marketProfile: "Mid-market; engaged fanbase, moderate media pressure.",
-    rosterSnapshot: "Roster: upside at QB, trenches need reinforcement."
-  },
-  {
-    teamCode: "JAX",
-    city: "Jacksonville",
-    name: "Jaguars",
-    conference: "AFC",
-    division: "South",
-    lastSeasonRecord: "9-8",
-    lastThreeYearsRecord: "23-28",
-    lastPlayoffAppearance: 2022,
-    allPros: 0,
-    ownerProfile: "Patient; focused on building a sustainable winner.",
-    ownerPatience: "patient",
-    marketProfile: "Small market; patience exists but interest swings with wins.",
-    rosterSnapshot: "Roster: young QB, skill talent present, defense uneven."
-  },
-  {
-    teamCode: "TEN",
-    city: "Tennessee",
-    name: "Titans",
-    conference: "AFC",
-    division: "South",
-    lastSeasonRecord: "6-11",
-    lastThreeYearsRecord: "20-31",
-    lastPlayoffAppearance: 2021,
-    allPros: 0,
-    ownerProfile: "Average patience; open to reset with the right plan.",
-    ownerPatience: "average",
-    marketProfile: "Smaller market; expectations tied to toughness and identity.",
-    rosterSnapshot: "Roster: transitioning core, decisions coming at key positions."
-  },
-
-  // AFC West
-  {
-    teamCode: "DEN",
-    city: "Denver",
-    name: "Broncos",
-    conference: "AFC",
-    division: "West",
-    lastSeasonRecord: "8-9",
-    lastThreeYearsRecord: "20-31",
-    lastPlayoffAppearance: 2015,
-    allPros: 0,
-    ownerProfile: "Impatient; wants tangible progress quickly.",
-    ownerPatience: "impatient",
-    marketProfile: "Passionate fanbase, national spotlight.",
-    rosterSnapshot: "Roster: cap challenges, searching for long-term QB answer."
-  },
-  {
-    teamCode: "KC",
-    city: "Kansas City",
-    name: "Chiefs",
-    conference: "AFC",
-    division: "West",
-    lastSeasonRecord: "11-6",
-    lastThreeYearsRecord: "37-14",
-    lastPlayoffAppearance: 2023,
-    allPros: 3,
-    ownerProfile: "Patient; expects championship windows to stay open.",
-    ownerPatience: "patient",
-    marketProfile: "High expectations with global spotlight.",
-    rosterSnapshot: "Roster: elite QB, retooling skill positions as cap evolves."
-  },
-  {
-    teamCode: "LV",
-    city: "Las Vegas",
-    name: "Raiders",
-    conference: "AFC",
-    division: "West",
-    lastSeasonRecord: "7-10",
-    lastThreeYearsRecord: "21-30",
-    lastPlayoffAppearance: 2021,
-    allPros: 1,
-    ownerProfile: "Impatient; wants relevance and identity quickly.",
-    ownerPatience: "impatient",
-    marketProfile: "Unique market; fanbase expects bold moves.",
-    rosterSnapshot: "Roster: elite edge rusher, offense in flux."
-  },
-  {
-    teamCode: "LAC",
-    city: "Los Angeles",
-    name: "Chargers",
-    conference: "AFC",
-    division: "West",
-    lastSeasonRecord: "8-9",
-    lastThreeYearsRecord: "25-26",
-    lastPlayoffAppearance: 2022,
-    allPros: 1,
-    ownerProfile: "Average patience; expects contention with franchise QB.",
-    ownerPatience: "average",
-    marketProfile: "Crowded market; scrutiny tied to results.",
-    rosterSnapshot: "Roster: high-end QB, balancing cap around core pieces."
-  },
-
-  // NFC East
-  {
-    teamCode: "DAL",
-    city: "Dallas",
-    name: "Cowboys",
-    conference: "NFC",
-    division: "East",
-    lastSeasonRecord: "12-5",
-    lastThreeYearsRecord: "34-17",
-    lastPlayoffAppearance: 2023,
-    allPros: 3,
-    ownerProfile: "Impatient; expects contention every year.",
-    ownerPatience: "impatient",
-    marketProfile: "Iconic big market; constant national attention.",
-    rosterSnapshot: "Roster: high-end talent, expectations sky-high."
-  },
-  {
-    teamCode: "NYG",
-    city: "New York",
-    name: "Giants",
-    conference: "NFC",
-    division: "East",
-    lastSeasonRecord: "6-11",
-    lastThreeYearsRecord: "19-30",
-    lastPlayoffAppearance: 2022,
-    allPros: 0,
-    ownerProfile: "Average patience; wants a sustainable plan.",
-    ownerPatience: "average",
-    marketProfile: "Big market; media focus and fan scrutiny.",
-    rosterSnapshot: "Roster: questions at QB and OL, some young defensive pieces."
-  },
-  {
-    teamCode: "PHI",
-    city: "Philadelphia",
-    name: "Eagles",
-    conference: "NFC",
-    division: "East",
-    lastSeasonRecord: "11-6",
-    lastThreeYearsRecord: "31-20",
-    lastPlayoffAppearance: 2023,
-    allPros: 2,
-    ownerProfile: "Impatient; expects deep playoff runs.",
-    ownerPatience: "impatient",
-    marketProfile: "Intense market; aggressive expectations.",
-    rosterSnapshot: "Roster: talented core, age creeping into key positions."
-  },
-  {
-    teamCode: "WAS",
-    city: "Washington",
-    name: "Commanders",
-    conference: "NFC",
-    division: "East",
-    lastSeasonRecord: "4-13",
-    lastThreeYearsRecord: "16-35",
-    lastPlayoffAppearance: 2020,
-    allPros: 0,
-    ownerProfile: "Patient; new ownership wants stability and a plan.",
-    ownerPatience: "patient",
-    marketProfile: "Rebuilding brand; expectations rising from a low baseline.",
-    rosterSnapshot: "Roster: in reset mode, looking for long-term QB solution."
-  },
-
-  // NFC North
-  {
-    teamCode: "CHI",
-    city: "Chicago",
-    name: "Bears",
-    conference: "NFC",
-    division: "North",
-    lastSeasonRecord: "7-10",
-    lastThreeYearsRecord: "17-34",
-    lastPlayoffAppearance: 2020,
-    allPros: 0,
-    ownerProfile: "Average patience; expects a modern offense and a clear QB plan.",
-    ownerPatience: "average",
-    marketProfile: "Historic franchise; big-market pressure.",
-    rosterSnapshot: "Roster: young offensive core, defense still forming."
-  },
-  {
-    teamCode: "DET",
-    city: "Detroit",
-    name: "Lions",
-    conference: "NFC",
-    division: "North",
-    lastSeasonRecord: "12-5",
-    lastThreeYearsRecord: "27-24",
-    lastPlayoffAppearance: 2023,
-    allPros: 2,
-    ownerProfile: "Patient; appreciates steady culture build.",
-    ownerPatience: "patient",
-    marketProfile: "Revitalized fanbase; expectations now meaningful.",
-    rosterSnapshot: "Roster: strong offense, defense catching up."
-  },
-  {
-    teamCode: "GB",
-    city: "Green Bay",
-    name: "Packers",
-    conference: "NFC",
-    division: "North",
-    lastSeasonRecord: "9-8",
-    lastThreeYearsRecord: "28-23",
-    lastPlayoffAppearance: 2023,
-    allPros: 1,
-    ownerProfile: "Average patience; expects playoff contention.",
-    ownerPatience: "average",
-    marketProfile: "Unique community ownership; high expectations.",
-    rosterSnapshot: "Roster: transitioning at QB, focused on sustainable roster building."
-  },
-  {
-    teamCode: "MIN",
-    city: "Minnesota",
-    name: "Vikings",
-    conference: "NFC",
-    division: "North",
-    lastSeasonRecord: "7-10",
-    lastThreeYearsRecord: "25-26",
-    lastPlayoffAppearance: 2022,
-    allPros: 1,
-    ownerProfile: "Average patience; wants competitive product annually.",
-    ownerPatience: "average",
-    marketProfile: "Engaged fanbase; low tolerance for long rebuilds.",
-    rosterSnapshot: "Roster: high-end WR talent, defensive retool underway."
-  },
-
-  // NFC South
-  {
-    teamCode: "ATL",
-    city: "Atlanta",
-    name: "Falcons",
-    conference: "NFC",
-    division: "South",
-    lastSeasonRecord: "7-10",
-    lastThreeYearsRecord: "21-30",
-    lastPlayoffAppearance: 2017,
-    allPros: 0,
-    ownerProfile: "Patient; wants clear offensive identity and stability.",
-    ownerPatience: "patient",
-    marketProfile: "Mid-sized market; appetite for a true reset.",
-    rosterSnapshot: "Roster: young skill talent, uncertainty at QB."
-  },
-  {
-    teamCode: "CAR",
-    city: "Carolina",
-    name: "Panthers",
-    conference: "NFC",
-    division: "South",
-    lastSeasonRecord: "2-15",
-    lastThreeYearsRecord: "14-37",
-    lastPlayoffAppearance: 2017,
-    allPros: 0,
-    ownerProfile: "Impatient; frustrated with recent results.",
-    ownerPatience: "impatient",
-    marketProfile: "Regional pressure; ownership expects visible progress.",
-    rosterSnapshot: "Roster: young QB under pressure, roster needs talent infusion."
-  },
-  {
-    teamCode: "NO",
-    city: "New Orleans",
-    name: "Saints",
-    conference: "NFC",
-    division: "South",
-    lastSeasonRecord: "9-8",
-    lastThreeYearsRecord: "25-26",
-    lastPlayoffAppearance: 2020,
-    allPros: 1,
-    ownerProfile: "Average patience; values competitiveness and stability.",
-    ownerPatience: "average",
-    marketProfile: "Passionate fanbase; expectations tied to playoff appearances.",
-    rosterSnapshot: "Roster: veteran pieces, cap tight, retool approaching."
-  },
-  {
-    teamCode: "TB",
-    city: "Tampa Bay",
-    name: "Buccaneers",
-    conference: "NFC",
-    division: "South",
-    lastSeasonRecord: "9-8",
-    lastThreeYearsRecord: "29-22",
-    lastPlayoffAppearance: 2023,
-    allPros: 1,
-    ownerProfile: "Average patience; expects to compete in the division.",
-    ownerPatience: "average",
-    marketProfile: "Mid-market; interest tied to recent success.",
-    rosterSnapshot: "Roster: veteran remnants of title run, transition ongoing."
-  },
-
-  // NFC West
-  {
-    teamCode: "ARI",
-    city: "Arizona",
-    name: "Cardinals",
-    conference: "NFC",
-    division: "West",
-    lastSeasonRecord: "4-13",
-    lastThreeYearsRecord: "17-34",
-    lastPlayoffAppearance: 2021,
-    allPros: 0,
-    ownerProfile: "Patient; understands rebuild timeline.",
-    ownerPatience: "patient",
-    marketProfile: "Sunbelt market; expectations moderated by rebuild.",
-    rosterSnapshot: "Roster: rebuilding both lines, QB questions linger."
-  },
-  {
-    teamCode: "LAR",
-    city: "Los Angeles",
-    name: "Rams",
-    conference: "NFC",
-    division: "West",
-    lastSeasonRecord: "10-7",
-    lastThreeYearsRecord: "25-26",
-    lastPlayoffAppearance: 2023,
-    allPros: 2,
-    ownerProfile: "Average patience; comfortable with aggressive windows.",
-    ownerPatience: "average",
-    marketProfile: "Big market; star-driven expectations.",
-    rosterSnapshot: "Roster: high-end skill talent, defense reloading post-title window."
-  },
-  {
-    teamCode: "SF",
-    city: "San Francisco",
-    name: "49ers",
-    conference: "NFC",
-    division: "West",
-    lastSeasonRecord: "12-5",
-    lastThreeYearsRecord: "34-17",
-    lastPlayoffAppearance: 2023,
-    allPros: 3,
-    ownerProfile: "Impatient; expects deep playoff runs every year.",
-    ownerPatience: "impatient",
-    marketProfile: "High-profile franchise; national expectations.",
-    rosterSnapshot: "Roster: elite roster structure, cap decisions looming on core pieces."
-  },
-  {
-    teamCode: "SEA",
-    city: "Seattle",
-    name: "Seahawks",
-    conference: "NFC",
-    division: "West",
-    lastSeasonRecord: "9-8",
-    lastThreeYearsRecord: "25-26",
-    lastPlayoffAppearance: 2022,
-    allPros: 1,
-    ownerProfile: "Patient; values culture and competitive seasons.",
-    ownerPatience: "patient",
-    marketProfile: "Dedicated regional base; expectations steady.",
-    rosterSnapshot: "Roster: interesting young talent, QB situation evolving."
-  }
-];
-
-/**
- * Stubbed open GM jobs for this offseason.
- * TODO: Replace with logic that fires/retains GMs based on sim performance,
- *       expectations, and tenure.
- */
-const OPEN_TEAMS = ["CAR", "CHI", "NYJ", "LAC"];
-
-// ---------------------------
-// App state
-// ---------------------------
-
-/**
- * Derive an initial hidden GM credibility value for a brand-new career.
- * Neutral ~50, we start a bit below with a small random band for variation.
- */
-function deriveInitialCredibility() {
-  const base = 45;
-  const jitter = Math.round((Math.random() * 6) - 3); // -3..+3
-  return Math.max(30, Math.min(60, base + jitter));
-}
-
-const appState = {
-  viewMode: "league", // "league" | "conference" | "division"
-  selectedTeamCode: null,
-  contractYears: 2,
-  salaryPerYearMillions: 1.0,
-  // Hidden meta credibility for a brand new GM; neutral ~50.
-  gmCredibility: deriveInitialCredibility(),
-  seasonYear: new Date().getFullYear(),
-  negotiationAttemptsByTeam: {} // { [teamCode]: number }
-};
-
-// ---------------------------
-// Storage helpers
-// ---------------------------
-
-function storageAvailable() {
-  try {
-    const testKey = "__franchise_gm_storage_test__";
-    window.localStorage.setItem(testKey, "1");
-    window.localStorage.removeItem(testKey);
-    return true;
-  } catch (err) {
-    return false;
-  }
-}
-
-function loadLastFranchise() {
-  if (!storageAvailable()) return null;
-  const raw = window.localStorage.getItem(SAVE_KEY_LAST_FRANCHISE);
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-function saveLastFranchise(save) {
-  if (!storageAvailable()) return;
-  try {
-    window.localStorage.setItem(SAVE_KEY_LAST_FRANCHISE, JSON.stringify(save));
-  } catch (err) {
-    console.warn("[Franchise GM] Failed to save franchise:", err);
-  }
-}
-
-function generateNewFranchiseId() {
-  const timePart = Date.now().toString(36);
-  const randPart = Math.random().toString(36).slice(2, 8);
-  return `franchise-${timePart}-${randPart}`;
-}
-
-function navigateToFranchise() {
-  window.location.href = "franchise.html";
-}
-
-// ---------------------------
-// Team lookup / helpers
-// ---------------------------
-
-function getTeamByCode(code) {
-  return TEAMS.find((t) => t.teamCode === code) || null;
-}
-
-function isTeamOpen(teamCode) {
-  return OPEN_TEAMS.includes(teamCode);
-}
-
-function parseRecord(record) {
-  const str = String(record || "").trim();
-  const m = /^(\d+)\s*-\s*(\d+)$/.exec(str);
-  if (!m) return { wins: 0, losses: 0 };
-  const wins = Number(m[1]) || 0;
-  const losses = Number(m[2]) || 0;
-  return { wins, losses };
-}
-
-// ---------------------------
-// Evaluate contract offer
-// ---------------------------
-
-/**
- * Evaluate a first-time GM contract proposal.
- *
- * Considers:
- * - Team desperation (bad record + playoff drought).
- * - Owner patience & market profile.
- * - GM credibility (starting slightly below neutral, with variation).
- * - Term and salary relative to first-time expectations.
- *
- * Returns { accepted: boolean, reason: string } with a bit of randomness.
- */
-function evaluateContractOffer(team, proposal, gmCredibility, seasonYear) {
-  const { wins, losses } = parseRecord(team.lastSeasonRecord);
-  const totalGames = wins + losses;
-  const winPct = totalGames > 0 ? wins / totalGames : 0.5;
-
-  const lastPO = team.lastPlayoffAppearance;
-  const droughtYears =
-    lastPO == null ? 10 : Math.max(0, (seasonYear - 1) - lastPO);
-
-  // "Desperation": bad record + long drought => more open to risk.
-  const desperationScore = (1 - winPct) * 40 + Math.min(droughtYears, 10) * 3; // 0–70ish
-
-  let baseline = 45 + desperationScore * 0.4 + (gmCredibility - 50) * 0.5;
-
-  // Owner patience
-  const patience = team.ownerPatience || "average";
-  if (patience === "impatient") {
-    baseline -= 6;
-  } else if (patience === "patient") {
-    baseline += 4;
-  }
-
-  // Market intensity (big markets are harsher on first-time GMs)
-  const marketText = (team.marketProfile || "").toLowerCase();
-  if (marketText.includes("big market") || marketText.includes("intense")) {
-    baseline -= 4;
-  }
-
-  // Contract terms
-  const years = proposal.years;
-  const salary = proposal.salaryPerYearMillions;
-  const salaryNormalized = (salary - 0.25) / (2.0 - 0.25); // 0..1
-
-  const salaryPenalty = salaryNormalized * 22; // up to about -22
-  baseline -= salaryPenalty;
-
-  let yearPenalty = (years - 1) * 5;
-  if (winPct > 0.55) {
-    yearPenalty += (years - 1) * 3;
-  } else if (winPct < 0.35) {
-    yearPenalty -= (years - 1) * 1; // desperate teams tolerate length a bit more
-  }
-  baseline -= yearPenalty;
-
-  // Reward for a short, modest deal
-  if (years === 1 && salary < 1.0) {
-    baseline += 6;
-  }
-
-  // Randomness so it never feels purely deterministic
-  const noise = (Math.random() * 20) - 10; // -10..10
-  const score = baseline + noise;
-
-  const accepted = score >= 52;
-
-  let reason;
-  if (accepted) {
-    reason = "Ownership is comfortable with these terms for a first-time GM.";
-  } else {
-    if (salary > 1.75 && years >= 3) {
-      reason =
-        "Ownership is not comfortable committing that level of money and term to a first-time GM.";
-    } else if (years === 3 && winPct > 0.55) {
-      reason =
-        "This front office prefers a shorter initial deal given the current trajectory of the roster.";
-    } else if (salary > 1.25) {
-      reason = "They view this number as aggressive for an initial GM contract.";
-    } else {
-      reason =
-        "They are looking for more flexibility on the first deal before committing.";
-    }
-  }
-
-  return {
-    accepted,
-    reason
-    // score: Math.round(score) // kept internal; could be used for debugging or future tuning.
-  };
-}
-
-// ---------------------------
-// Build initial franchise save
-//
-// NOTE: This builds the canonical FranchiseSave *summary* object used by the
-// landing screen and dashboards. The full league state (rosters, schedule,
-// contracts, etc.) will live alongside this in a separate structure later.
-// ---------------------------
-
-function buildInitialFranchiseSave(team, contract, gmCredibility, seasonYear) {
-  const nowIso = new Date().toISOString();
-  const franchiseName = `${team.city} ${team.name} Football Operations`;
-  const simpleTeamName = `${team.city} ${team.name}`;
-
-  const { wins, losses } = parseRecord(team.lastSeasonRecord);
-  const totalGames = wins + losses;
-  const winPct = totalGames > 0 ? wins / totalGames : 0.5;
-
-  const droughtYears =
-    team.lastPlayoffAppearance == null
-      ? 10
-      : Math.max(0, (seasonYear - 1) - team.lastPlayoffAppearance);
-
-  // Owner expectation heuristics: will be replaced by more detailed logic later.
-  let patience = team.ownerPatience || "average";
-  let targetOffsetYears;
-  if (patience === "impatient") {
-    targetOffsetYears = 1;
-  } else if (patience === "patient") {
-    targetOffsetYears = 3;
-  } else {
-    targetOffsetYears = 2;
-  }
-
-  let baselineWins;
-  if (winPct > 0.6) baselineWins = 11;
-  else if (winPct > 0.45) baselineWins = 10;
-  else if (winPct > 0.3) baselineWins = 9;
-  else baselineWins = 8;
-
-  // GM age mechanics (future):
-  // - Start at 40.
-  // - Age ticks +1 every March 1 in the sim.
-  // - Retirement around 70, with special rules for high-credibility GMs.
-  const gmAgeStart = 40;
-  const birthYear = seasonYear - gmAgeStart;
-
-  /** @type {FranchiseSave} */
-  const save = {
-    version: 1,
-    franchiseId: generateNewFranchiseId(),
-    franchiseName,
-    teamName: simpleTeamName, // compat / display helper for the landing page
-    teamCode: team.teamCode,
-    seasonYear,
-    weekIndex: 0, // 0 = immediate post–Super Bowl offseason
-    phase: "Offseason (Post-Super Bowl)",
-    record: "0-0",
-    lastPlayedISO: nowIso,
-
-    accolades: {
-      seasons: 0,
-      playoffAppearances: 0,
-      divisionTitles: 0,
-      championships: 0
-    },
-
-    gmJob: {
-      contractYears: contract.years,
-      currentYear: 1,
-      salaryPerYearMillions: contract.salaryPerYearMillions,
-      contractTotalMillions: contract.totalMillions,
-      status: "active",
-      ageYears: gmAgeStart,
-      birthYear
-    },
-
-    leagueSummary: {
-      teams: 32,
-      seasonsSimmed: 0
-    },
-
-    realismOptions: {
-      injuriesOn: true,
-      capMode: "realistic",
-      difficulty: "simulation",
-      ironman: true
-    },
-
-    ownerExpectation: {
-      patience,
-      targetYear: seasonYear + targetOffsetYears,
-      baselineWins
-    },
-
-    // Hidden meta field that will influence future job offers,
-    // media/fan perception, etc.
-    gmCredibility
-  };
-
-  // TODO: Attach full leagueState structure elsewhere.
-
-  return save;
-}
-
-// ---------------------------
-// UI rendering – team views
-// ---------------------------
-
-function setTeamFeedback(message, isWarning) {
-  const el = document.getElementById("team-feedback");
-  if (!el) return;
-  el.textContent = message || "";
-  el.style.color = isWarning ? "#facc15" : "var(--text-soft)";
-}
-
-function createLeagueView(container) {
-  container.className = "team-list";
-
-  if (!TEAMS.length) {
-    container.innerHTML =
-      '<div class="team-list-empty">No teams available.</div>';
-    return;
-  }
-
-  container.innerHTML = "";
-
-  TEAMS.forEach((team) => {
-    const open = isTeamOpen(team.teamCode);
-    const card = document.createElement("article");
-    card.className = "team-card";
-
-    if (open) {
-      card.classList.add("team-card--open");
-      card.tabIndex = 0;
-    } else {
-      card.classList.add("team-card--filled");
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Franchise GM – Team Select & Contract</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #020617;
+      --bg-elevated: rgba(15, 23, 42, 0.96);
+      --bg-elevated-soft: rgba(15, 23, 42, 0.82);
+      --border-subtle: #1f2937;
+      --border-strong: #4b5563;
+      --text-main: #e5e7eb;
+      --text-soft: #9ca3af;
+      --accent: #22c55e;
+      --accent-soft: rgba(34, 197, 94, 0.18);
+      --accent-strong: #22c55e;
+      --accent-alt: #38bdf8;
+      --danger: #f97373;
+      --warn: #fbbf24;
+      --radius-lg: 18px;
+      --radius-md: 12px;
+      --radius-pill: 999px;
+      --shadow-soft: 0 22px 45px rgba(0, 0, 0, 0.65);
+      --shadow-sm: 0 10px 24px rgba(0, 0, 0, 0.5);
+      --transition-fast: 150ms ease-out;
+      --transition-med: 220ms ease;
     }
 
-    if (team.teamCode === appState.selectedTeamCode) {
-      card.classList.add("team-card--selected");
+    * {
+      box-sizing: border-box;
     }
 
-    const header = document.createElement("div");
-    header.className = "team-card-header";
-
-    const nameBlock = document.createElement("div");
-    nameBlock.className = "team-name-line";
-    const nameStrong = document.createElement("strong");
-    nameStrong.textContent = `${team.city} ${team.name}`;
-    const metaSpan = document.createElement("span");
-    metaSpan.textContent = `${team.conference} ${team.division} • ${team.teamCode}`;
-    nameBlock.appendChild(nameStrong);
-    nameBlock.appendChild(metaSpan);
-
-    const tag = document.createElement("div");
-    tag.className = "team-tag";
-    if (open) {
-      tag.classList.add("team-tag--open");
-      tag.innerHTML =
-        '<span class="team-tag-dot"></span><span>GM Opening</span>';
-    } else {
-      tag.innerHTML = "<span>GM Filled</span>";
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at 0% 0%, #0b1120 0, #020617 48%, #000 100%);
+      color: var(--text-main);
+      -webkit-font-smoothing: antialiased;
     }
 
-    header.appendChild(nameBlock);
-    header.appendChild(tag);
-
-    const body = document.createElement("div");
-    body.className = "team-card-body";
-
-    const statCol = document.createElement("div");
-    const statLines = [
-      `Last season: <strong>${team.lastSeasonRecord}</strong>`,
-      `Last 3 seasons: <strong>${team.lastThreeYearsRecord}</strong>`,
-      team.lastPlayoffAppearance
-        ? `Last playoffs: <strong>${team.lastPlayoffAppearance}</strong>`
-        : `Last playoffs: <strong>Long drought</strong>`,
-      `All-Pros: <strong>${team.allPros}</strong>`
-    ];
-    statLines.forEach((line) => {
-      const p = document.createElement("div");
-      p.className = "team-stat-line";
-      p.innerHTML = line;
-      statCol.appendChild(p);
-    });
-
-    const notesCol = document.createElement("div");
-    notesCol.className = "team-notes";
-    const ownerLabel = document.createElement("span");
-    ownerLabel.className = "label";
-    ownerLabel.textContent = "Owner / market";
-    const ownerP = document.createElement("p");
-    ownerP.textContent = team.ownerProfile;
-    const marketP = document.createElement("p");
-    marketP.textContent = team.marketProfile;
-    const rosterLabel = document.createElement("span");
-    rosterLabel.className = "label";
-    rosterLabel.textContent = "Roster snapshot";
-    const rosterP = document.createElement("p");
-    rosterP.textContent = team.rosterSnapshot;
-
-    notesCol.appendChild(ownerLabel);
-    notesCol.appendChild(ownerP);
-    notesCol.appendChild(marketP);
-    notesCol.appendChild(rosterLabel);
-    notesCol.appendChild(rosterP);
-
-    body.appendChild(statCol);
-    body.appendChild(notesCol);
-
-    card.appendChild(header);
-    card.appendChild(body);
-
-    if (open) {
-      card.addEventListener("click", () => handleTeamSelect(team.teamCode));
-      card.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          handleTeamSelect(team.teamCode);
-        }
-      });
-    } else {
-      card.addEventListener("click", () => {
-        setTeamFeedback(
-          `GM position for ${team.city} ${team.name} is currently filled.`,
-          true
-        );
-      });
+    body {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
     }
 
-    container.appendChild(card);
-  });
-}
-
-function groupTeamsByConference() {
-  const groups = {};
-  TEAMS.forEach((t) => {
-    const key = t.conference;
-    if (!groups[key]) groups[key] = [];
-    groups[key].push(t);
-  });
-  Object.values(groups).forEach((arr) =>
-    arr.sort((a, b) => a.city.localeCompare(b.city))
-  );
-  return groups;
-}
-
-function groupTeamsByDivision() {
-  const groups = {};
-  TEAMS.forEach((t) => {
-    const key = `${t.conference} ${t.division}`;
-    if (!groups[key]) groups[key] = [];
-    groups[key].push(t);
-  });
-  Object.values(groups).forEach((arr) =>
-    arr.sort((a, b) => a.city.localeCompare(b.city))
-  );
-  return groups;
-}
-
-function createConferenceView(container) {
-  container.className = "team-groups";
-  container.innerHTML = "";
-
-  const groups = groupTeamsByConference();
-
-  Object.keys(groups)
-    .sort()
-    .forEach((conf) => {
-      const groupEl = document.createElement("section");
-      groupEl.className = "team-group";
-
-      const title = document.createElement("div");
-      title.className = "team-group-title";
-      title.textContent = `${conf} Conference`;
-
-      const rowsWrapper = document.createElement("div");
-      rowsWrapper.className = "team-rows";
-
-      groups[conf].forEach((team) => {
-        const row = document.createElement("div");
-        row.className = "team-row";
-
-        const open = isTeamOpen(team.teamCode);
-        if (open) {
-          row.classList.add("team-row--open");
-          row.tabIndex = 0;
-        }
-        if (team.teamCode === appState.selectedTeamCode) {
-          row.classList.add("team-row--selected");
-        }
-
-        const colTeam = document.createElement("span");
-        colTeam.textContent = `${team.city} ${team.name} (${team.teamCode})`;
-
-        const colRecord = document.createElement("span");
-        colRecord.textContent = `Last: ${team.lastSeasonRecord}`;
-
-        const colStatus = document.createElement("span");
-        colStatus.textContent = open ? "GM Opening" : "GM Filled";
-        colStatus.className = open ? "status-open" : "status-filled";
-
-        row.appendChild(colTeam);
-        row.appendChild(colRecord);
-        row.appendChild(colStatus);
-
-        if (open) {
-          row.addEventListener("click", () =>
-            handleTeamSelect(team.teamCode)
-          );
-          row.addEventListener("keydown", (e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              handleTeamSelect(team.teamCode);
-            }
-          });
-        } else {
-          row.addEventListener("click", () => {
-            setTeamFeedback(
-              `GM position for ${team.city} ${team.name} is currently filled.`,
-              true
-            );
-          });
-        }
-
-        rowsWrapper.appendChild(row);
-      });
-
-      groupEl.appendChild(title);
-      groupEl.appendChild(rowsWrapper);
-      container.appendChild(groupEl);
-    });
-}
-
-function createDivisionView(container) {
-  container.className = "team-groups";
-  container.innerHTML = "";
-
-  const groups = groupTeamsByDivision();
-
-  Object.keys(groups)
-    .sort()
-    .forEach((divKey) => {
-      const groupEl = document.createElement("section");
-      groupEl.className = "team-group";
-
-      const title = document.createElement("div");
-      title.className = "team-group-title";
-      title.textContent = divKey;
-
-      const rowsWrapper = document.createElement("div");
-      rowsWrapper.className = "team-rows";
-
-      groups[divKey].forEach((team) => {
-        const row = document.createElement("div");
-        row.className = "team-row";
-
-        const open = isTeamOpen(team.teamCode);
-        if (open) {
-          row.classList.add("team-row--open");
-          row.tabIndex = 0;
-        }
-        if (team.teamCode === appState.selectedTeamCode) {
-          row.classList.add("team-row--selected");
-        }
-
-        const colTeam = document.createElement("span");
-        colTeam.textContent = `${team.city} ${team.name} (${team.teamCode})`;
-
-        const colRecord = document.createElement("span");
-        colRecord.textContent = `Last: ${team.lastSeasonRecord}`;
-
-        const colStatus = document.createElement("span");
-        colStatus.textContent = open ? "GM Opening" : "GM Filled";
-        colStatus.className = open ? "status-open" : "status-filled";
-
-        row.appendChild(colTeam);
-        row.appendChild(colRecord);
-        row.appendChild(colStatus);
-
-        if (open) {
-          row.addEventListener("click", () =>
-            handleTeamSelect(team.teamCode)
-          );
-          row.addEventListener("keydown", (e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              handleTeamSelect(team.teamCode);
-            }
-          });
-        } else {
-          row.addEventListener("click", () => {
-            setTeamFeedback(
-              `GM position for ${team.city} ${team.name} is currently filled.`,
-              true
-            );
-          });
-        }
-
-        rowsWrapper.appendChild(row);
-      });
-
-      groupEl.appendChild(title);
-      groupEl.appendChild(rowsWrapper);
-      container.appendChild(groupEl);
-    });
-}
-
-/**
- * Render current view mode.
- */
-function renderTeamView() {
-  const container = document.getElementById("team-container");
-  if (!container) return;
-
-  if (appState.viewMode === "league") {
-    createLeagueView(container);
-  } else if (appState.viewMode === "conference") {
-    createConferenceView(container);
-  } else {
-    createDivisionView(container);
-  }
-}
-
-// ---------------------------
-// Contract / summary UI updates
-// ---------------------------
-
-function clampSalary(value) {
-  const min = 0.25;
-  const max = 2.0;
-  if (!Number.isFinite(value)) return min;
-  return Math.min(max, Math.max(min, value));
-}
-
-function formatMoneyMillions(m) {
-  return m.toFixed(2);
-}
-
-function updateContractDisplay() {
-  const totalEl = document.getElementById("contract-total-text");
-  if (!totalEl) return;
-  const years = appState.contractYears;
-  const salary = appState.salaryPerYearMillions;
-  const total = years * salary;
-  totalEl.innerHTML = `<strong>Total: $${formatMoneyMillions(
-    total
-  )}M</strong> over ${years} year${years === 1 ? "" : "s"}`;
-}
-
-function updateFranchiseNameAndContext() {
-  const team =
-    appState.selectedTeamCode && getTeamByCode(appState.selectedTeamCode);
-  const nameEl = document.getElementById("franchise-name-display");
-  const ownerEl = document.getElementById("owner-market-display");
-
-  if (!nameEl || !ownerEl) return;
-
-  if (!team) {
-    nameEl.textContent = "Select an open team to set your franchise.";
-    ownerEl.textContent =
-      "Team context will appear here after you choose an opening.";
-    return;
-  }
-
-  const franchiseName = `${team.city} ${team.name} Football Operations`;
-  nameEl.textContent = franchiseName;
-
-  ownerEl.textContent = `${team.ownerProfile} ${team.marketProfile}`;
-}
-
-function updateSummaryCard() {
-  const team =
-    appState.selectedTeamCode && getTeamByCode(appState.selectedTeamCode);
-
-  const franchiseNameEl = document.getElementById("summary-franchise-name");
-  const teamLineEl = document.getElementById("summary-team-line");
-  const seasonLineEl = document.getElementById("summary-season-line");
-  const phaseLineEl = document.getElementById("summary-phase-line");
-  const contractLineEl = document.getElementById("summary-contract-line");
-  const ownerLineEl = document.getElementById("summary-owner-line");
-
-  if (
-    !franchiseNameEl ||
-    !teamLineEl ||
-    !seasonLineEl ||
-    !phaseLineEl ||
-    !contractLineEl ||
-    !ownerLineEl
-  ) {
-    return;
-  }
-
-  const years = appState.contractYears;
-  const salary = appState.salaryPerYearMillions;
-  const total = years * salary;
-
-  if (!team) {
-    franchiseNameEl.textContent = "No team selected";
-    teamLineEl.textContent = "—";
-    seasonLineEl.textContent = "—";
-    phaseLineEl.textContent = "Offseason (Post-Super Bowl)";
-    contractLineEl.textContent = "—";
-    ownerLineEl.textContent = "—";
-    return;
-  }
-
-  const franchiseName = `${team.city} ${team.name} Football Operations`;
-  franchiseNameEl.textContent = franchiseName;
-  teamLineEl.textContent = `${team.city} ${team.name} (${team.teamCode})`;
-  seasonLineEl.textContent = `${appState.seasonYear}`;
-  phaseLineEl.textContent = "Offseason (Post-Super Bowl)";
-  contractLineEl.textContent = `${years} year${
-    years === 1 ? "" : "s"
-  }, $${formatMoneyMillions(salary)}M per year, $${formatMoneyMillions(
-    total
-  )}M total`;
-
-  const droughtText = team.lastPlayoffAppearance
-    ? `Last playoffs: ${team.lastPlayoffAppearance}`
-    : "Long playoff drought";
-  const patienceText = team.ownerPatience || "average";
-  ownerLineEl.textContent = `Owner: ${patienceText}; ${droughtText}.`;
-}
-
-function updateCreateButtonState() {
-  const btn = document.getElementById("btn-create-franchise");
-  if (!btn) return;
-  const team =
-    appState.selectedTeamCode && getTeamByCode(appState.selectedTeamCode);
-  const salary = appState.salaryPerYearMillions;
-  const validSalary =
-    Number.isFinite(salary) && salary >= 0.25 && salary <= 2.0;
-  const validYears =
-    appState.contractYears >= 1 && appState.contractYears <= 3;
-  const attempts =
-    team && appState.negotiationAttemptsByTeam[team.teamCode]
-      ? appState.negotiationAttemptsByTeam[team.teamCode]
-      : 0;
-  const attemptsRemaining = team ? Math.max(0, 3 - attempts) : 3;
-
-  const enabled = !!team && validSalary && validYears && attemptsRemaining > 0;
-  btn.disabled = !enabled;
-}
-
-function updateExistingSaveNote() {
-  const noteEl = document.getElementById("existing-save-note");
-  if (!noteEl) return;
-  const save = loadLastFranchise();
-  if (!save) {
-    noteEl.hidden = true;
-    noteEl.textContent = "";
-    return;
-  }
-
-  const displayName =
-    save.franchiseName ||
-    save.teamName ||
-    "Existing franchise";
-  const teamCode = save.teamCode || "";
-  const line = teamCode
-    ? `${displayName} (${teamCode})`
-    : displayName;
-
-  noteEl.hidden = false;
-  noteEl.textContent = `Current active franchise: ${line}. Creating a new franchise here will overwrite it.`;
-}
-
-function updateAttemptNote() {
-  const noteEl = document.getElementById("attempt-note");
-  const team =
-    appState.selectedTeamCode && getTeamByCode(appState.selectedTeamCode);
-  if (!noteEl || !team) {
-    if (noteEl) noteEl.textContent = "";
-    return;
-  }
-
-  const attempts = appState.negotiationAttemptsByTeam[team.teamCode] || 0;
-  const remaining = Math.max(0, 3 - attempts);
-
-  if (remaining <= 0) {
-    noteEl.textContent =
-      "Negotiations with this owner have ended for this offseason. Select another opening or adjust your approach.";
-  } else {
-    noteEl.textContent = `Negotiation attempts with this owner this offseason: ${attempts} used, ${remaining} remaining.`;
-  }
-}
-
-// ---------------------------
-// Event handlers
-// ---------------------------
-
-function handleViewModeChange(mode) {
-  if (appState.viewMode === mode) return;
-  appState.viewMode = mode;
-
-  const buttons = document.querySelectorAll("[data-view-mode]");
-  buttons.forEach((btn) => {
-    const m = btn.getAttribute("data-view-mode");
-    btn.setAttribute("aria-pressed", m === mode ? "true" : "false");
-  });
-
-  renderTeamView();
-}
-
-function handleTeamSelect(teamCode) {
-  if (!isTeamOpen(teamCode)) {
-    setTeamFeedback("That GM job is currently filled.", true);
-    return;
-  }
-
-  appState.selectedTeamCode = teamCode;
-  setTeamFeedback("", false);
-
-  // Reset contract feedback when changing team.
-  const feedbackEl = document.getElementById("contract-feedback");
-  if (feedbackEl) {
-    feedbackEl.textContent = "";
-    feedbackEl.classList.remove(
-      "contract-feedback--error",
-      "contract-feedback--success"
-    );
-  }
-
-  // Render again to highlight selection in whatever view we're in.
-  renderTeamView();
-  updateFranchiseNameAndContext();
-  updateSummaryCard();
-  updateCreateButtonState();
-  updateAttemptNote();
-}
-
-function handleContractYearsClick(years) {
-  appState.contractYears = years;
-  const buttons = document.querySelectorAll(
-    ".contract-years-buttons button"
-  );
-  buttons.forEach((btn) => {
-    const y = Number(btn.getAttribute("data-years"));
-    btn.setAttribute("aria-pressed", y === years ? "true" : "false");
-  });
-  updateContractDisplay();
-  updateSummaryCard();
-  updateCreateButtonState();
-}
-
-function handleSalaryInputChange() {
-  const input = document.getElementById("salary-input");
-  if (!input) return;
-  const value = Number(input.value);
-  const clamped = clampSalary(value);
-  appState.salaryPerYearMillions = clamped;
-  if (value !== clamped) {
-    input.value = clamped.toFixed(2);
-  }
-  updateContractDisplay();
-  updateSummaryCard();
-  updateCreateButtonState();
-}
-
-/**
- * Final "Create Franchise" click:
- * - Validates selection and contract.
- * - Evaluates contract acceptance.
- * - On success, builds save and navigates.
- * - On rejection, shows a realistic message and counts attempts.
- */
-function handleCreateFranchise() {
-  const team =
-    appState.selectedTeamCode && getTeamByCode(appState.selectedTeamCode);
-  const feedbackEl = document.getElementById("contract-feedback");
-
-  if (!team || !feedbackEl) return;
-
-  const years = appState.contractYears;
-  const salary = appState.salaryPerYearMillions;
-
-  // Basic validation guard
-  if (!isTeamOpen(team.teamCode)) {
-    feedbackEl.textContent =
-      "That GM job is no longer available. Select another opening.";
-    feedbackEl.classList.add("contract-feedback--error");
-    return;
-  }
-
-  if (
-    !Number.isFinite(salary) ||
-    salary < 0.25 ||
-    salary > 2.0 ||
-    years < 1 ||
-    years > 3
-  ) {
-    feedbackEl.textContent =
-      "Contract terms are out of bounds. Years must be 1–3 and salary must be between $0.25M and $2.0M per year.";
-    feedbackEl.classList.add("contract-feedback--error");
-    return;
-  }
-
-  const attempts = appState.negotiationAttemptsByTeam[team.teamCode] || 0;
-  if (attempts >= 3) {
-    feedbackEl.textContent =
-      "This owner has ended talks for this offseason. Choose another opening.";
-    feedbackEl.classList.add("contract-feedback--error");
-    updateCreateButtonState();
-    updateAttemptNote();
-    return;
-  }
-
-  const proposal = {
-    years,
-    salaryPerYearMillions: salary,
-    totalMillions: years * salary
-  };
-
-  const result = evaluateContractOffer(
-    team,
-    proposal,
-    appState.gmCredibility,
-    appState.seasonYear
-  );
-
-  if (result.accepted) {
-    feedbackEl.textContent = result.reason;
-    feedbackEl.classList.remove("contract-feedback--error");
-    feedbackEl.classList.add("contract-feedback--success");
-
-    // Build and save FranchiseSave, overwriting any existing franchise.
-    const save = buildInitialFranchiseSave(
-      team,
-      proposal,
-      appState.gmCredibility,
-      appState.seasonYear
-    );
-    saveLastFranchise(save);
-
-    // Navigation into the main Franchise view.
-    navigateToFranchise();
-  } else {
-    const newAttempts = attempts + 1;
-    appState.negotiationAttemptsByTeam[team.teamCode] = newAttempts;
-    feedbackEl.textContent = result.reason;
-    feedbackEl.classList.remove("contract-feedback--success");
-    feedbackEl.classList.add("contract-feedback--error");
-
-    setTeamFeedback(
-      `Offer declined by ${team.city} ${team.name}. You can adjust terms and try again (limit 3 attempts per team).`,
-      true
-    );
-
-    updateAttemptNote();
-    updateCreateButtonState();
-  }
-}
-
-// ---------------------------
-// Initialization
-// ---------------------------
-
-function initTeamSelect() {
-  // View mode buttons
-  const btnLeague = document.getElementById("btn-view-league");
-  const btnConf = document.getElementById("btn-view-conference");
-  const btnDiv = document.getElementById("btn-view-division");
-
-  if (btnLeague) {
-    btnLeague.addEventListener("click", () => handleViewModeChange("league"));
-  }
-  if (btnConf) {
-    btnConf.addEventListener("click", () =>
-      handleViewModeChange("conference")
-    );
-  }
-  if (btnDiv) {
-    btnDiv.addEventListener("click", () =>
-      handleViewModeChange("division")
-    );
-  }
-
-  // Contract years segmented control
-  const yearButtons = document.querySelectorAll(
-    ".contract-years-buttons button"
-  );
-  yearButtons.forEach((btn) => {
-    const y = Number(btn.getAttribute("data-years"));
-    btn.addEventListener("click", () => handleContractYearsClick(y));
-  });
-
-  // Salary input
-  const salaryInput = document.getElementById("salary-input");
-  if (salaryInput) {
-    salaryInput.addEventListener("change", handleSalaryInputChange);
-    salaryInput.addEventListener("blur", handleSalaryInputChange);
-    salaryInput.addEventListener("input", () => {
-      // Do not spam; just update live while typing
-      const value = Number(salaryInput.value);
-      appState.salaryPerYearMillions = clampSalary(value);
-      updateContractDisplay();
-      updateSummaryCard();
-      updateCreateButtonState();
-    });
-  }
-
-  // Create franchise button
-  const createBtn = document.getElementById("btn-create-franchise");
-  if (createBtn) {
-    createBtn.addEventListener("click", handleCreateFranchise);
-  }
-
-  // Initial render
-  renderTeamView();
-  updateContractDisplay();
-  updateFranchiseNameAndContext();
-  updateSummaryCard();
-  updateCreateButtonState();
-  updateExistingSaveNote();
-  updateAttemptNote();
-
-  // Initial info
-  setTeamFeedback(
-    "Select an open GM job to begin. Openings are highlighted; filled jobs are informational only.",
-    false
-  );
-}
-
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", initTeamSelect);
-} else {
-  initTeamSelect();
-}
-
-// ---------------------------
-// Future hooks / notes
-// ---------------------------
-//
-// - Job market & interviews:
-//   * Instead of one screen, you might have multiple rounds where AI candidates
-//     are also interviewing for the same openings. This module could expose a
-//     function to generate candidate pools, and evaluateContractOffer would be
-//     called for each candidate with different gmCredibility values.
-//
-// - Multi-career meta & credibility:
-//   * gmCredibility can be adjusted after each season or major event
-//     (playoff runs, firings, retirements).
-//   * Future restarts could seed gmCredibility from prior careers,
-//     giving “veteran GM” runs a different starting point.
-//
-// - Age & retirement:
-//   * At the end of each sim season, increment gmJob.ageYears based on
-//     birthYear and current seasonYear (tick on March 1).
-//   * Around age 70, force retirement unless gmCredibility is extremely high.
-//     For example, if gmCredibility >= 90, you could give a 10% chance per
-//     point above 90 to continue one more year.
-//
-// - Owner expectation tuning:
-//   * ownerExpectation.targetYear and baselineWins can later be computed from
-//     richer sim history: roster age curve, cap position, prior run of success.
-//   * That object will eventually be used for “hot seat” logic and owner
-//     meetings, not just hiring decisions.
-//
-// - GM profile / history:
-//   * A future GM Profile page can read this save plus a history log
-//     (stored elsewhere) including contract history, team changes,
-//     credibility swings, and championships won.
+    .page {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 24px 48px 32px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .page::before {
+      content: "";
+      position: fixed;
+      inset: -40%;
+      background:
+        radial-gradient(circle at 10% 0%, rgba(56, 189, 248, 0.12), transparent 55%),
+        radial-gradient(circle at 90% 100%, rgba(34, 197, 94, 0.10), transparent 60%);
+      opacity: 0.7;
+      mix-blend-mode: screen;
+      pointer-events: none;
+      z-index: -2;
+      animation: ambientShift 26s ease-in-out infinite alternate;
+    }
+
+    @keyframes ambientShift {
+      0% {
+        transform: translate3d(0, 0, 0) scale(1.0);
+      }
+      100% {
+        transform: translate3d(-3%, -2%, 0) scale(1.04);
+      }
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      position: relative;
+      z-index: 2;
+    }
+
+    .logo {
+      display: inline-flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .logo-mark {
+      width: 40px;
+      height: 48px;
+      border-radius: 14px 14px 18px 18px;
+      background: linear-gradient(145deg, #020617 0%, #020617 40%, #064e3b 100%);
+      border: 2px solid var(--accent-strong);
+      box-shadow:
+        0 0 0 1px rgba(15, 23, 42, 0.9),
+        0 10px 20px rgba(0, 0, 0, 0.85);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .logo-mark::before,
+    .logo-mark::after {
+      content: "";
+      position: absolute;
+      left: 12%;
+      right: 12%;
+      border-radius: 999px;
+      border: 1px solid rgba(226, 232, 240, 0.85);
+    }
+
+    .logo-mark::before {
+      top: 16px;
+      height: 2px;
+      opacity: 0.95;
+    }
+
+    .logo-mark::after {
+      top: 24px;
+      height: 2px;
+      opacity: 0.65;
+    }
+
+    .logo-laces {
+      position: absolute;
+      top: 11px;
+      left: 50%;
+      width: 14px;
+      height: 10px;
+      border-radius: 999px;
+      border: 2px solid rgba(226, 232, 240, 0.9);
+      border-top-width: 1px;
+      border-bottom-width: 1px;
+      transform: translateX(-50%) rotate(-16deg);
+      box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.8);
+    }
+
+    .logo-laces::before,
+    .logo-laces::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      width: 9px;
+      height: 1px;
+      border-radius: 999px;
+      background: rgba(226, 232, 240, 0.95);
+      transform: translateX(-50%);
+    }
+
+    .logo-laces::before {
+      top: 3px;
+    }
+
+    .logo-laces::after {
+      top: 6px;
+    }
+
+    .logo-text {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.1;
+    }
+
+    .logo-title {
+      font-size: 1.1rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .logo-sub {
+      font-size: 0.7rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--text-soft);
+    }
+
+    .top-meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.78rem;
+      color: var(--text-soft);
+    }
+
+    .pill {
+      border-radius: var(--radius-pill);
+      border: 1px solid var(--border-subtle);
+      padding: 4px 10px;
+      background: radial-gradient(circle at 10% 0%, rgba(148, 163, 184, 0.08), transparent 70%);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .pill-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: var(--accent);
+      box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.16);
+    }
+
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      position: relative;
+      z-index: 2;
+    }
+
+    /* Progress */
+
+    .progress {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.8rem;
+      margin-bottom: 4px;
+      color: var(--text-soft);
+    }
+
+    .progress-step {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border-subtle);
+      background: rgba(15, 23, 42, 0.9);
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+    }
+
+    .progress-step span.index {
+      width: 16px;
+      height: 16px;
+      border-radius: 999px;
+      background: rgba(148, 163, 184, 0.4);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.7rem;
+    }
+
+    .progress-step--primary {
+      border-color: rgba(34, 197, 94, 0.85);
+      background: radial-gradient(circle at 0 0, rgba(34, 197, 94, 0.2), rgba(15, 23, 42, 0.95));
+      color: var(--text-main);
+    }
+
+    .progress-step--primary span.index {
+      background: var(--accent);
+      color: #020617;
+    }
+
+    .progress-divider {
+      width: 18px;
+      height: 1px;
+      background: linear-gradient(to right, rgba(75, 85, 99, 0.8), transparent);
+    }
+
+    /* Layout panels */
+
+    .layout-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 3.2fr) minmax(0, 2.3fr);
+      gap: 18px;
+      align-items: flex-start;
+    }
+
+    .panel {
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(31, 41, 55, 0.9);
+      background: var(--bg-elevated);
+      box-shadow: var(--shadow-soft);
+      padding: 16px 18px 14px;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .panel-title {
+      font-size: 0.9rem;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      color: var(--text-soft);
+    }
+
+    .panel-title strong {
+      color: var(--text-main);
+    }
+
+    /* Segmented control */
+
+    .segmented {
+      display: inline-flex;
+      border-radius: var(--radius-pill);
+      border: 1px solid var(--border-subtle);
+      background: rgba(15, 23, 42, 0.9);
+      overflow: hidden;
+    }
+
+    .segmented button {
+      border: none;
+      padding: 6px 12px;
+      font-size: 0.78rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      background: transparent;
+      color: var(--text-soft);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+    }
+
+    .segmented button[aria-pressed="true"] {
+      background: var(--accent-soft);
+      color: #bbf7d0;
+      box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.6);
+    }
+
+    .segmented button:focus-visible {
+      outline: 2px solid var(--accent-strong);
+      outline-offset: 2px;
+    }
+
+    /* Team selection */
+
+    .team-panel {
+      background:
+        radial-gradient(circle at 0 0, rgba(15, 118, 110, 0.18), transparent 55%),
+        var(--bg-elevated);
+    }
+
+    .team-panel-subtitle {
+      font-size: 0.8rem;
+      color: var(--text-soft);
+      margin-bottom: 8px;
+    }
+
+    .team-feedback {
+      font-size: 0.8rem;
+      color: var(--warn);
+      margin-bottom: 6px;
+      min-height: 1.1em;
+    }
+
+    .team-list {
+      max-height: 520px;
+      overflow: auto;
+      padding-right: 4px;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 10px;
+    }
+
+    .team-card {
+      border-radius: 14px;
+      border: 1px solid rgba(31, 41, 55, 0.95);
+      padding: 10px 11px;
+      background: rgba(15, 23, 42, 0.96);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 0.78rem;
+      position: relative;
+      overflow: hidden;
+      transition:
+        border-color var(--transition-fast),
+        box-shadow var(--transition-fast),
+        transform var(--transition-fast),
+        background var(--transition-fast);
+    }
+
+    .team-card::after {
+      content: "";
+      position: absolute;
+      inset: auto -20% 0;
+      height: 2px;
+      background: linear-gradient(
+        to right,
+        rgba(34, 197, 94, 0.0),
+        rgba(34, 197, 94, 0.75),
+        rgba(56, 189, 248, 0.0)
+      );
+      opacity: 0;
+      transition: opacity var(--transition-fast);
+    }
+
+    .team-card--open {
+      cursor: pointer;
+      background:
+        radial-gradient(circle at 0 0, rgba(34, 197, 94, 0.16), transparent 70%),
+        rgba(15, 23, 42, 0.98);
+    }
+
+    .team-card--open:hover {
+      border-color: rgba(34, 197, 94, 0.9);
+      box-shadow: 0 14px 32px rgba(0, 0, 0, 0.8);
+      transform: translateY(-1px);
+    }
+
+    .team-card--open:hover::after {
+      opacity: 0.7;
+    }
+
+    .team-card--selected {
+      border-color: rgba(34, 197, 94, 1);
+      box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.6), 0 16px 40px rgba(0, 0, 0, 0.85);
+    }
+
+    .team-card--filled {
+      opacity: 0.6;
+      background: rgba(15, 23, 42, 0.92);
+    }
+
+    .team-card-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 6px;
+      align-items: baseline;
+    }
+
+    .team-name-line {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .team-name-line strong {
+      font-size: 0.9rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .team-name-line span {
+      font-size: 0.74rem;
+      color: var(--text-soft);
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+    }
+
+    .team-tag {
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      border: 1px solid rgba(55, 65, 81, 0.9);
+      color: rgba(148, 163, 184, 0.95);
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .team-tag--open {
+      border-color: rgba(34, 197, 94, 0.9);
+      color: #bbf7d0;
+      background: rgba(22, 101, 52, 0.3);
+    }
+
+    .team-tag-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: var(--accent);
+    }
+
+    .team-card-body {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.1fr);
+      gap: 4px 12px;
+      align-items: flex-start;
+    }
+
+    .team-stat-line {
+      font-size: 0.76rem;
+      color: var(--text-soft);
+    }
+
+    .team-stat-line strong {
+      color: var(--text-main);
+    }
+
+    .team-notes {
+      font-size: 0.74rem;
+      color: var(--text-soft);
+    }
+
+    .team-notes span.label {
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      font-size: 0.7rem;
+      color: rgba(148, 163, 184, 0.9);
+    }
+
+    .team-notes p {
+      margin: 2px 0;
+    }
+
+    .team-list-empty {
+      font-size: 0.84rem;
+      color: var(--text-soft);
+      padding: 6px 0;
+    }
+
+    /* Compact views */
+
+    .team-groups {
+      max-height: 520px;
+      overflow: auto;
+      padding-right: 4px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .team-group {
+      border-radius: 12px;
+      border: 1px solid rgba(31, 41, 55, 0.95);
+      padding: 8px 10px;
+      background: rgba(15, 23, 42, 0.96);
+    }
+
+    .team-group-title {
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: rgba(148, 163, 184, 0.95);
+      margin-bottom: 4px;
+    }
+
+    .team-rows {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .team-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) 0.9fr 0.9fr;
+      gap: 4px;
+      align-items: center;
+      font-size: 0.76rem;
+      padding: 4px 6px;
+      border-radius: 8px;
+      cursor: default;
+    }
+
+    .team-row--open {
+      cursor: pointer;
+      background: rgba(15, 23, 42, 0.94);
+    }
+
+    .team-row--open:hover {
+      background: rgba(22, 163, 74, 0.18);
+    }
+
+    .team-row--selected {
+      outline: 1px solid rgba(34, 197, 94, 0.9);
+      background: rgba(22, 163, 74, 0.2);
+    }
+
+    .team-row span.status-open {
+      color: #bbf7d0;
+    }
+
+    .team-row span.status-filled {
+      color: var(--text-soft);
+    }
+
+    /* Contract / realism */
+
+    .contract-panel {
+      background:
+        radial-gradient(circle at 100% 0, rgba(37, 99, 235, 0.18), transparent 55%),
+        var(--bg-elevated);
+    }
+
+    .realism-line {
+      font-size: 0.78rem;
+      color: var(--text-soft);
+      margin-bottom: 8px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .realism-pill {
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(55, 65, 81, 0.95);
+      padding: 3px 8px;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: rgba(191, 219, 254, 0.9);
+      background: rgba(15, 23, 42, 0.93);
+    }
+
+    .realism-pill span.lock {
+      opacity: 0.8;
+      margin-right: 3px;
+    }
+
+    .contract-grid {
+      display: grid;
+      grid-template-columns: 1.1fr 1.3fr;
+      gap: 10px 14px;
+      align-items: start;
+    }
+
+    .contract-control {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .contract-label {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: var(--text-soft);
+    }
+
+    .contract-years-buttons {
+      display: inline-flex;
+      border-radius: var(--radius-pill);
+      border: 1px solid var(--border-subtle);
+      overflow: hidden;
+      background: rgba(15, 23, 42, 0.95);
+    }
+
+    .contract-years-buttons button {
+      border: none;
+      padding: 6px 10px;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--text-soft);
+      background: transparent;
+      cursor: pointer;
+    }
+
+    .contract-years-buttons button[aria-pressed="true"] {
+      background: var(--accent-soft);
+      color: #bbf7d0;
+      box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.6);
+    }
+
+    .contract-input-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .money-prefix {
+      font-size: 0.86rem;
+      color: var(--text-soft);
+    }
+
+    .input-money {
+      background: rgba(15, 23, 42, 0.98);
+      border-radius: 999px;
+      border: 1px solid rgba(55, 65, 81, 0.95);
+      padding: 6px 10px;
+      font-size: 0.86rem;
+      color: var(--text-main);
+      width: 88px;
+    }
+
+    .input-money:focus-visible {
+      outline: 2px solid var(--accent-strong);
+      outline-offset: 2px;
+    }
+
+    .input-money::-webkit-outer-spin-button,
+    .input-money::-webkit-inner-spin-button {
+      margin: 0;
+    }
+
+    .contract-summary-line {
+      font-size: 0.8rem;
+      color: var(--text-soft);
+    }
+
+    .contract-summary-line strong {
+      color: var(--text-main);
+    }
+
+    .contract-note {
+      font-size: 0.78rem;
+      color: var(--text-soft);
+      margin-top: 4px;
+    }
+
+    .contract-feedback {
+      font-size: 0.8rem;
+      margin-top: 6px;
+      min-height: 1.2em;
+      color: var(--text-soft);
+    }
+
+    .contract-feedback--error {
+      color: var(--danger);
+    }
+
+    .contract-feedback--success {
+      color: var(--accent);
+    }
+
+    /* Summary */
+
+    .summary-panel {
+      margin-top: 4px;
+    }
+
+    .summary-content {
+      display: grid;
+      grid-template-columns: minmax(0, 1.7fr) minmax(0, 1.3fr);
+      gap: 10px 16px;
+      align-items: start;
+    }
+
+    .summary-card {
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(31, 41, 55, 0.9);
+      background: radial-gradient(circle at 0 0, rgba(34, 197, 94, 0.14), transparent 70%),
+                  rgba(15, 23, 42, 0.98);
+      padding: 12px 14px;
+      box-shadow: var(--shadow-sm);
+      font-size: 0.8rem;
+    }
+
+    .summary-heading {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      color: rgba(148, 163, 184, 0.95);
+      margin-bottom: 6px;
+    }
+
+    .summary-main-line {
+      font-size: 0.92rem;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .summary-main-line span.franchise-name {
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+    }
+
+    .summary-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 6px;
+      margin: 1px 0;
+    }
+
+    .summary-row span.label {
+      color: var(--text-soft);
+    }
+
+    .summary-row span.value {
+      font-weight: 500;
+    }
+
+    .existing-save-note {
+      font-size: 0.78rem;
+      color: var(--warn);
+      margin-top: 6px;
+    }
+
+    .create-panel {
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(31, 41, 55, 0.9);
+      background: rgba(15, 23, 42, 0.98);
+      padding: 12px 14px;
+      box-shadow: var(--shadow-sm);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-size: 0.8rem;
+    }
+
+    .btn {
+      border-radius: var(--radius-pill);
+      border: none;
+      padding: 9px 20px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      cursor: pointer;
+      transition:
+        background-color var(--transition-fast),
+        transform var(--transition-fast),
+        box-shadow var(--transition-fast),
+        border-color var(--transition-fast),
+        color var(--transition-fast);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #22c55e, #16a34a);
+      color: #020617;
+      box-shadow: 0 12px 30px rgba(22, 163, 74, 0.45);
+      border: 1px solid rgba(21, 128, 61, 0.9);
+    }
+
+    .btn-primary:hover:enabled {
+      transform: translateY(-1px);
+      box-shadow: 0 16px 40px rgba(22, 163, 74, 0.55);
+      filter: brightness(1.02);
+    }
+
+    .btn-primary:active:enabled {
+      transform: translateY(0);
+      box-shadow: 0 4px 18px rgba(22, 163, 74, 0.45);
+      filter: brightness(0.98);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      box-shadow: none;
+      filter: grayscale(0.05);
+    }
+
+    .create-footnote {
+      font-size: 0.78rem;
+      color: var(--text-soft);
+    }
+
+    .attempt-note {
+      font-size: 0.75rem;
+      color: var(--text-soft);
+    }
+
+    button:focus-visible {
+      outline: 2px solid var(--accent-strong);
+      outline-offset: 3px;
+    }
+
+    footer {
+      margin-top: 14px;
+      font-size: 0.78rem;
+      color: var(--text-soft);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    @media (max-width: 1024px) {
+      .page {
+        padding: 18px 20px 24px;
+      }
+
+      .layout-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .team-list,
+      .team-groups {
+        max-height: 420px;
+      }
+
+      .summary-content {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
+    @media (max-width: 640px) {
+      header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+      }
+
+      .top-meta {
+        align-self: flex-start;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header>
+      <div class="logo" aria-label="Franchise GM">
+        <div class="logo-mark">
+          <div class="logo-laces"></div>
+        </div>
+        <div class="logo-text">
+          <div class="logo-title">Franchise GM</div>
+          <div class="logo-sub">GM Hiring – Offseason</div>
+        </div>
+      </div>
+      <div class="top-meta">
+        <div class="pill">
+          <span class="pill-dot" aria-hidden="true"></span>
+          <span>Post–Super Bowl Offseason</span>
+        </div>
+        <span>Single franchise slot • Local save</span>
+      </div>
+    </header>
+
+    <main>
+      <!-- Progress indicator -->
+      <div class="progress" aria-hidden="true">
+        <div class="progress-step progress-step--primary">
+          <span class="index">1</span>
+          <span>Team</span>
+        </div>
+        <div class="progress-divider"></div>
+        <div class="progress-step progress-step--primary">
+          <span class="index">2</span>
+          <span>Contract</span>
+        </div>
+        <div class="progress-divider"></div>
+        <div class="progress-step">
+          <span class="index">3</span>
+          <span>Confirm</span>
+        </div>
+      </div>
+
+      <div class="layout-grid">
+        <!-- Team openings / league context -->
+        <section class="panel team-panel" aria-label="Team openings" id="team-section">
+          <div class="panel-header">
+            <div>
+              <div class="panel-title">
+                <strong>GM openings</strong> &nbsp;•&nbsp; League context
+              </div>
+              <p class="team-panel-subtitle">
+                Choose from current offseason GM vacancies. Filled jobs are not available.
+              </p>
+            </div>
+            <div class="segmented" role="tablist" aria-label="View mode">
+              <button type="button" id="btn-view-league" data-view-mode="league" aria-pressed="true" role="tab">
+                League
+              </button>
+              <button type="button" id="btn-view-conference" data-view-mode="conference" aria-pressed="false" role="tab">
+                Conference
+              </button>
+              <button type="button" id="btn-view-division" data-view-mode="division" aria-pressed="false" role="tab">
+                Division
+              </button>
+            </div>
+          </div>
+
+          <div id="team-feedback" class="team-feedback" aria-live="polite"></div>
+
+          <!-- Filled dynamically based on view mode -->
+          <div id="team-container" class="team-list"></div>
+        </section>
+
+        <!-- Contract + realism -->
+        <section class="panel contract-panel" aria-label="Contract and realism">
+          <div class="panel-header">
+            <div class="panel-title">
+              <strong>Contract</strong> &nbsp;•&nbsp; Context & realism
+            </div>
+          </div>
+
+          <div class="realism-line">
+            <span class="realism-pill">
+              <span class="lock">⛓</span> Injuries: On (locked)
+            </span>
+            <span class="realism-pill">
+              <span class="lock">⛓</span> Cap: Realistic (locked)
+            </span>
+            <span class="realism-pill">
+              <span class="lock">⛓</span> Difficulty: Simulation
+            </span>
+            <span class="realism-pill">
+              <span class="lock">⛓</span> Saves: Ironman
+            </span>
+          </div>
+
+          <div class="contract-grid">
+            <div class="contract-control">
+              <div class="contract-label">Contract years</div>
+              <div class="contract-years-buttons" role="radiogroup" aria-label="Contract length">
+                <button type="button" data-years="1" aria-pressed="false">1 year</button>
+                <button type="button" data-years="2" aria-pressed="true">2 years</button>
+                <button type="button" data-years="3" aria-pressed="false">3 years</button>
+              </div>
+            </div>
+
+            <div class="contract-control">
+              <div class="contract-label">Salary per year</div>
+              <div class="contract-input-row">
+                <span class="money-prefix">$</span>
+                <input
+                  id="salary-input"
+                  class="input-money"
+                  type="number"
+                  step="0.05"
+                  min="0.25"
+                  max="2"
+                  value="1.00"
+                  aria-label="GM salary per year in millions of dollars"
+                />
+                <span class="money-prefix">M / year</span>
+              </div>
+              <div class="contract-summary-line">
+                <span id="contract-total-text"><strong>Total: $2.00M</strong> over 2 years</span>
+              </div>
+              <div class="contract-note">
+                Larger deals increase expectations and pressure. Modest deals are safer, but slow early credibility growth.
+              </div>
+            </div>
+
+            <div class="contract-control">
+              <div class="contract-label">Franchise name</div>
+              <div id="franchise-name-display" class="contract-summary-line">
+                Select an open team to set your franchise.
+              </div>
+            </div>
+
+            <div class="contract-control">
+              <div class="contract-label">Owner & market note</div>
+              <div id="owner-market-display" class="contract-summary-line">
+                Team context will appear here after you choose an opening.
+              </div>
+            </div>
+          </div>
+
+          <div id="contract-feedback" class="contract-feedback" aria-live="polite"></div>
+        </section>
+      </div>
+
+      <!-- Summary & create franchise -->
+      <section class="panel summary-panel" aria-label="Summary and confirmation">
+        <div class="panel-header">
+          <div class="panel-title">
+            <strong>Summary</strong> &nbsp;•&nbsp; Create franchise
+          </div>
+        </div>
+
+        <div class="summary-content">
+          <div class="summary-card" aria-live="polite">
+            <div class="summary-heading">Franchise overview</div>
+            <div class="summary-main-line">
+              <span class="franchise-name" id="summary-franchise-name">No team selected</span>
+            </div>
+            <div class="summary-row">
+              <span class="label">Team</span>
+              <span class="value" id="summary-team-line">—</span>
+            </div>
+            <div class="summary-row">
+              <span class="label">Season</span>
+              <span class="value" id="summary-season-line">—</span>
+            </div>
+            <div class="summary-row">
+              <span class="label">Starting phase</span>
+              <span class="value" id="summary-phase-line">Offseason (Post-Super Bowl)</span>
+            </div>
+            <div class="summary-row">
+              <span class="label">GM contract</span>
+              <span class="value" id="summary-contract-line">—</span>
+            </div>
+            <div class="summary-row">
+              <span class="label">Owner expectation</span>
+              <span class="value" id="summary-owner-line">—</span>
+            </div>
+            <div class="summary-row">
+              <span class="label">Realism</span>
+              <span class="value">Injuries on • Realistic cap • Simulation • Ironman</span>
+            </div>
+
+            <p id="existing-save-note" class="existing-save-note" hidden></p>
+          </div>
+
+          <div class="create-panel">
+            <div>
+              You’re about to take over as GM for the selected franchise at the start of the offseason.
+            </div>
+            <button type="button" class="btn btn-primary" id="btn-create-franchise" disabled>
+              Create franchise
+            </button>
+            <div class="create-footnote">
+              Creating a new franchise will replace any active franchise in this slot.
+            </div>
+            <div id="attempt-note" class="attempt-note"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <span>Franchise GM • GM hiring prototype</span>
+      <span>Future: job market, interviews, multi-career history</span>
+    </footer>
+  </div>
+
+  <script src="team_select.js" defer></script>
+</body>
+</html>
