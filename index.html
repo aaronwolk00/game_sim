@@ -1,769 +1,1324 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>Layer 3 – Team Rosters</title>
+  <meta charset="UTF-8" />
+  <title>Franchise GM – Landing</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     :root {
       --bg: #020617;
-      --panel: #020617;
-      --card: #020617;
-      --card-border: #1e293b;
-      --text: #e5e7eb;
-      --muted: #9ca3af;
+      --bg-elevated: rgba(15, 23, 42, 0.96);
+      --bg-elevated-soft: rgba(15, 23, 42, 0.82);
+      --border-subtle: #1f2937;
+      --border-strong: #4b5563;
+      --text-main: #e5e7eb;
+      --text-soft: #9ca3af;
       --accent: #22c55e;
-      --accent-soft: rgba(34,197,94,0.15);
+      --accent-soft: rgba(34, 197, 94, 0.18);
+      --accent-strong: #22c55e;
+      --accent-alt: #38bdf8;
       --danger: #f97373;
-      --font: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
-              "Segoe UI", Roboto, sans-serif;
+      --radius-lg: 18px;
+      --radius-md: 12px;
+      --radius-pill: 999px;
+      --shadow-soft: 0 22px 45px rgba(0, 0, 0, 0.65);
+      --shadow-sm: 0 10px 24px rgba(0, 0, 0, 0.5);
+      --transition-fast: 150ms ease-out;
+      --transition-med: 220ms ease;
     }
-    * { box-sizing: border-box; }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
     body {
       margin: 0;
-      background: radial-gradient(circle at top, #0b1120 0, #020617 48%, #020617 100%);
-      color: var(--text);
-      font-family: var(--font);
-      min-height: 100vh;
+      padding: 0;
+      height: 100%;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at 0% 0%, #0b1120 0, #020617 48%, #000 100%);
+      color: var(--text-main);
+    }
+
+    body {
       display: flex;
       flex-direction: column;
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .page {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 24px 48px 32px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Subtle ambient gradient */
+    .page::before {
+      content: "";
+      position: fixed;
+      inset: -40%;
+      background:
+        radial-gradient(circle at 10% 0%, rgba(56, 189, 248, 0.12), transparent 55%),
+        radial-gradient(circle at 90% 100%, rgba(34, 197, 94, 0.10), transparent 60%);
+      opacity: 0.7;
+      mix-blend-mode: screen;
+      pointer-events: none;
+      z-index: -2;
+      animation: ambientShift 26s ease-in-out infinite alternate;
+    }
+
+    @keyframes ambientShift {
+      0% {
+        transform: translate3d(0, 0, 0) scale(1.0);
+      }
+      100% {
+        transform: translate3d(-3%, -2%, 0) scale(1.04);
+      }
+    }
+
+    header {
+      display: flex;
       align-items: center;
-    }
-    main {
-      width: min(1080px, 96vw);
-      margin: 24px 0 40px;
-    }
-    h1 {
-      margin: 0;
-      font-size: 24px;
-      letter-spacing: 0.03em;
-      display: flex;
-      align-items: baseline;
-      gap: 10px;
-    }
-    h1 span.sub {
-      font-size: 12px;
-      color: var(--muted);
-      font-weight: 500;
-      text-transform: uppercase;
-    }
-    .top-row {
-      display: flex;
       justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 16px;
-      flex-wrap: wrap;
+      margin-bottom: 28px;
+      position: relative;
+      z-index: 2;
     }
-    .status-pill {
+
+    .logo {
+      display: inline-flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .logo-mark {
+      width: 40px;
+      height: 48px;
+      border-radius: 14px 14px 18px 18px;
+      background: linear-gradient(145deg, #020617 0%, #020617 40%, #064e3b 100%);
+      border: 2px solid var(--accent-strong);
+      box-shadow:
+        0 0 0 1px rgba(15, 23, 42, 0.9),
+        0 10px 20px rgba(0, 0, 0, 0.85);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .logo-mark::before,
+    .logo-mark::after {
+      content: "";
+      position: absolute;
+      left: 12%;
+      right: 12%;
+      border-radius: 999px;
+      border: 1px solid rgba(226, 232, 240, 0.85);
+    }
+
+    .logo-mark::before {
+      top: 16px;
+      height: 2px;
+      opacity: 0.95;
+    }
+
+    .logo-mark::after {
+      top: 24px;
+      height: 2px;
+      opacity: 0.65;
+    }
+
+    .logo-laces {
+      position: absolute;
+      top: 11px;
+      left: 50%;
+      width: 14px;
+      height: 10px;
+      border-radius: 999px;
+      border: 2px solid rgba(226, 232, 240, 0.9);
+      border-top-width: 1px;
+      border-bottom-width: 1px;
+      transform: translateX(-50%) rotate(-16deg);
+      box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.8);
+    }
+
+    .logo-laces::before,
+    .logo-laces::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      width: 9px;
+      height: 1px;
+      border-radius: 999px;
+      background: rgba(226, 232, 240, 0.95);
+      transform: translateX(-50%);
+    }
+
+    .logo-laces::before {
+      top: 3px;
+    }
+
+    .logo-laces::after {
+      top: 6px;
+    }
+
+    .logo-text {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.1;
+    }
+
+    .logo-title {
+      font-size: 1.1rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .logo-sub {
+      font-size: 0.7rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--text-soft);
+    }
+
+    .top-meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.78rem;
+      color: var(--text-soft);
+    }
+
+    .pill {
+      border-radius: var(--radius-pill);
+      border: 1px solid var(--border-subtle);
+      padding: 4px 10px;
+      background: radial-gradient(circle at 10% 0%, rgba(148, 163, 184, 0.08), transparent 70%);
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      padding: 6px 10px;
-      border-radius: 999px;
-      background: rgba(15, 23, 42, 0.9);
-      border: 1px solid #1f2937;
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--muted);
     }
-    .status-pill .dot {
+
+    .pill-dot {
       width: 7px;
       height: 7px;
       border-radius: 999px;
-      background: #fbbf24;
+      background: var(--accent);
+      box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.16);
     }
-    .status-pill.ready .dot { background: #22c55e; }
-    .status-pill.error .dot { background: var(--danger); }
-    .status-pill strong { color: var(--text); }
 
-    .controls {
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+      position: relative;
+      z-index: 2;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 3fr) minmax(0, 2.7fr);
+      gap: 28px;
+      align-items: stretch;
+    }
+
+    .hero-left {
+      background: radial-gradient(circle at 0% 0%, rgba(15, 118, 110, 0.28), transparent 55%),
+                  var(--bg-elevated);
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(31, 41, 55, 0.85);
+      box-shadow: var(--shadow-soft);
+      padding: 24px 26px 22px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero-left::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(
+        130deg,
+        rgba(15, 23, 42, 0.0) 0%,
+        rgba(15, 23, 42, 0.8) 40%,
+        rgba(0, 0, 0, 0.9) 100%
+      );
+      mix-blend-mode: multiply;
+      pointer-events: none;
+    }
+
+    .hero-left-inner {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .hero-label-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--text-soft);
+    }
+
+    .hero-label-row .divider {
+      flex: 1;
+      height: 1px;
+      background: linear-gradient(to right, rgba(55, 65, 81, 0.8), transparent);
+    }
+
+    .hero-heading {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .hero-heading h1 {
+      margin: 0;
+      font-size: 2.2rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    .hero-heading h2 {
+      margin: 0;
+      font-size: 0.9rem;
+      letter-spacing: 0.32em;
+      text-transform: uppercase;
+      color: var(--accent-alt);
+    }
+
+    .hero-subtext {
+      font-size: 0.9rem;
+      color: var(--text-soft);
+    }
+
+    .hero-actions {
+      margin-top: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .primary-actions-row {
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
+      gap: 12px;
       align-items: center;
     }
-    .search-input {
-      background: #020617;
-      border-radius: 999px;
-      border: 1px solid #1f2937;
-      padding: 6px 10px;
-      color: var(--text);
-      font-size: 13px;
-      min-width: 180px;
-    }
-    .search-input::placeholder {
-      color: #6b7280;
-    }
-    .btn {
-      border: none;
-      outline: none;
+
+    button,
+    .btn-link {
+      font-family: inherit;
       cursor: pointer;
+    }
+
+    .btn {
       border-radius: 999px;
-      padding: 7px 11px;
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
+      border: none;
+      padding: 10px 22px;
+      font-size: 0.95rem;
       font-weight: 600;
-      background: var(--accent-soft);
-      color: #bbf7d0;
-      border: 1px solid rgba(34,197,94,0.45);
-      text-decoration: none;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition:
+        background-color var(--transition-fast),
+        transform var(--transition-fast),
+        box-shadow var(--transition-fast),
+        border-color var(--transition-fast),
+        color var(--transition-fast);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #22c55e, #16a34a);
+      color: #020617;
+      box-shadow: 0 12px 30px rgba(22, 163, 74, 0.45);
+      border: 1px solid rgba(21, 128, 61, 0.9);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 16px 40px rgba(22, 163, 74, 0.55);
+      filter: brightness(1.02);
+    }
+
+    .btn-primary:active {
+      transform: translateY(0);
+      box-shadow: 0 4px 18px rgba(22, 163, 74, 0.45);
+      filter: brightness(0.98);
+    }
+
+    .btn-secondary {
+      background: rgba(15, 23, 42, 0.9);
+      border-radius: 999px;
+      border: 1px solid rgba(55, 65, 81, 0.9);
+      color: var(--text-soft);
+      padding-inline: 18px;
+    }
+
+    .btn-secondary:hover {
+      border-color: rgba(148, 163, 184, 0.9);
+      color: var(--text-main);
+      background: rgba(15, 23, 42, 0.95);
+    }
+
+    .btn-secondary:active {
+      background: #020617;
+      box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.5);
+    }
+
+    .btn-text {
+      background: none;
+      border: none;
+      padding: 0;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: rgba(148, 163, 184, 0.95);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn-text:hover {
+      color: var(--text-main);
+    }
+
+    .btn-text .chevron {
+      font-size: 0.8em;
+      transform-origin: center;
+      transition: transform var(--transition-med);
+    }
+
+    .btn-icon-chevron {
+      border: 1px solid rgba(51, 65, 85, 0.9);
+      border-radius: 999px;
+      padding: 4px 8px;
+      font-size: 0.75rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--text-soft);
+      background: radial-gradient(circle at 0 0, rgba(148, 163, 184, 0.16), transparent 60%);
       display: inline-flex;
       align-items: center;
       gap: 4px;
     }
-    .btn:hover {
-      background: rgba(34,197,94,0.28);
+
+    .btn-icon-chevron span {
+      font-size: 0.9em;
+      opacity: 0.8;
     }
 
-    .summary-bar {
-      margin: 6px 0 18px;
-      font-size: 13px;
-      color: var(--muted);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
-    .teams-container {
+    .hero-continue-card {
+      border-radius: 16px;
+      background: linear-gradient(
+        130deg,
+        rgba(31, 41, 55, 0.9),
+        rgba(15, 23, 42, 0.98)
+      );
+      border: 1px solid rgba(55, 65, 81, 0.9);
+      padding: 12px 14px;
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 6px;
+      box-shadow: var(--shadow-sm);
     }
-    details.team-card {
-      background: rgba(15, 23, 42, 0.95);
-      border-radius: 14px;
-      border: 1px solid var(--card-border);
-      padding: 10px 12px;
-      backdrop-filter: blur(10px);
-      transition: border-color 0.12s ease, background 0.12s ease;
-    }
-    details.team-card[open] {
-      border-color: rgba(34,197,94,0.5);
-      background: radial-gradient(circle at top left, rgba(34,197,94,0.18), rgba(15,23,42,0.95));
-    }
-    summary.team-header {
+
+    .hero-continue-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      cursor: pointer;
-      list-style: none;
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--text-soft);
     }
-    summary.team-header::-webkit-details-marker {
-      display: none;
-    }
-    .team-name-block {
+
+    .hero-continue-title {
       display: flex;
       flex-direction: column;
       gap: 2px;
     }
-    .team-name {
-      font-size: 15px;
-      font-weight: 700;
-      letter-spacing: 0.02em;
-    }
-    .team-meta {
-      font-size: 11px;
-      color: var(--muted);
+
+    .hero-continue-title-main {
+      font-size: 0.78rem;
       text-transform: uppercase;
-      letter-spacing: 0.08em;
-    }
-    .roster-meta {
-      font-size: 11px;
-      color: var(--muted);
+      letter-spacing: 0.18em;
     }
 
-    .roster-table-wrapper {
-      margin-top: 8px;
-      border-radius: 10px;
-      border: 1px solid #1f2937;
-      overflow: hidden;
-      background: rgba(15, 23, 42, 0.95);
+    .continue-chip {
+      border-radius: 999px;
+      border: 1px solid rgba(55, 65, 81, 0.95);
+      padding: 3px 9px;
+      font-size: 0.7rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: rgba(148, 163, 184, 0.9);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: radial-gradient(circle at 0 0, rgba(148, 163, 184, 0.16), transparent 60%);
     }
-    table.roster-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 12px;
+
+    .continue-chip-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: var(--accent);
     }
-    table.roster-table thead {
-      background: rgba(15, 23, 42, 1);
+
+    .hero-continue-body {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      margin-top: 2px;
     }
-    table.roster-table th,
-    table.roster-table td {
-      padding: 6px 8px;
-      border-bottom: 1px solid #1f2937;
-      text-align: left;
-      white-space: nowrap;
+
+    .hero-continue-meta {
+      font-size: 0.82rem;
+      color: var(--text-soft);
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
     }
-    table.roster-table th {
+
+    .hero-continue-meta strong {
+      color: var(--text-main);
       font-weight: 600;
-      color: #9ca3af;
+    }
+
+    .hero-continue-meta small {
+      font-size: 0.76rem;
+      color: rgba(148, 163, 184, 0.85);
+    }
+
+    .hero-continue-actions {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 6px;
+    }
+
+    .btn-continue {
+      font-size: 0.78rem;
+      padding: 7px 14px;
+      letter-spacing: 0.18em;
+    }
+
+    .hero-continue-card.is-disabled {
+      opacity: 0.55;
+      filter: grayscale(0.1);
+    }
+
+    .hero-continue-card.is-disabled .btn-continue {
+      cursor: not-allowed;
+      border-color: rgba(55, 65, 81, 0.8);
+    }
+
+    .hero-continue-card.is-disabled .continue-chip-dot {
+      background: rgba(148, 163, 184, 0.55);
+      box-shadow: none;
+    }
+
+    .hero-footnote {
+      margin-top: 6px;
+      font-size: 0.75rem;
+      color: rgba(148, 163, 184, 0.75);
+    }
+
+    .hero-accolades-toggle-row {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 4px;
+    }
+
+    .hero-accolades-panel {
+      margin-top: 6px;
+      padding: 10px 12px;
+      border-radius: 14px;
+      border: 1px solid rgba(55, 65, 81, 0.9);
+      background: rgba(15, 23, 42, 0.9);
+      font-size: 0.8rem;
+      color: var(--text-soft);
+    }
+
+    .hero-accolades-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px 18px;
+    }
+
+    .hero-accolades-item {
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .hero-accolades-label {
       text-transform: uppercase;
-      letter-spacing: 0.06em;
-      font-size: 11px;
-    }
-    table.roster-table tbody tr:nth-child(even) {
-      background: rgba(15, 23, 42, 0.75);
-    }
-    table.roster-table tbody tr:last-child td {
-      border-bottom: none;
+      letter-spacing: 0.14em;
+      font-size: 0.7rem;
     }
 
-    .empty-message {
-      font-size: 13px;
-      color: var(--muted);
-      margin-top: 8px;
+    .hero-accolades-value {
+      font-weight: 600;
+      color: var(--text-main);
     }
 
-    .error-text {
-      color: var(--danger);
-      font-size: 13px;
-      margin-top: 8px;
+    .hero-right {
+      position: relative;
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      background: radial-gradient(circle at 0 100%, rgba(8, 47, 73, 0.8), rgba(15, 23, 42, 0.98));
+      border: 1px solid rgba(30, 64, 175, 0.7);
+      box-shadow: var(--shadow-soft);
+      isolation: isolate;
+    }
+
+    .hero-right-inner {
+      position: relative;
+      inset: 0;
+      padding: 18px 18px 16px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      z-index: 1;
+    }
+
+    .hero-right-top-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: rgba(191, 219, 254, 0.9);
+    }
+
+    .hero-right-top-row span:nth-child(2) {
+      font-size: 0.7rem;
+      letter-spacing: 0.2em;
+      opacity: 0.7;
+    }
+
+    .field-panel {
+      position: relative;
+      flex: 1;
+      margin-top: 18px;
+      border-radius: 18px;
+      overflow: hidden;
+      background:
+        linear-gradient(140deg, rgba(8, 47, 73, 0.3), rgba(8, 47, 73, 0.9)),
+        radial-gradient(circle at 10% 0%, rgba(56, 189, 248, 0.35), transparent 60%);
+      border: 1px solid rgba(37, 99, 235, 0.65);
+      box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.8);
+    }
+
+    .field-panel::before {
+      content: "";
+      position: absolute;
+      inset: -40%;
+      background: conic-gradient(
+        from 240deg,
+        rgba(15, 23, 42, 0.4),
+        rgba(15, 23, 42, 0.0),
+        rgba(15, 23, 42, 0.4)
+      );
+      opacity: 0.7;
+      mix-blend-mode: soft-light;
+      animation: rotateSweep 36s linear infinite;
+    }
+
+    @keyframes rotateSweep {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .field-lines {
+      position: absolute;
+      inset: 10% 14%;
+      border-radius: 16px;
+      border: 1px solid rgba(226, 232, 240, 0.08);
+      overflow: hidden;
+      background:
+        repeating-linear-gradient(
+          to right,
+          rgba(226, 232, 240, 0.18) 0,
+          rgba(226, 232, 240, 0.18) 1px,
+          transparent 1px,
+          transparent 40px
+        ),
+        repeating-linear-gradient(
+          to right,
+          transparent 0,
+          transparent 40px,
+          rgba(226, 232, 240, 0.25) 40px,
+          rgba(226, 232, 240, 0.25) 42px
+        ),
+        linear-gradient(to bottom, rgba(15, 23, 42, 0.7), rgba(15, 23, 42, 0.9));
+      clip-path: polygon(0 8%, 100% 0, 100% 92%, 0% 100%);
+      transform: skewX(-9deg);
+      box-shadow:
+        inset 0 25px 35px rgba(0, 0, 0, 0.65),
+        inset 0 -30px 45px rgba(0, 0, 0, 0.85);
+    }
+
+    .field-hash {
+      position: absolute;
+      width: 66%;
+      left: 17%;
+      top: 50%;
+      height: 1px;
+      background: repeating-linear-gradient(
+        to right,
+        transparent 0,
+        transparent 14px,
+        rgba(226, 232, 240, 0.5) 14px,
+        rgba(226, 232, 240, 0.5) 18px
+      );
+      opacity: 0.7;
+    }
+
+    .field-hash:nth-of-type(2) {
+      top: 62%;
+      opacity: 0.45;
+    }
+
+    .field-scorebug {
+      position: absolute;
+      top: 10%;
+      left: 16%;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 7px 10px;
+      background: rgba(15, 23, 42, 0.9);
+      border-radius: 12px;
+      border: 1px solid rgba(30, 64, 175, 0.8);
+      box-shadow: 0 10px 22px rgba(0, 0, 0, 0.7);
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: rgba(226, 232, 240, 0.98);
+    }
+
+    .field-scorebug-team {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .field-scorebug-pill {
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      border: 1px solid rgba(226, 232, 240, 0.8);
+      box-shadow: inset 0 0 0 2px rgba(15, 23, 42, 0.9);
+      background: radial-gradient(circle at 30% 20%, rgba(56, 189, 248, 0.35), rgba(15, 23, 42, 1));
+    }
+
+    .field-scorebug-score {
+      font-weight: 700;
+      font-size: 0.85rem;
+    }
+
+    .field-tag {
+      position: absolute;
+      bottom: 13%;
+      right: 18%;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.92);
+      border: 1px solid rgba(51, 65, 85, 0.9);
+      font-size: 0.68rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: rgba(191, 219, 254, 0.85);
+    }
+
+    .hero-right-footer {
+      margin-top: 18px;
+      font-size: 0.76rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: rgba(191, 219, 254, 0.8);
+    }
+
+    .hero-right-footer span:last-child {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.19em;
+      opacity: 0.85;
+    }
+
+    /* Modes strip */
+
+    .modes {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .modes-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--text-soft);
+    }
+
+    .modes-header .divider {
+      flex: 1;
+      height: 1px;
+      margin-left: 10px;
+      background: linear-gradient(to right, rgba(55, 65, 81, 0.8), transparent);
+    }
+
+    .modes-row {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .mode-card {
+      min-width: 260px;
+      max-width: 360px;
+      flex: 1;
+      border-radius: 16px;
+      border: 1px solid rgba(31, 41, 55, 0.9);
+      background: radial-gradient(circle at 0 0, rgba(34, 197, 94, 0.22), transparent 70%),
+                  var(--bg-elevated-soft);
+      padding: 14px 16px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      box-shadow: var(--shadow-sm);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .mode-card::after {
+      content: "";
+      position: absolute;
+      inset: auto -20% 0;
+      height: 2px;
+      background: linear-gradient(to right, rgba(34, 197, 94, 0.0), rgba(34, 197, 94, 0.85), rgba(56, 189, 248, 0.0));
+      opacity: 0.6;
+    }
+
+    .mode-card-label {
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      color: rgba(148, 163, 184, 0.95);
+    }
+
+    .mode-card-title-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .mode-card-title-row h3 {
+      margin: 0;
+      font-size: 1rem;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+    }
+
+    .mode-card-badge {
+      border-radius: 999px;
+      border: 1px solid rgba(34, 197, 94, 0.9);
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      padding: 4px 9px;
+      color: rgba(34, 197, 94, 0.92);
+      background: rgba(22, 101, 52, 0.25);
+    }
+
+    .mode-card-meta {
+      font-size: 0.8rem;
+      color: var(--text-soft);
+    }
+
+    .mode-card-actions {
+      margin-top: 6px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .mode-card .btn {
+      font-size: 0.78rem;
+      padding: 7px 14px;
+      letter-spacing: 0.19em;
+    }
+
+    .mode-card-secondary {
+      font-size: 0.74rem;
+      color: rgba(148, 163, 184, 0.9);
+    }
+
+    footer {
+      margin-top: 18px;
+      font-size: 0.78rem;
+      color: var(--text-soft);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .footer-link-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .btn-link {
+      background: none;
+      border: none;
+      padding: 0;
+      color: rgba(148, 163, 184, 0.9);
+      font-size: 0.8rem;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .btn-link:hover {
+      color: rgba(226, 232, 240, 0.98);
+    }
+
+    .btn-link span {
+      font-size: 0.9em;
+    }
+
+    .version-text {
+      opacity: 0.8;
+    }
+
+    /* Modal */
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.82);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 40;
+    }
+
+    .modal-backdrop[hidden] {
+      display: none;
+    }
+
+    .modal {
+      max-width: 420px;
+      width: 100%;
+      margin: 0 16px;
+      background: var(--bg-elevated);
+      border-radius: 18px;
+      border: 1px solid rgba(55, 65, 81, 0.95);
+      box-shadow: var(--shadow-soft);
+      padding: 20px 22px 16px;
+    }
+
+    .modal-title {
+      margin: 0 0 6px;
+      font-size: 1.05rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .modal-body {
+      margin: 0 0 16px;
+      font-size: 0.9rem;
+      color: var(--text-soft);
+    }
+
+    .modal-body strong {
+      color: var(--text-main);
+    }
+
+    .modal-buttons {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    /* General button / focus / disabled */
+
+    button:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+
+    button:focus-visible,
+    .btn-link:focus-visible {
+      outline: 2px solid var(--accent-strong);
+      outline-offset: 3px;
+    }
+
+    /* Responsive tweaks */
+
+    @media (max-width: 980px) {
+      .page {
+        padding: 18px 20px 24px;
+      }
+
+      .hero {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .hero-right {
+        order: -1;
+        min-height: 260px;
+      }
+
+      .hero-left {
+        min-height: 0;
+      }
     }
 
     @media (max-width: 640px) {
-      .team-name {
-        font-size: 14px;
+      header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
       }
-      table.roster-table th:nth-child(4),
-      table.roster-table td:nth-child(4) {
-        display: none; /* hide last name on very small screens */
+
+      .top-meta {
+        align-self: flex-start;
+      }
+
+      .mode-card {
+        min-width: 0;
       }
     }
-
-    /* === Sortable roster tables & light interactivity === */
-    table.roster-table.sortable th {
-      cursor: pointer;
-      position: relative;
-      user-select: none;
-    }
-    table.roster-table th .sort-icon {
-      margin-left: 6px;
-      font-size: 10px;
-      opacity: .55;
-    }
-    table.roster-table th[aria-sort="ascending"] .sort-icon::after { content: "▲"; }
-    table.roster-table th[aria-sort="descending"] .sort-icon::after { content: "▼"; }
-    table.roster-table th[aria-sort="none"] .sort-icon::after { content: "◇"; opacity: .35; }
-
-    /* Click-to-select a row */
-    table.roster-table tbody tr:hover {
-      background: rgba(34,197,94,0.12);
-    }
-    table.roster-table tbody tr.row-selected {
-      outline: 2px solid var(--accent);
-      background: var(--accent-soft);
-    }
-
   </style>
 </head>
 <body>
-  <main>
-    <div class="top-row">
-      <div>
-        <h1>
-          Layer 3 Rosters
-          <span class="sub">from layer3_rosters.csv</span>
-        </h1>
-        <div id="status-pill" class="status-pill">
-          <span class="dot"></span>
-          <span><strong>Loading</strong> rosters…</span>
+  <div class="page">
+    <header>
+      <div class="logo" aria-label="Franchise GM">
+        <div class="logo-mark">
+          <div class="logo-laces"></div>
+        </div>
+        <div class="logo-text">
+          <div class="logo-title">Franchise GM</div>
+          <div class="logo-sub">Front Office Mode</div>
         </div>
       </div>
+      <div class="top-meta">
+        <div class="pill">
+          <span class="pill-dot" aria-hidden="true"></span>
+          <span>Desktop build</span>
+        </div>
+        <span>Single franchise slot • Local save</span>
+      </div>
+    </header>
 
-      <!-- controls now include Simulation button -->
-      <div class="controls">
-        <input
-          id="search-input"
-          class="search-input"
-          type="search"
-          placeholder="Filter by team name or ID…" />
-        <button id="btn-clear" class="btn" type="button">Clear</button>
-      
-        <!-- NEW: GM Dashboard button -->
-        <a id="btn-gm" class="btn" href="#">GM Dashboard</a>
-      
-        <!-- Existing buttons -->
-        <a id="btn-sim" class="btn" href="#">Simulation</a>
-        <a id="btn-batch" class="btn" href="#">Batch Sim</a>
-      </div>      
+    <main>
+      <section class="hero" aria-label="Franchise landing">
+        <!-- Left: primary actions -->
+        <section class="hero-left" aria-labelledby="hero-main-heading">
+          <div class="hero-left-inner">
+            <div class="hero-label-row">
+              <span>Mode</span>
+              <div class="divider"></div>
+            </div>
+
+            <div class="hero-heading">
+              <h2>Franchise</h2>
+              <h1 id="hero-main-heading">Franchise Mode</h1>
+            </div>
+
+            <p class="hero-subtext">
+              Run one franchise across multiple seasons. Whole league state is saved.
+            </p>
+
+            <div class="hero-actions">
+              <div class="primary-actions-row">
+                <button
+                  type="button"
+                  class="btn btn-primary"
+                  id="btn-start-hero"
+                >
+                  <span>Start New Franchise</span>
+                </button>
+
+                <button
+                  type="button"
+                  class="btn btn-secondary"
+                  id="btn-continue-inline"
+                  data-continue-button="true"
+                >
+                  <span>Continue Franchise</span>
+                </button>
+
+                <div class="btn-icon-chevron" aria-hidden="true">
+                  <span>↳</span>
+                  <span>Franchise GM</span>
+                </div>
+              </div>
+
+              <div
+                class="hero-continue-card is-disabled"
+                data-continue-card
+                aria-live="polite"
+              >
+                <div class="hero-continue-header">
+                  <div class="hero-continue-title">
+                    <span class="hero-continue-title-main">Active franchise</span>
+                    <span class="hero-continue-title-sub" id="continue-franchise-name-sub">
+                      <!-- Filled by JS -->
+                    </span>
+                  </div>
+                  <div class="hero-continue-controls">
+                    <button
+                      type="button"
+                      class="btn-text"
+                      id="btn-rename-franchise"
+                      disabled
+                    >
+                      <span>Rename</span>
+                    </button>
+                    <div class="continue-chip">
+                      <span class="continue-chip-dot"></span>
+                      <span>Autosave</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="hero-continue-body">
+                  <div class="hero-continue-meta" data-continue-meta>
+                    <strong>No active franchise</strong>
+                    <small>Start a new franchise to create one.</small>
+                  </div>
+                  <div class="hero-continue-actions">
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-continue"
+                      id="btn-continue-hero"
+                      data-continue-button="true"
+                      disabled
+                      aria-disabled="true"
+                    >
+                      <span>Continue Franchise</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="hero-accolades-toggle-row">
+                  <button
+                    type="button"
+                    class="btn-text"
+                    id="btn-toggle-accolades"
+                    aria-expanded="false"
+                    disabled
+                  >
+                    <span>Career Accolades</span>
+                    <span class="chevron" aria-hidden="true">▾</span>
+                  </button>
+                </div>
+
+                <div
+                  class="hero-accolades-panel"
+                  data-accolades-panel
+                  hidden
+                >
+                  <div class="hero-accolades-grid">
+                    <div class="hero-accolades-item">
+                      <span class="hero-accolades-label">Seasons</span>
+                      <span class="hero-accolades-value" data-accolades-seasons>0</span>
+                    </div>
+                    <div class="hero-accolades-item">
+                      <span class="hero-accolades-label">Playoff Apps</span>
+                      <span class="hero-accolades-value" data-accolades-playoffs>0</span>
+                    </div>
+                    <div class="hero-accolades-item">
+                      <span class="hero-accolades-label">Division Titles</span>
+                      <span class="hero-accolades-value" data-accolades-divisions>0</span>
+                    </div>
+                    <div class="hero-accolades-item">
+                      <span class="hero-accolades-label">Championships</span>
+                      <span class="hero-accolades-value" data-accolades-championships>0</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <p class="hero-footnote">
+                Single franchise slot. Autosaves after weeks and decisions. Overwriting will replace this career.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Right: abstract field / broadcast visual -->
+        <section class="hero-right" aria-hidden="true">
+          <div class="hero-right-inner">
+            <div class="hero-right-top-row">
+              <span>League View</span>
+              <span>Front Office Perspective</span>
+            </div>
+
+            <div class="field-panel">
+              <div class="field-lines"></div>
+              <div class="field-hash"></div>
+              <div class="field-hash"></div>
+
+              <div class="field-scorebug">
+                <div class="field-scorebug-team">
+                  <div class="field-scorebug-pill"></div>
+                  <span>GM</span>
+                </div>
+                <span class="field-scorebug-score">00:00</span>
+                <span>OFFSEASON</span>
+              </div>
+
+              <div class="field-tag">
+                Franchise • Multi-Season
+              </div>
+            </div>
+
+            <div class="hero-right-footer">
+              <span>One career, full league state.</span>
+              <span>Simulation Ready</span>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <!-- Modes strip (secondary) -->
+      <section class="modes" aria-label="Modes overview">
+        <div class="modes-header">
+          <span>Modes</span>
+          <div class="divider"></div>
+        </div>
+        <div class="modes-row">
+          <article class="mode-card">
+            <div class="mode-card-label">Core</div>
+            <div class="mode-card-title-row">
+              <h3>Franchise GM</h3>
+              <span class="mode-card-badge">Active</span>
+            </div>
+            <p class="mode-card-meta">
+              Multi-season front office mode with a single active franchise.
+            </p>
+            <div class="mode-card-actions">
+              <button
+                type="button"
+                class="btn btn-primary"
+                id="btn-start-mode-card"
+              >
+                <span>Start Franchise</span>
+              </button>
+              <button
+                type="button"
+                class="btn btn-secondary"
+                id="btn-continue-mode-card"
+                data-continue-button="true"
+              >
+                <span>Continue</span>
+              </button>
+              <span class="mode-card-secondary">Single slot • Local only</span>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="footer-link-row">
+        <a href="legacy_sim.html" class="btn-link" id="link-legacy">
+          <!-- TODO: point this directly to your current game_sim page if desired -->
+          <span>⟲</span>
+          <span>Legacy Sim Tools</span>
+        </a>
+        <!-- New: direct links to existing pages using same pattern as current index.html -->
+        <a href="#" class="btn-link" id="link-rosters">
+          <span>▤</span>
+          <span>Layer 3 Rosters</span>
+        </a>
+        <a href="#" class="btn-link" id="link-sim">
+          <span>▶</span>
+          <span>Simulation</span>
+        </a>
+        <a href="#" class="btn-link" id="link-batch">
+          <span>⧉</span>
+          <span>Batch Sim</span>
+        </a>
+      </div>
+      <div class="version-text">
+        Franchise GM • Single-slot prototype
+      </div>
+    </footer>
+  </div>
+
+  <!-- Overwrite confirmation modal for "Start New Franchise" when a save exists -->
+  <div class="modal-backdrop" data-modal-backdrop hidden>
+    <div
+      class="modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="overwrite-modal-title"
+    >
+      <h2 class="modal-title" id="overwrite-modal-title">Start New Franchise</h2>
+      <p class="modal-body">
+        You already have an active franchise. Starting a new one will overwrite this slot
+        and replace the saved career. This cannot be undone from here.
+      </p>
+      <div class="modal-buttons">
+        <button
+          type="button"
+          class="btn btn-secondary"
+          id="modal-cancel"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          class="btn btn-primary"
+          id="modal-confirm"
+        >
+          Continue to Team Select
+        </button>
+      </div>
     </div>
+  </div>
 
-    <div class="summary-bar">
-      <span id="summary-text">Reading CSV…</span>
-      <span id="source-text"></span>
-    </div>
-
-    <div id="error-box" class="error-text" style="display:none;"></div>
-    <div id="teams-container" class="teams-container"></div>
-  </main>
-
-  <script>
-    // ---------------------------- Config --------------------------------------
-    const PARAMS = new URLSearchParams(location.search);
-
-    // Optional override: ?players=<full CSV URL>
-    const RAW_PLAYERS_PARAM = PARAMS.get('players') || '';
-
-    const DEFAULT_LAYER3_URL =
-      'https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/layer3_rosters.csv';
-
-    // If players= is provided, use that as-is; otherwise fall back to your default.
-    const EFFECTIVE_ROSTER_URL = RAW_PLAYERS_PARAM || DEFAULT_LAYER3_URL;
-
-    // Only need one URL in the list for now; we’ll still keep the retry logic.
-    const CSV_URLS = [EFFECTIVE_ROSTER_URL];
-
-
-    // ------------------------ DOM lookup helpers ------------------------------
-    const dom = {
-      statusPill: document.getElementById('status-pill'),
-      summaryText: document.getElementById('summary-text'),
-      sourceText: document.getElementById('source-text'),
-      teamsContainer: document.getElementById('teams-container'),
-      errorBox: document.getElementById('error-box'),
-      searchInput: document.getElementById('search-input'),
-      btnClear: document.getElementById('btn-clear'),
-      btnGm: document.getElementById('btn-gm'),   // <-- GM Dashboard
-      btnSim: document.getElementById('btn-sim'),
-      btnBatch: document.getElementById('btn-batch')
-    };
-
-
-    function setStatus(state, msg) {
-      // state: 'loading' | 'ready' | 'error'
-      const pill = dom.statusPill;
-      if (!pill) return;
-      pill.classList.remove('ready', 'error');
-      const dot = pill.querySelector('.dot');
-      const span = pill.querySelector('span:last-child');
-
-      if (state === 'loading') {
-        span.innerHTML = `<strong>Loading</strong> rosters…`;
-        if (dot) dot.style.background = '#fbbf24';
-      } else if (state === 'error') {
-        pill.classList.add('error');
-        span.innerHTML = `<strong>Error</strong> ${msg || ''}`;
-        if (dot) dot.style.background = '#f97373';
-      } else {
-        pill.classList.add('ready');
-        span.innerHTML = `<strong>Rosters</strong> loaded`;
-        if (dot) dot.style.background = '#22c55e';
-      }
-    }
-
-    // ------------------------- CSV helpers ------------------------------------
-    async function fetchCsvText() {
-    let lastErr = null;
-
-    for (const url of CSV_URLS) {
-      try {
-        console.log('Attempting to fetch roster CSV from:', url);
-        const res = await fetch(url, { cache: 'no-store', mode: 'cors' });
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status} ${res.statusText}`);
-        }
-        const txt = await res.text();
-        console.log('Successfully loaded roster CSV from:', url);
-        return { txt, url };
-      } catch (e) {
-        console.error('Roster CSV fetch failed for URL:', url, e);
-        lastErr = e;
-      }
-    }
-
-    throw lastErr || new Error('CSV not reachable from any configured URL');
-  }
-
-
-    function parseCsvToRows(text) {
-      text = String(text || '').replace(/^\uFEFF/, ''); // strip BOM
-      const rows = [];
-      let row = [], field = '', q = false;
-
-      for (let i = 0; i < text.length; i++) {
-        const c = text[i];
-        if (q) {
-          if (c === '"') {
-            if (text[i + 1] === '"') {
-              field += '"';
-              i++;
-            } else {
-              q = false;
-            }
-          } else {
-            field += c;
-          }
-        } else {
-          if (c === '"') {
-            q = true;
-          } else if (c === ',') {
-            row.push(field);
-            field = '';
-          } else if (c === '\n') {
-            row.push(field);
-            rows.push(row);
-            row = [];
-            field = '';
-          } else if (c !== '\r') {
-            field += c;
-          }
-        }
-      }
-      row.push(field);
-      rows.push(row);
-
-      return rows.filter(r => r.length && r.some(x => x !== ''));
-    }
-
-    function rowsToObjectsWithDedupHeader(rows) {
-      if (!rows.length) return [];
-      const headerRaw = rows[0].map(h => String(h || '').trim());
-
-      // Deduplicate header names: id, id_1, id_2, ...
-      const nameCounts = {};
-      const headers = headerRaw.map(h => {
-        const base = h;
-        const count = nameCounts[base] || 0;
-        const name = count === 0 ? base : `${base}_${count}`;
-        nameCounts[base] = count + 1;
-        return name;
-      });
-
-      return rows.slice(1).map(r => {
-        const o = {};
-        headers.forEach((h, i) => {
-          o[h] = r[i] === undefined ? '' : r[i];
-        });
-        return o;
-      });
-    }
-
-    // --------------------- Roster grouping / rendering ------------------------
-    function buildTeamsFromRows(objs) {
-      const teamsMap = new Map();
-
-      for (const row of objs) {
-        const teamId = String(row.team_id || '').trim();
-        const teamName = String(row.team_name || '').trim();
-        if (!teamId && !teamName) continue;
-
-        const key = teamId || teamName;
-        if (!teamsMap.has(key)) {
-          teamsMap.set(key, {
-            teamId,
-            teamName: teamName || teamId || 'Unknown',
-            players: [],
-          });
-        }
-        teamsMap.get(key).players.push(row);
-      }
-
-      const teams = Array.from(teamsMap.values());
-      teams.sort((a, b) => {
-        const nameA = (a.teamName || '').toLowerCase();
-        const nameB = (b.teamName || '').toLowerCase();
-        if (nameA < nameB) return -1;
-        if (nameA > nameB) return 1;
-        const idA = (a.teamId || '').toLowerCase();
-        const idB = (b.teamId || '').toLowerCase();
-        if (idA < idB) return -1;
-        if (idA > idB) return 1;
-        return 0;
-      });
-
-      // Sort players within team: position, depth
-      for (const team of teams) {
-        team.players.sort((p1, p2) => {
-          const pos1 = String(p1.position || '').toUpperCase();
-          const pos2 = String(p2.position || '').toUpperCase();
-          if (pos1 < pos2) return -1;
-          if (pos1 > pos2) return 1;
-
-          const d1 = Number(p1.depth);
-          const d2 = Number(p2.depth);
-          if (Number.isFinite(d1) && Number.isFinite(d2)) {
-            return d1 - d2;
-          }
-          return String(p1.first_name || '').localeCompare(p2.first_name || '');
-        });
-      }
-
-      return teams;
-    }
-
-    function clearTeamsUI() {
-      dom.teamsContainer.innerHTML = '';
-    }
-
-    function formatRating(v) {
-      const n = Number(v);
-      if (!Number.isFinite(n)) return '';
-      return n.toFixed(1).replace(/\.0$/, '');
-    }
-
-    function renderTeams(teams, filterText) {
-  clearTeamsUI();
-  const filter = String(filterText || '').trim().toLowerCase();
-
-  let visibleCount = 0;
-
-  for (const team of teams) {
-    const name = team.teamName || '';
-    const id = team.teamId || '';
-    const hay = `${name} ${id}`.toLowerCase();
-    if (filter && !hay.includes(filter)) continue;
-
-    visibleCount++;
-
-    // Keep a working copy we can sort without mutating the source
-    let currentRows = team.players.slice();
-
-    // Card shell
-    const section = document.createElement('details');
-    section.className = 'team-card';
-    if (!filter && visibleCount === 1) section.open = true;
-
-    // Header
-    const summary = document.createElement('summary');
-    summary.className = 'team-header';
-
-    const left = document.createElement('div');
-    left.className = 'team-name-block';
-
-    const nameSpan = document.createElement('div');
-    nameSpan.className = 'team-name';
-    nameSpan.textContent = name;
-
-    const metaSpan = document.createElement('div');
-    metaSpan.className = 'team-meta';
-    const idLabel = id ? id : '—';
-    metaSpan.textContent = `ID: ${idLabel} • ${team.players.length} players`;
-
-    left.appendChild(nameSpan);
-    left.appendChild(metaSpan);
-
-    const right = document.createElement('div');
-    right.className = 'roster-meta';
-    right.textContent = 'Click to toggle roster';
-
-    summary.appendChild(left);
-    summary.appendChild(right);
-    section.appendChild(summary);
-
-    // Table wrapper
-    const wrapper = document.createElement('div');
-    wrapper.className = 'roster-table-wrapper';
-
-    if (!team.players.length) {
-      const p = document.createElement('p');
-      p.className = 'empty-message';
-      p.textContent = 'No players found for this team.';
-      wrapper.appendChild(p);
-    } else {
-      // Build table
-      const table = document.createElement('table');
-      table.className = 'roster-table sortable';
-      table.innerHTML = `
-        <thead>
-          <tr>
-            <th data-key="position">Pos<span class="sort-icon"></span></th>
-            <th data-key="depth"   >Depth<span class="sort-icon"></span></th>
-            <th data-key="first_name">First<span class="sort-icon"></span></th>
-            <th data-key="last_name" >Last<span class="sort-icon"></span></th>
-            <th data-key="rating_overall">Ovr<span class="sort-icon"></span></th>
-            <th data-key="rating_pos"    >Pos&nbsp;Rt<span class="sort-icon"></span></th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      `;
-      const tbody = table.querySelector('tbody');
-
-      // Position order for "football sense" sorting when clicking Pos
-      const POS_ORDER = { QB:0, RB:1, HB:1, FB:2, WR:3, TE:4, OL:5, DL:6, LB:7, DB:8, CB:8, S:8, K:9, P:10 };
-
-      // Helpers for sorting
-      const getters = {
-        position: (r) => String(r.position || '').toUpperCase(),
-        depth: (r) => Number(r.depth),
-        first_name: (r) => String(r.first_name || ''),
-        last_name:  (r) => String(r.last_name || ''),
-        rating_overall: (r) => Number(r.rating_overall),
-        rating_pos:     (r) => Number(r.rating_pos),
-      };
-
-      function cmpValues(a, b, key, dir) {
-        // Special-case position using ranking table
-        if (key === 'position') {
-          const ra = POS_ORDER[a] ?? 999, rb = POS_ORDER[b] ?? 999;
-          if (ra !== rb) return (ra - rb) * (dir === 'asc' ? 1 : -1);
-          // tie-break alphabetically
-          return a.localeCompare(b) * (dir === 'asc' ? 1 : -1);
-        }
-
-        const na = Number(a), nb = Number(b);
-        const aNum = Number.isFinite(na), bNum = Number.isFinite(nb);
-
-        if (aNum && bNum) {
-          return (na - nb) * (dir === 'asc' ? 1 : -1);
-        }
-        // String compare fallback
-        return String(a).localeCompare(String(b), undefined, { sensitivity: 'base' }) * (dir === 'asc' ? 1 : -1);
-      }
-
-      function renderBody(list) {
-        tbody.innerHTML = '';
-        for (const row of list) {
-          const tr = document.createElement('tr');
-          const pos = String(row.position || '').toUpperCase();
-          const depth = row.depth || '';
-          const fn = row.first_name || '';
-          const ln = row.last_name || '';
-          const ovr = formatRating(row.rating_overall);
-          const posRt = formatRating(row.rating_pos);
-
-          tr.innerHTML = `
-            <td>${pos}</td>
-            <td>${depth}</td>
-            <td>${fn}</td>
-            <td>${ln}</td>
-            <td>${ovr}</td>
-            <td>${posRt}</td>
-          `;
-          tbody.appendChild(tr);
-        }
-      }
-
-      // Initial body render (honors the pre-sort you already do in buildTeamsFromRows)
-      renderBody(currentRows);
-
-      // Click-to-select a row (subtle interactivity)
-      tbody.addEventListener('click', (e) => {
-        const tr = e.target.closest('tr');
-        if (!tr) return;
-        tbody.querySelectorAll('.row-selected').forEach(el => el.classList.remove('row-selected'));
-        tr.classList.add('row-selected');
-      });
-
-      // Sorting state per table
-      let sortKey = null;          // e.g., 'rating_overall'
-      let sortDir = 'asc';         // 'asc' | 'desc'
-
-      // Wire header clicks
-      const ths = table.querySelectorAll('thead th');
-      ths.forEach(th => th.setAttribute('aria-sort', 'none'));
-
-      ths.forEach((th) => {
-        th.addEventListener('click', () => {
-          const key = th.dataset.key;
-          if (!key || !getters[key]) return;
-
-          // Toggle direction if same key; otherwise default asc
-          sortDir = (sortKey === key && sortDir === 'asc') ? 'desc' : 'asc';
-          sortKey = key;
-
-          // Visual state
-          ths.forEach(t => t.setAttribute('aria-sort', t === th ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'));
-
-          // Sort a fresh copy of the team's rows (stable-ish by adding index)
-          const withIdx = currentRows.map((r, i) => ({ r, i }));
-          withIdx.sort((A, B) => {
-            const a = getters[key](A.r);
-            const b = getters[key](B.r);
-            const primary = cmpValues(a, b, key, sortDir);
-            if (primary !== 0) return primary;
-            // stable tie-breaker: original index
-            return (A.i - B.i) * (sortDir === 'asc' ? 1 : -1);
-          });
-
-          currentRows = withIdx.map(x => x.r);
-          renderBody(currentRows);
-        });
-      });
-
-      wrapper.appendChild(table);
-    }
-
-    section.appendChild(wrapper);
-    dom.teamsContainer.appendChild(section);
-  }
-
-  if (visibleCount === 0) {
-    const p = document.createElement('p');
-    p.className = 'empty-message';
-    p.textContent = filter
-      ? 'No teams match this filter.'
-      : 'No teams found in roster data.';
-    dom.teamsContainer.appendChild(p);
-  }
-
-  return visibleCount;
-}
-
-    // ----------------------------- Main init ---------------------------------
-    async function bootstrap() {
-      setStatus('loading');
-      dom.summaryText.textContent = 'Loading layer3_rosters.csv…';
-      dom.sourceText.textContent = '';
-
-      // Wire Simulation button right away, based on EFFECTIVE_ROSTER_URL
-      if (dom.btnSim) {
-        const simHref = `simulation.html?players=${encodeURIComponent(EFFECTIVE_ROSTER_URL)}`;
-        dom.btnSim.href = simHref;
-      }
-
-      if (dom.btnGm) {
-        const GmHref = `gm_dashboard_ui.html?players=${encodeURIComponent(EFFECTIVE_ROSTER_URL)}`;
-        dom.btnGm.href = GmHref;
-      }
-
-      if (dom.btnBatch) {
-        // You can change n=500 to any default you like; user can override via querystring
-        const batchHref = `batch_sim.html?players=${encodeURIComponent(EFFECTIVE_ROSTER_URL)}&n=500`;
-        dom.btnBatch.href = batchHref;
-      }
-
-      try {
-        const { txt, url } = await fetchCsvText();
-        const rows = parseCsvToRows(txt);
-        const objs = rowsToObjectsWithDedupHeader(rows);
-        const teams = buildTeamsFromRows(objs);
-
-        dom.sourceText.textContent = `Source: ${url}`;
-        dom.summaryText.textContent = `Loaded ${teams.length} teams and ${objs.length} player rows.`;
-
-        setStatus('ready');
-        const filterVal = dom.searchInput.value;
-        const visible = renderTeams(teams, filterVal);
-
-        dom.searchInput.addEventListener('input', () => {
-          const val = dom.searchInput.value;
-          const vCount = renderTeams(teams, val);
-          dom.summaryText.textContent =
-            val.trim()
-              ? `Showing ${vCount} of ${teams.length} teams (filter: “${val.trim()}”).`
-              : `Loaded ${teams.length} teams and ${objs.length} player rows.`;
-        });
-
-        dom.btnClear.addEventListener('click', () => {
-          dom.searchInput.value = '';
-          renderTeams(teams, '');
-          dom.summaryText.textContent = `Loaded ${teams.length} teams and ${objs.length} player rows.`;
-        });
-      } catch (err) {
-        console.error('Roster load error', err);
-        setStatus('error', 'Failed to load rosters');
-        dom.summaryText.textContent = 'Failed to load rosters.';
-        dom.errorBox.style.display = 'block';
-        dom.errorBox.textContent = `Error loading layer3_rosters.csv: ${err && err.message ? err.message : String(err)}`;
-      }
-    }
-
-    bootstrap();
-  </script>
+  <!-- Note: file name matches what you're actually using: main_page.js -->
+  <script src="index.js" defer></script>
 </body>
 </html>
