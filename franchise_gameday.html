@@ -526,6 +526,13 @@
         align-items: center;
       }
     }
+
+    select#sim-mode-select, select#sim-speed-select {
+        cursor: pointer;
+        font-size: 0.78rem;
+        font-weight: 500;
+    }
+
   </style>
 </head>
 <body>
@@ -588,13 +595,24 @@
               </div>
 
               <div class="primary-actions-row">
-                <button type="button" class="btn btn-primary" id="btn-gameday-sim">
-                  Simulate week
-                </button>
-                <div class="inline-hint">
-                  Runs your matchup and simulates all other games this week.
+                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                  <select id="sim-mode-select" style="border-radius:12px;padding:6px 10px;background:rgba(15,23,42,0.9);color:#e5e7eb;border:1px solid rgba(148,163,184,0.4);">
+                    <option value="instant" selected>Instant Sim</option>
+                    <option value="playbyplay">Play-by-Play</option>
+                  </select>
+                  <select id="sim-speed-select" style="border-radius:12px;padding:6px 10px;background:rgba(15,23,42,0.9);color:#e5e7eb;border:1px solid rgba(148,163,184,0.4);">
+                    <option value="slow">Slow</option>
+                    <option value="normal" selected>Normal</option>
+                    <option value="fast">Fast</option>
+                  </select>
+                  <button type="button" class="btn btn-primary" id="btn-gameday-sim">
+                    Simulate Week
+                  </button>
                 </div>
-              </div>
+                <div class="inline-hint">
+                  Choose simulation mode and speed.
+                </div>
+              </div>              
             </div>
           </article>
 

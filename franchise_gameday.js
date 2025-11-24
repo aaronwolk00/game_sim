@@ -703,6 +703,49 @@ function runFranchiseEngineGame(
 }
 
 // -----------------------------------------------------------------------------
+// Play-by-play mode controls
+// -----------------------------------------------------------------------------
+let simMode = "instant"; // "instant" | "playbyplay"
+let simSpeed = 1000; // delay between plays in ms
+
+function setSimSpeedFromControl(value) {
+  switch (value) {
+    case "slow": simSpeed = 1800; break;
+    case "fast": simSpeed = 400; break;
+    default: simSpeed = 1000; break;
+  }
+}
+
+async function runPlayByPlayGame(save, opponentCode, isHome, weekIndex0) {
+  await ensureLeagueLoaded();
+  const payload = await runFranchiseEngineGame(save, opponentCode, isHome, weekIndex0, Date.now());
+  const plays = getPlayLogFromResult(payload.result);
+  const logEl = getEl("gameday-play-log");
+  const summaryEl = getEl("gameday-summary-line");
+
+  if (!plays.length) {
+    summaryEl.textContent = "No play-by-play log available.";
+    return payload;
+  }
+
+  logEl.innerHTML = "";
+  summaryEl.textContent = "Running play-by-play simulation…";
+
+  for (let i = 0; i < plays.length; i++) {
+    const p = plays[i];
+    const div = document.createElement("div");
+    div.textContent = p.text || p.description || "[play]";
+    if (p.tags && (p.tags.includes("TD") || p.tags.includes("FG"))) div.style.fontWeight = "600";
+    logEl.appendChild(div);
+    logEl.scrollTop = logEl.scrollHeight;
+    await new Promise((r) => setTimeout(r, simSpeed));
+  }
+
+  return payload;
+}
+
+
+// -----------------------------------------------------------------------------
 // Sim flows
 // -----------------------------------------------------------------------------
 
@@ -999,7 +1042,7 @@ function renderPostgameResult(
   save,
   opponentCode,
   isFranchiseHome,
-  weekIndex0
+  weekIndex0,
 ) {
   const homeId = homeTeam.teamId || homeTeam.id;
   const awayId = awayTeam.teamId || awayTeam.id;
@@ -1090,7 +1133,102 @@ function renderPostgameResult(
       });
     }
   }
+
+  if (result) {
+    renderDriveSummary(result);
+    renderTeamStats(result);
+    renderPlayerBox(result);
+  }
 }
+
+// -----------------------------------------------------------------------------
+// Rendering – drive summary, team stats, player box
+// -----------------------------------------------------------------------------
+function renderDriveSummary(result) {
+    const table = document.querySelector("#drive-summary-table tbody");
+    if (!table) return;
+    table.innerHTML = "";
+  
+    const drives = result.drives || [];
+    if (!drives.length) {
+      table.innerHTML = `<tr><td colspan="6">No drives recorded.</td></tr>`;
+      return;
+    }
+  
+    drives.forEach((d, i) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${i + 1}</td>
+        <td>${d.offense === "home" ? result.homeTeamName : result.awayTeamName}</td>
+        <td>${d.result}</td>
+        <td>${d.playCount}</td>
+        <td>${d.yards}</td>
+        <td>${Math.round(d.durationSec / 60)}:${String(Math.round(d.durationSec % 60)).padStart(2,"0")}</td>
+      `;
+      table.appendChild(tr);
+    });
+  }
+  
+  function renderTeamStats(result) {
+    const table = document.querySelector("#team-stats-table tbody");
+    if (!table) return;
+    table.innerHTML = "";
+  
+    const stats = result.teamStats || {};
+    const home = stats.home || {};
+    const away = stats.away || {};
+  
+    const row = (teamName, s) => `
+      <tr>
+        <td>${teamName}</td>
+        <td>${s.yardsTotal ?? 0}</td>
+        <td>${(s.yardsPerPlay ?? 0).toFixed(1)}</td>
+        <td>${s.rushYards ?? 0}</td>
+        <td>${s.passYards ?? 0}</td>
+        <td>${s.turnovers ?? 0}</td>
+        <td>${((s.yardsTotal ?? 0) / 10).toFixed(2)}</td>
+      </tr>
+    `;
+  
+    table.innerHTML = row(result.awayTeamName, away) + row(result.homeTeamName, home);
+  }
+  
+  function renderPlayerBox(result) {
+    const table = document.querySelector("#player-stats-table tbody");
+    if (!table) return;
+    table.innerHTML = "";
+  
+    const players = Object.values(result.playerStats || {});
+    if (!players.length) {
+      table.innerHTML = `<tr><td colspan="17">No player stats recorded.</td></tr>`;
+      return;
+    }
+  
+    players.slice(0, 100).forEach((p) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${p.name}</td>
+        <td>${p.teamName || ""}</td>
+        <td>${p.position || ""}</td>
+        <td>${p.passCmp}/${p.passAtt}</td>
+        <td>${p.passYds}</td>
+        <td>${p.passTD}</td>
+        <td>${p.passInt}</td>
+        <td>${p.rushAtt}</td>
+        <td>${p.rushYds}</td>
+        <td>${p.rushTD}</td>
+        <td>${p.targets}</td>
+        <td>${p.receptions}</td>
+        <td>${p.recYds}</td>
+        <td>${p.recTD}</td>
+        <td>${p.fgMade}/${p.fgAtt}</td>
+        <td>${p.xpMade}/${p.xpAtt}</td>
+        <td>${p.puntAtt}</td>
+      `;
+      table.appendChild(tr);
+    });
+  }
+  
 
 // -----------------------------------------------------------------------------
 // Init
@@ -1217,66 +1355,52 @@ async function initGameDay() {
     simBtn.textContent = hasSchedule ? "Simulate Week" : "Sim Game";
 
     simBtn.addEventListener("click", async () => {
-      simBtn.disabled = true;
-      simBtn.textContent = hasSchedule ? "Simulating week…" : "Simulating…";
-
-      try {
-        let payload;
-        if (hasSchedule) {
-          payload = await simulateFullWeekWithFranchiseGame(
-            save,
-            gLeagueState,
-            opponentCode,
-            isFranchiseHome,
-            weekIndex0
-          );
-        } else {
-          payload = await simulateSingleFranchiseGameWithoutSchedule(
-            save,
-            opponentCode,
-            isFranchiseHome,
-            weekIndex0
-          );
-        }
-
-        const { userGame, otherResults } = payload;
-
-        if (userGame && userGame.result) {
-          renderPostgameResult(
-            userGame.result,
-            userGame.homeTeam,
-            userGame.awayTeam,
-            userGame.homeCode,
-            userGame.awayCode,
-            save,
-            opponentCode,
-            isFranchiseHome,
-            weekIndex0
-          );
-        }
-
-        if (otherResults && otherResults.length && hasSchedule) {
-          const seasonWeekLabel =
-            typeof weekIndex0 === "number" ? weekIndex0 + 1 : "?";
-          const summaryEl = getEl("gameday-summary-line");
-          if (summaryEl) {
-            summaryEl.textContent += ` • Also simulated ${otherResults.length} other game(s) in Week ${seasonWeekLabel}.`;
+        if (simBtn.disabled) return;
+        simBtn.disabled = true;
+      
+        const modeSelect = document.getElementById("sim-mode-select");
+        const speedSelect = document.getElementById("sim-speed-select");
+        simMode = modeSelect ? modeSelect.value : "instant";
+        setSimSpeedFromControl(speedSelect ? speedSelect.value : "normal");
+      
+        simBtn.textContent = simMode === "playbyplay" ? "Playing…" : "Simulating…";
+      
+        try {
+          let payload;
+          if (simMode === "playbyplay") {
+            payload = await runPlayByPlayGame(save, opponentCode, isFranchiseHome, weekIndex0);
+          } else if (hasSchedule) {
+            payload = await simulateFullWeekWithFranchiseGame(save, gLeagueState, opponentCode, isFranchiseHome, weekIndex0);
+          } else {
+            payload = await simulateSingleFranchiseGameWithoutSchedule(save, opponentCode, isFranchiseHome, weekIndex0);
           }
-          renderOtherWeekResults(otherResults, seasonWeekLabel);
+      
+          const { userGame, otherResults } = payload;
+      
+          if (userGame && userGame.result) {
+            renderPostgameResult(
+              userGame.result,
+              userGame.homeTeam,
+              userGame.awayTeam,
+              userGame.homeCode,
+              userGame.awayCode,
+              save,
+              opponentCode,
+              isFranchiseHome,
+              weekIndex0
+            );
+          }
+      
+          simBtn.textContent = "Week Simulated";
+          simBtn.disabled = true;
+      
+        } catch (err) {
+          console.error("[GameDay] Simulation failed:", err);
+          setText("gameday-summary-line", `Simulation failed: ${err.message}`);
+          simBtn.textContent = "Simulation failed";
+          simBtn.disabled = false;
         }
-
-        simBtn.textContent = hasSchedule ? "Week simulated" : "Game simulated";
-        simBtn.disabled = false; // allow re-runs if you want; set true for one-and-done.
-      } catch (err) {
-        console.error("[GameDay] Simulation failed:", err);
-        setText(
-          "gameday-summary-line",
-          `Simulation failed: ${err && err.message ? err.message : err}`
-        );
-        simBtn.textContent = "Simulation failed";
-        simBtn.disabled = false;
-      }
-    });
+      });      
   } catch (err) {
     console.error("[GameDay] Engine/league load error:", err);
     simBtn.disabled = true;
