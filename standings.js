@@ -602,165 +602,119 @@ import {
    * @param {{ AFC: Record<string, StandingRow[]>, NFC: Record<string, StandingRow[]> }} grouped
    * @param {string} userTeamCode
    */
-  function renderDivisionStandings(grouped, userTeamCode) {
-    const container = getEl("division-standings-container");
+
+    function renderDivisionStandings(grouped, userTeamCode, standingsMap) {
+    const container = document.getElementById("standings-container") ||
+                        document.getElementById("division-standings-container");
     if (!container) return;
     container.innerHTML = "";
-  
-    const confWrapper = document.createElement("div");
-    confWrapper.className = "standings-conferences";
-  
-    const conferences = ["AFC", "NFC"];
-  
-    conferences.forEach((conf) => {
-      const confBlock = document.createElement("section");
-      confBlock.className = "standings-conf";
-      confBlock.setAttribute("data-conf", conf);
-  
-      const confTitle = document.createElement("div");
-      confTitle.className = "standings-conf-title";
-      confTitle.textContent = `${conf} Standings`;
-      confBlock.appendChild(confTitle);
-  
-      const divGrid = document.createElement("div");
-      divGrid.className = "division-grid";
-  
-      DIVISION_NAMES.forEach((divName) => {
-        const teams = (grouped[conf] && grouped[conf][divName]) || [];
-        if (!teams.length) return;
-  
-        const divCard = document.createElement("div");
-        divCard.className = "division-card";
-  
-        const header = document.createElement("div");
-        header.className = "division-card-header";
-  
-        const nameEl = document.createElement("div");
-        nameEl.className = "division-name";
-        nameEl.textContent = `${conf} ${divName}`;
-        header.appendChild(nameEl);
-  
-        const metaEl = document.createElement("div");
-        metaEl.className = "division-meta";
-        metaEl.textContent = "Division";
-        header.appendChild(metaEl);
-  
-        divCard.appendChild(header);
-  
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "standings-conferences";
+
+    ["AFC", "NFC"].forEach((conf) => {
+        // Pull all teams in this conference
+        const rows = Object.values(standingsMap).filter(
+        (r) => r && r.conference === conf
+        );
+        if (!rows.length) return;
+        rows.sort(standingsComparator);
+
+        const confBlock = document.createElement("section");
+        confBlock.className = "standings-conf";
+        confBlock.setAttribute("data-conf", conf);
+
+        const confTitle = document.createElement("div");
+        confTitle.className = "standings-conf-title";
+        confTitle.textContent = `${conf} Standings`;
+        confBlock.appendChild(confTitle);
+
         const headerRow = document.createElement("div");
         headerRow.className = "standings-header-row";
-        [
-          "Team",
-          "Record",
-          "Pct",
-          "PF",
-          "PA",
-          "Diff",
-          "Strk"
-        ].forEach((label) => {
-          const span = document.createElement("span");
-          span.textContent = label;
-          headerRow.appendChild(span);
+        ["Team", "Div", "Record", "Pct", "Diff"].forEach((label) => {
+        const span = document.createElement("span");
+        span.textContent = label;
+        headerRow.appendChild(span);
         });
-        divCard.appendChild(headerRow);
-  
+        confBlock.appendChild(headerRow);
+
         const rowsContainer = document.createElement("div");
         rowsContainer.className = "standings-rows";
-  
-        teams.forEach((row) => {
-          const rowEl = createStandingsRow(row, userTeamCode);
-          rowsContainer.appendChild(rowEl);
+
+        rows.forEach((row) => {
+        const rowEl = createStandingsRow(row, userTeamCode);
+        rowsContainer.appendChild(rowEl);
         });
-  
-        divCard.appendChild(rowsContainer);
-        divGrid.appendChild(divCard);
-      });
-  
-      confBlock.appendChild(divGrid);
-      confWrapper.appendChild(confBlock);
+
+        confBlock.appendChild(rowsContainer);
+        wrapper.appendChild(confBlock);
     });
-  
-    container.appendChild(confWrapper);
-  }
+
+    container.appendChild(wrapper);
+    }
+
   
   /**
    * @param {StandingRow} row
    * @param {string} userTeamCode
    */
-  function createStandingsRow(row, userTeamCode) {
+
+    function createStandingsRow(row, userTeamCode) {
     const rowEl = document.createElement("div");
     rowEl.className = "standings-row";
     rowEl.setAttribute("data-team-code", row.teamCode);
-  
+
     if (row.teamCode === userTeamCode) {
-      rowEl.classList.add("standings-row--user");
+        rowEl.classList.add("standings-row--user");
     }
-  
+
     const top = document.createElement("div");
     top.className = "standings-row-top";
-  
+
     const teamSpan = document.createElement("span");
     teamSpan.className = "standings-team-name";
     teamSpan.textContent = row.displayName;
     top.appendChild(teamSpan);
-  
+
+    const divSpan = document.createElement("span");
+    divSpan.className = "standings-team-div";
+    divSpan.textContent = row.division;
+    top.appendChild(divSpan);
+
     const recordSpan = document.createElement("span");
     recordSpan.textContent = row.recordStr;
     top.appendChild(recordSpan);
-  
+
     const pctSpan = document.createElement("span");
     pctSpan.textContent = row.pctString;
     top.appendChild(pctSpan);
-  
-    const pfSpan = document.createElement("span");
-    pfSpan.textContent = String(row.pointsFor);
-    top.appendChild(pfSpan);
-  
-    const paSpan = document.createElement("span");
-    paSpan.textContent = String(row.pointsAgainst);
-    top.appendChild(paSpan);
-  
+
     const diffSpan = document.createElement("span");
     const diff = row.pointDiff;
     diffSpan.textContent = diff > 0 ? `+${diff}` : String(diff);
     top.appendChild(diffSpan);
-  
-    const streakSpan = document.createElement("span");
-    streakSpan.textContent = row.streak || "—";
-    top.appendChild(streakSpan);
-  
+
     const bottom = document.createElement("div");
     bottom.className = "standings-row-bottom";
-  
-    const divConfSpan = document.createElement("span");
-    divConfSpan.textContent = `Div ${formatRecord(
-      row.divisionWins,
-      row.divisionLosses,
-      row.divisionTies
-    )} • Conf ${formatRecord(
-      row.conferenceWins,
-      row.conferenceLosses,
-      row.conferenceTies
-    )}`;
-    bottom.appendChild(divConfSpan);
-  
+
     const lastFiveSpan = document.createElement("span");
     lastFiveSpan.textContent = row.lastFiveString
-      ? `Last 5: ${row.lastFiveString}`
-      : "Last 5: —";
+        ? `Last 5: ${row.lastFiveString}`
+        : "Last 5: —";
     bottom.appendChild(lastFiveSpan);
-  
+
     const streakDetailSpan = document.createElement("span");
     streakDetailSpan.textContent = row.streak
-      ? `Streak: ${row.streak}`
-      : "Streak: —";
+        ? `Streak: ${row.streak}`
+        : "Streak: —";
     bottom.appendChild(streakDetailSpan);
-  
+
     rowEl.appendChild(top);
     rowEl.appendChild(bottom);
-  
+
     return rowEl;
-  }
+    }
+
   
   /**
    * @param {{ AFC: PlayoffPicture, NFC: PlayoffPicture }} playoffByConf
@@ -852,7 +806,8 @@ import {
    * @param {string} userTeamCode
    * @param {boolean} isSeed
    */
-  function createPlayoffRow(row, userTeamCode, isSeed) {
+
+   function createPlayoffRow(row, userTeamCode, isSeed) {
     const rowEl = document.createElement("div");
     rowEl.className = "playoff-row";
     rowEl.setAttribute("data-team-code", row.teamCode);
@@ -869,9 +824,7 @@ import {
   
     const seedSpan = document.createElement("span");
     seedSpan.textContent =
-      typeof row.seed === "number" && row.seed > 0
-        ? String(row.seed)
-        : "—";
+      typeof row.seed === "number" && row.seed > 0 ? String(row.seed) : "—";
     top.appendChild(seedSpan);
   
     const teamSpan = document.createElement("span");
@@ -886,35 +839,10 @@ import {
     pctSpan.textContent = row.pctString;
     top.appendChild(pctSpan);
   
-    const diffSpan = document.createElement("span");
-    const diff = row.pointDiff;
-    diffSpan.textContent = diff > 0 ? `+${diff}` : String(diff);
-    top.appendChild(diffSpan);
-  
-    const streakSpan = document.createElement("span");
-    streakSpan.textContent = row.streak || "—";
-    top.appendChild(streakSpan);
-  
-    const bottom = document.createElement("div");
-    bottom.className = "playoff-row-bottom";
-  
-    const lastFiveSpan = document.createElement("span");
-    lastFiveSpan.textContent = row.lastFiveString
-      ? `Last 5: ${row.lastFiveString}`
-      : "Last 5: —";
-    bottom.appendChild(lastFiveSpan);
-  
-    const streakDetailSpan = document.createElement("span");
-    streakDetailSpan.textContent = row.streak
-      ? `Streak: ${row.streak}`
-      : "Streak: —";
-    bottom.appendChild(streakDetailSpan);
-  
     rowEl.appendChild(top);
-    rowEl.appendChild(bottom);
-  
     return rowEl;
   }
+  
   
   // -----------------------------------------------------------------------------
   // Init
@@ -963,8 +891,9 @@ import {
   
     renderHeader(save, leagueState, throughLabel);
     setText("standings-through-week-tag", throughLabel);
-    renderDivisionStandings(grouped, save.teamCode);
+    renderDivisionStandings(grouped, save.teamCode, standingsMap);
     renderPlayoffPicture(playoffByConf, save.teamCode, throughLabel);
+
   
     // Hint if no final games yet.
     const hintEl = getEl("standings-hint");
