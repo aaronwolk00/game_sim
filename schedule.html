@@ -243,6 +243,27 @@
       box-shadow: 0 10px 24px rgba(37,99,235,0.55);
     }
 
+    /* Home / away / bye visual cues */
+    .week-row--home {
+      border-left: 3px solid var(--accent);
+    }
+
+    .week-row--away {
+      border-left: 3px solid var(--accent-alt);
+    }
+
+    .week-row--bye {
+      opacity: 0.55;
+      font-style: italic;
+    }
+
+    .week-row--bye:hover {
+      transform: none;
+      background: rgba(15,23,42,0.96);
+      border-color: transparent;
+    }
+
+
     .week-row-topline {
       display: flex;
       justify-content: space-between;

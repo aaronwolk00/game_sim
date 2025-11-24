@@ -256,21 +256,30 @@ function renderHeader(save) {
 function renderScopeToggle() {
   const myBtn = getEl("tab-my-team");
   const leagueBtn = getEl("tab-league");
-  const labelEl = getEl("schedule-view-mode-label"); // optional, may not exist
 
   if (myBtn) {
-    myBtn.setAttribute("data-active", currentScope === "team" ? "true" : "false");
-    myBtn.setAttribute("aria-pressed", currentScope === "team" ? "true" : "false");
+    const isTeam = currentScope === "team";
+    myBtn.dataset.active = isTeam ? "true" : "false";
+    myBtn.setAttribute("aria-pressed", isTeam ? "true" : "false");
   }
+
   if (leagueBtn) {
-    leagueBtn.setAttribute("data-active", currentScope === "league" ? "true" : "false");
-    leagueBtn.setAttribute("aria-pressed", currentScope === "league" ? "true" : "false");
-  }
-  if (labelEl) {
-    labelEl.textContent =
-      currentScope === "team" ? "Viewing: Your team schedule" : "Viewing: League (stubbed)";
+    const isLeague = currentScope === "league";
+    leagueBtn.dataset.active = isLeague ? "true" : "false";
+    leagueBtn.setAttribute("aria-pressed", isLeague ? "true" : "false");
   }
 }
+
+
+// Treat any synthetic bye objects as bye weeks.
+// Compatible with either type === "bye", isBye flag, or missing opponentCode.
+function isByeGame(game) {
+  if (!game) return true;
+  if (game.type === "bye" || game.isBye) return true;
+  if (!game.opponentCode) return true;
+  return false;
+}
+
 
 // ---------------------------------------------------------------------------
 // Rendering – week list
@@ -280,125 +289,101 @@ function renderScopeToggle() {
  * Render left-hand week list based on currentScope.
  * For now, league scope is a stub: we keep showing the team schedule but indicate the mode.
  */
-function renderWeekList() {
+ function renderWeekList() {
   const listEl = getEl("week-list");
   const emptyEl = getEl("week-list-empty");
-  const rangeEl = getEl("weeks-range-label");
-  if (!listEl) return;
-
-  const hasGames = Array.isArray(currentTeamSchedule) && currentTeamSchedule.length > 0;
-
-  // Toggle placeholder vs real list
-  if (emptyEl) {
-    emptyEl.style.display = hasGames ? "none" : "block";
-  }
-  listEl.hidden = !hasGames;
+  if (!listEl || !emptyEl) return;
 
   listEl.innerHTML = "";
 
-  if (!hasGames) {
-    // Nothing else to render
-    if (rangeEl) {
-      rangeEl.textContent = "No schedule generated yet.";
-    }
+  const schedule = currentTeamSchedule || [];
+  if (!schedule.length) {
+    emptyEl.hidden = false;
+    listEl.hidden = true;
     return;
   }
 
-  // Update weeks range label (e.g. 1–16)
-  if (rangeEl) {
-    const firstWeek = currentTeamSchedule[0].seasonWeek;
-    const lastWeek = currentTeamSchedule[currentTeamSchedule.length - 1].seasonWeek;
-    rangeEl.textContent = `Weeks ${firstWeek}–${lastWeek} • Regular season only`;
-  }
+  emptyEl.hidden = true;
+  listEl.hidden = false;
 
-  if (currentScope === "league") {
-    const leagueGames = buildLeagueWideSchedule(currentLeagueState);
-    if (leagueGames.length === 0) {
-      const msg = document.createElement("div");
-      msg.textContent = "No league schedule available.";
-      msg.style.color = "var(--muted)";
-      listEl.appendChild(msg);
-      return;
-    }
-  
-    leagueGames.forEach((g) => {
-      const row = document.createElement("div");
-      row.className = "week-row";
-      const week = g.seasonWeek || "?";
-      const teams = `${getTeamDisplayName(g.teamA)} vs ${getTeamDisplayName(g.teamB)}`;
-      const time = formatIsoToNice(g.kickoffIso);
-      row.innerHTML = `<div class="week-row-top">Week ${week} • ${teams}</div>
-                       <div class="week-row-bottom">${time}</div>`;
-      listEl.appendChild(row);
-    });
-    return; // Done rendering league view
-  }
-  
+  // Always render weeks in numeric order, regardless of internal indices.
+  const weeks = [...schedule].sort(
+    (a, b) => (a.seasonWeek || 0) - (b.seasonWeek || 0)
+  );
 
-  currentTeamSchedule.forEach((game) => {
+  weeks.forEach((game) => {
+    const bye = isByeGame(game);
+
     const row = document.createElement("button");
     row.type = "button";
     row.className = "week-row";
-    row.dataset.weekIndex = String(game.index);
 
-    if (game.index === selectedWeekIndex) {
-      row.setAttribute("data-selected", "true");
+    // Fallback: if index is missing, derive from seasonWeek.
+    const rowIndex =
+      typeof game.index === "number" ? game.index : (game.seasonWeek || 1) - 1;
+    row.dataset.weekIndex = String(rowIndex);
+
+    if (rowIndex === selectedWeekIndex) {
+      row.dataset.selected = "true";
     }
 
-    // Top line: "Week X" on left, "vs Team" on right
+    // Home / away / bye classes for coloring.
+    if (bye) {
+      row.classList.add("week-row--bye");
+    } else if (game.isHome) {
+      row.classList.add("week-row--home");
+    } else {
+      row.classList.add("week-row--away");
+    }
+
+    // Top line: "Week 7" • "@ New England Patriots" or "Bye week"
     const topLine = document.createElement("div");
     topLine.className = "week-row-topline";
 
-    const weekLabelSpan = document.createElement("span");
-    weekLabelSpan.textContent = `Week ${game.seasonWeek}`;
+    const weekLabel = document.createElement("span");
+    weekLabel.textContent = `Week ${game.seasonWeek}`;
 
-    const oppSpan = document.createElement("span");
-    oppSpan.textContent = `${game.isHome ? "vs" : "@"} ${getTeamDisplayName(
-      game.opponentCode
-    )}`;
+    const matchupLabel = document.createElement("span");
+    if (bye) {
+      matchupLabel.textContent = "Bye week";
+    } else {
+      const oppName = getTeamDisplayName(game.opponentCode);
+      const marker = game.isHome ? "vs" : "@";
+      matchupLabel.textContent = `${marker} ${oppName}`;
+    }
 
-    topLine.appendChild(weekLabelSpan);
-    topLine.appendChild(oppSpan);
+    topLine.appendChild(weekLabel);
+    topLine.appendChild(matchupLabel);
 
-    // Meta line: kickoff + result tag / status
+    // Meta line: date/time and (if final) W/L + score
     const metaLine = document.createElement("div");
     metaLine.className = "week-row-meta";
 
-    const leftMeta = document.createElement("span");
-    leftMeta.textContent = formatIsoToNice(game.kickoffIso);
-
-    const rightMeta = document.createElement("span");
-
-    const typeText =
-      game.type === "division"
-        ? "Division"
-        : game.type === "conference"
-        ? "Conference"
-        : game.type === "nonconference"
-        ? "Interconference"
-        : "Conference (extra)";
-
-    if (game.status === "final" && game.teamScore != null && game.opponentScore != null) {
-      const isWin = game.teamScore > game.opponentScore;
-      const tag = document.createElement("span");
-      tag.className =
-        "week-row-result-tag " +
-        (isWin ? "week-row-result-tag--win" : "week-row-result-tag--loss");
-      const resLetter = isWin ? "W" : "L";
-      tag.textContent = `${resLetter} ${game.teamScore}–${game.opponentScore}`;
-      rightMeta.appendChild(tag);
+    if (bye) {
+      metaLine.textContent = "—";
     } else {
-      rightMeta.textContent = formatIsoToNice(game.kickoffIso);
-    }
+      const timeText = formatIsoToNice(game.kickoffIso);
 
-    metaLine.appendChild(leftMeta);
-    metaLine.appendChild(rightMeta);
+      let resultText = "";
+      if (
+        game.status === "final" &&
+        game.teamScore != null &&
+        game.opponentScore != null
+      ) {
+        const isWin = game.teamScore > game.opponentScore;
+        const resLetter = isWin ? "W" : "L";
+        resultText = `${resLetter} ${game.teamScore}–${game.opponentScore}`;
+      }
+
+      metaLine.textContent = resultText ? `${timeText} • ${resultText}` : timeText;
+    }
 
     row.appendChild(topLine);
     row.appendChild(metaLine);
 
+    // Keep rows clickable even for bye weeks so the detail pane can show "Bye week".
     row.addEventListener("click", () => {
-      selectedWeekIndex = game.index;
+      selectedWeekIndex = rowIndex;
       renderWeekList();
       renderWeekDetail();
     });
@@ -406,6 +391,7 @@ function renderWeekList() {
     listEl.appendChild(row);
   });
 }
+
 
 // ---------------------------------------------------------------------------
 // Rendering – week detail (right panel)
@@ -554,6 +540,7 @@ function bindScopeToggle() {
   }
 }
 
+
 function bindBackButton() {
   const backBtn = getEl("btn-back-hub");
   if (backBtn) {
@@ -570,24 +557,39 @@ function bindJumpToCurrentWeek() {
   btn.addEventListener("click", () => {
     if (!currentTeamSchedule.length) return;
 
-    const saveWeek =
-      currentFranchiseSave && typeof currentFranchiseSave.weekIndex === "number"
-        ? currentFranchiseSave.weekIndex
-        : 0;
-    const clamped = Math.max(0, Math.min(saveWeek, currentTeamSchedule.length - 1));
-    selectedWeekIndex = clamped;
+    // Use save.weekIndex if it’s valid; otherwise first unplayed game; otherwise week 1.
+    let targetIndex = selectedWeekIndex;
+
+    if (
+      currentFranchiseSave &&
+      typeof currentFranchiseSave.weekIndex === "number" &&
+      currentFranchiseSave.weekIndex >= 0 &&
+      currentFranchiseSave.weekIndex < currentTeamSchedule.length
+    ) {
+      targetIndex = currentFranchiseSave.weekIndex;
+    } else {
+      const firstFuture = currentTeamSchedule.find(
+        (g) => g.status !== "final"
+      );
+      if (firstFuture) targetIndex = firstFuture.index;
+      else targetIndex = 0;
+    }
+
+    selectedWeekIndex = targetIndex;
     renderWeekList();
     renderWeekDetail();
 
+    // Try to scroll the selected row into view.
     const listEl = getEl("week-list");
     if (listEl) {
-      const row = listEl.querySelector(`[data-week-index="${clamped}"]`);
-      if (row && row.scrollIntoView) {
-        row.scrollIntoView({ block: "center", behavior: "smooth" });
+      const selectedRow = listEl.querySelector('[data-selected="true"]');
+      if (selectedRow && typeof selectedRow.scrollIntoView === "function") {
+        selectedRow.scrollIntoView({ block: "center", behavior: "smooth" });
       }
     }
   });
 }
+
 
 // ---------------------------------------------------------------------------
 // No-franchise fallback
