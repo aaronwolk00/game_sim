@@ -83,9 +83,7 @@
       }
     }
 
-    /* Header */
-
-    header.gameday-header {
+    header.hub-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -99,14 +97,14 @@
       gap: 4px;
     }
 
-    #gameday-team-heading {
+    #team-name-heading {
       font-size: 1.3rem;
       font-weight: 700;
       letter-spacing: 0.12em;
       text-transform: uppercase;
     }
 
-    #gameday-season-line {
+    #season-phase-line {
       font-size: 0.86rem;
       color: var(--muted);
     }
@@ -150,20 +148,12 @@
       font-weight: 600;
     }
 
-    .header-actions {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
     main {
       flex: 1;
       display: flex;
       flex-direction: column;
       gap: 14px;
     }
-
-    /* Layout */
 
     .layout-grid {
       display: grid;
@@ -210,7 +200,76 @@
       font-size: 0.84rem;
     }
 
-    /* Buttons */
+    /* Scoreboard card */
+    #card-scoreboard {
+      background:
+        radial-gradient(circle at 0% 0%, rgba(34,197,94,0.2), transparent 60%),
+        radial-gradient(circle at 100% 100%, rgba(56,189,248,0.18), transparent 70%),
+        rgba(15,23,42,0.98);
+    }
+
+    .scoreboard {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1.2fr);
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .score-team {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .score-team-label {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: var(--muted);
+    }
+
+    .score-team-name {
+      font-size: 0.96rem;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .score-team-value {
+      font-size: 1.8rem;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+    }
+
+    .score-center {
+      text-align: center;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(148,163,184,0.7);
+      background: rgba(15,23,42,0.96);
+      padding: 8px 10px;
+      box-shadow: 0 14px 34px rgba(15,23,42,0.9);
+    }
+
+    .score-center-label {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .score-meta-line {
+      font-size: 0.86rem;
+      font-weight: 500;
+    }
+
+    .score-additional {
+      font-size: 0.78rem;
+      color: var(--muted);
+      margin-top: 2px;
+    }
 
     .btn {
       border-radius: var(--radius-pill);
@@ -263,312 +322,102 @@
       border-color: rgba(148,163,184,0.8);
     }
 
-    .link-text-button {
-      margin-top: 6px;
-      background: none;
-      border: none;
-      padding: 0;
-      color: var(--accent-alt);
-      font-size: 0.8rem;
-      text-decoration: none;
-      cursor: pointer;
-    }
-
-    .link-text-button:hover {
-      text-decoration: underline;
-    }
-
     button:focus-visible {
       outline: 2px solid var(--accent);
       outline-offset: 3px;
     }
 
-    /* Scoreboard card */
-
-    #card-scoreboard {
-      background:
-        radial-gradient(circle at 0% 0%, rgba(34,197,94,0.16), transparent 60%),
-        radial-gradient(circle at 100% 100%, rgba(56,189,248,0.14), transparent 70%),
-        rgba(15,23,42,0.98);
-    }
-
-    .scoreboard-meta-line {
-      font-size: 0.78rem;
-      color: var(--muted);
-    }
-
-    .scoreboard-wrapper {
-      border-radius: var(--radius-md);
-      border: 1px solid rgba(31,41,55,0.95);
-      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.82), rgba(15,23,42,0.98));
-      padding: 10px 12px;
-      margin-bottom: 8px;
-      box-shadow: var(--shadow-sm);
-    }
-
-    table.scoreboard-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 0.8rem;
-    }
-
-    .scoreboard-table thead {
-      border-bottom: 1px solid rgba(31,41,55,0.95);
-    }
-
-    .scoreboard-table th,
-    .scoreboard-table td {
-      text-align: center;
-      padding: 4px 6px;
-      white-space: nowrap;
-    }
-
-    .scoreboard-table th {
-      font-size: 0.72rem;
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-      color: var(--muted);
-    }
-
-    .scoreboard-team-label {
-      text-align: left;
-      font-weight: 600;
-      font-size: 0.84rem;
-    }
-
-    .scoreboard-team-label .team-code {
-      font-size: 0.72rem;
-      color: var(--muted);
-      margin-left: 4px;
-      text-transform: uppercase;
-    }
-
-    .scoreboard-row--home {
-      background: linear-gradient(90deg, rgba(34,197,94,0.12), transparent);
-    }
-
-    .scoreboard-total-cell {
-      font-weight: 700;
-    }
-
-    .game-status-row {
+    .primary-actions-row {
       display: flex;
       justify-content: space-between;
-      align-items: baseline;
-      gap: 8px;
-      margin-top: 6px;
-      font-size: 0.8rem;
-    }
-
-    #game-status-label {
-      font-weight: 500;
-    }
-
-    #game-clock-label {
-      color: var(--muted);
-      font-size: 0.78rem;
-    }
-
-    .game-controls-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 10px;
       align-items: center;
-    }
-
-    .realism-line {
-      margin-top: 8px;
-      font-size: 0.76rem;
-      color: var(--muted);
-    }
-
-    /* Scoring summary */
-
-    #card-scoring-summary {
-      margin-top: 12px;
-    }
-
-    .scoring-summary-list {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-      max-height: 180px;
-      overflow-y: auto;
-    }
-
-    .scoring-summary-item {
-      padding: 4px 0;
-      border-bottom: 1px solid rgba(31,41,55,0.9);
-      font-size: 0.8rem;
-      display: flex;
-      justify-content: space-between;
-      gap: 6px;
-    }
-
-    .scoring-summary-item:last-child {
-      border-bottom: none;
-    }
-
-    .scoring-summary-left {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-
-    .scoring-summary-drive {
-      color: var(--muted);
-      font-size: 0.76rem;
-    }
-
-    .scoring-summary-points {
-      font-weight: 600;
-      font-size: 0.82rem;
-    }
-
-    /* Drive log */
-
-    #card-drive-log {
-      max-height: 340px;
-    }
-
-    .drive-log-scroll {
-      border-radius: var(--radius-md);
-      border: 1px solid rgba(31,41,55,0.9);
-      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.8), rgba(15,23,42,0.98));
-      max-height: 260px;
-      overflow-y: auto;
-      padding: 6px 8px;
-    }
-
-    .drive-log-list {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-      font-size: 0.8rem;
-    }
-
-    .drive-log-entry {
-      padding: 4px 2px;
-      border-bottom: 1px solid rgba(31,41,55,0.7);
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-
-    .drive-log-entry:last-child {
-      border-bottom: none;
-    }
-
-    .drive-log-meta {
-      font-size: 0.74rem;
-      color: var(--muted);
-    }
-
-    /* Team stats + top performers */
-
-    #card-team-stats {
-      margin-top: 12px;
-    }
-
-    .boxscore-grid {
-      display: grid;
-      grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
       gap: 10px;
+      margin-top: 6px;
     }
 
-    .team-stats-wrapper {
+    .inline-hint {
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+
+    /* Play log / summary */
+    .summary-line {
+      font-size: 0.88rem;
+      font-weight: 500;
+      margin-bottom: 6px;
+    }
+
+    .log-container {
+      margin-top: 8px;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(148,163,184,0.5);
+      background: rgba(15,23,42,0.98);
+      max-height: 340px;
+      overflow: auto;
+      padding: 6px 0;
+      font-size: 0.8rem;
+    }
+
+    .log-line {
+      padding: 4px 10px;
+      border-bottom: 1px solid rgba(31,41,55,0.85);
+    }
+
+    .log-line:last-child {
+      border-bottom: none;
+    }
+
+    .log-line strong {
+      font-weight: 600;
+    }
+
+    /* Tables: drive summary, team stats, player stats */
+    .table-wrapper {
       border-radius: var(--radius-md);
       border: 1px solid rgba(31,41,55,0.9);
       background: rgba(15,23,42,0.98);
-      padding: 8px 10px;
-      font-size: 0.8rem;
+      max-height: 260px;
+      overflow: auto;
     }
 
-    table.team-stats-table {
+    table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 0.8rem;
-    }
-
-    .team-stats-table th,
-    .team-stats-table td {
-      padding: 4px 6px;
-      border-bottom: 1px solid rgba(31,41,55,0.9);
-      text-align: left;
-      white-space: nowrap;
-    }
-
-    .team-stats-table th {
-      font-size: 0.74rem;
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-      color: var(--muted);
-    }
-
-    .team-stats-table td.value-cell {
-      text-align: right;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-    }
-
-    .team-stats-table tr:last-child td {
-      border-bottom: none;
-    }
-
-    .top-performers-wrapper {
-      border-radius: var(--radius-md);
-      border: 1px solid rgba(31,41,55,0.9);
-      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.85), rgba(15,23,42,0.98));
-      padding: 8px 10px;
-      font-size: 0.8rem;
-    }
-
-    .top-performers-title {
-      font-size: 0.76rem;
-      text-transform: uppercase;
-      letter-spacing: 0.14em;
-      color: var(--muted);
-      margin-bottom: 4px;
-    }
-
-    .top-performers-columns {
-      display: flex;
-      gap: 10px;
-    }
-
-    .top-performers-col {
-      flex: 1;
-    }
-
-    .top-performers-col-header {
-      font-size: 0.8rem;
-      font-weight: 600;
-      margin-bottom: 2px;
-    }
-
-    .performer-list {
-      list-style: none;
-      padding: 0;
-      margin: 0;
       font-size: 0.78rem;
     }
 
-    .performer-item {
-      padding: 2px 0;
-      border-bottom: 1px solid rgba(31,41,55,0.7);
+    th,
+    td {
+      padding: 4px 8px;
+      text-align: left;
+      border-bottom: 1px solid rgba(31,41,55,0.9);
+      white-space: nowrap;
     }
 
-    .performer-item:last-child {
-      border-bottom: none;
-    }
-
-    .performer-role {
+    th {
+      position: sticky;
+      top: 0;
+      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.96), rgba(15,23,42,0.98));
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      font-size: 0.72rem;
       color: var(--muted);
-      font-size: 0.74rem;
+      z-index: 2;
+    }
+
+    tbody tr:nth-child(even) {
+      background: rgba(15,23,42,0.94);
+    }
+
+    tbody tr:hover {
+      background: rgba(34,197,94,0.13);
+    }
+
+    #player-stats-wrapper {
+      max-height: 320px;
     }
 
     /* No franchise state */
-
     .no-franchise-state {
       margin-top: 40px;
       border-radius: var(--radius-lg);
@@ -598,50 +447,6 @@
       flex-wrap: wrap;
     }
 
-    /* Modal (for potential future confirmations, if needed) */
-
-    .modal-backdrop {
-      position: fixed;
-      inset: 0;
-      background: rgba(15,23,42,0.82);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 50;
-    }
-
-    .modal-backdrop[hidden] {
-      display: none;
-    }
-
-    .modal-dialog {
-      width: min(420px, 96vw);
-      border-radius: var(--radius-lg);
-      border: 1px solid var(--card-border-strong);
-      background: radial-gradient(circle at 0% 0%, rgba(34,197,94,0.12), rgba(15,23,42,0.98));
-      box-shadow: 0 24px 60px rgba(0,0,0,0.9);
-      padding: 16px 18px 14px;
-    }
-
-    .modal-title {
-      font-size: 0.96rem;
-      font-weight: 600;
-      margin-bottom: 4px;
-    }
-
-    .modal-body {
-      font-size: 0.84rem;
-      color: var(--muted);
-      margin-bottom: 12px;
-    }
-
-    .modal-actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 8px;
-      margin-top: 4px;
-    }
-
     footer {
       margin-top: 10px;
       font-size: 0.78rem;
@@ -652,6 +457,31 @@
       flex-wrap: wrap;
     }
 
+    /* Scrollbars for tables/log */
+    .table-wrapper,
+    .log-container {
+      scrollbar-width: thin;
+      scrollbar-color: rgba(148,163,184,0.9) rgba(15,23,42,1);
+    }
+
+    .table-wrapper::-webkit-scrollbar,
+    .log-container::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+
+    .table-wrapper::-webkit-scrollbar-track,
+    .log-container::-webkit-scrollbar-track {
+      background: rgba(15,23,42,1);
+      border-radius: 999px;
+    }
+
+    .table-wrapper::-webkit-scrollbar-thumb,
+    .log-container::-webkit-scrollbar-thumb {
+      background: linear-gradient(180deg, rgba(148,163,184,0.9), rgba(148,163,184,0.55));
+      border-radius: 999px;
+    }
+
     @media (max-width: 1024px) {
       .page {
         padding: 20px 18px 24px;
@@ -660,14 +490,10 @@
       .layout-grid {
         grid-template-columns: minmax(0, 1fr);
       }
-
-      #card-drive-log {
-        max-height: none;
-      }
     }
 
     @media (max-width: 640px) {
-      header.gameday-header {
+      header.hub-header {
         flex-direction: column;
         align-items: flex-start;
       }
@@ -676,230 +502,239 @@
         align-self: stretch;
         justify-content: flex-start;
       }
+
+      .scoreboard {
+        grid-template-columns: minmax(0,1fr);
+        text-align: center;
+      }
+
+      .score-team {
+        align-items: center;
+      }
     }
   </style>
 </head>
 <body>
   <div class="page">
-    <!-- Header -->
-    <header class="gameday-header">
+    <!-- Header: same structure as hub so it feels continuous -->
+    <header class="hub-header">
       <div class="header-left">
-        <div id="gameday-team-heading">Franchise Team</div>
-        <div id="gameday-season-line">Season — Week —</div>
+        <div id="team-name-heading">Franchise Team</div>
+        <div id="season-phase-line">Season • Week — • Game Day</div>
       </div>
       <div class="header-right">
-        <div class="record-pill" id="gameday-record-pill">
+        <div class="record-pill">
           <span class="record-pill-dot" aria-hidden="true"></span>
           <span class="label">Record</span>
-          <span class="value" id="gameday-record-pill-value">0–0</span>
+          <span class="value" id="record-pill-value">0–0</span>
         </div>
-        <div class="header-actions">
-          <button type="button" class="btn btn-ghost" id="btn-header-back-hub">
-            Back to hub
-          </button>
-          <button type="button" class="btn btn-ghost" id="btn-header-back-schedule">
-            Back to schedule
-          </button>
-        </div>
+        <button type="button" class="btn-ghost" id="btn-gameday-back">
+          Back to hub
+        </button>
       </div>
     </header>
 
-    <!-- Main game day layout -->
     <main id="gameday-main">
       <div class="layout-grid">
-        <!-- Left column: scoreboard + scoring summary -->
+        <!-- LEFT: Scoreboard + summary + play log -->
         <section>
-          <!-- Scoreboard / controls -->
+          <!-- Scoreboard -->
           <article class="card" id="card-scoreboard" aria-labelledby="card-scoreboard-title">
             <div class="card-header">
               <div>
                 <div class="card-title" id="card-scoreboard-title">
-                  <strong>Game Day</strong>
+                  <strong>Game Day</strong> — Live Score
                 </div>
-                <div class="card-subtitle" id="scoreboard-subtitle">
-                  Season — Week — • Regular Season
+                <div class="card-subtitle">
+                  Engine-driven single game using your current franchise matchup.
                 </div>
-              </div>
-              <div class="scoreboard-meta-line" id="scoreboard-meta-line">
-                Kickoff: —
               </div>
             </div>
             <div class="card-body">
-              <div class="scoreboard-wrapper">
-                <table class="scoreboard-table" aria-label="Score by quarter">
-                  <thead>
-                    <tr>
-                      <th scope="col">Team</th>
-                      <th scope="col">Q1</th>
-                      <th scope="col">Q2</th>
-                      <th scope="col">Q3</th>
-                      <th scope="col">Q4</th>
-                      <th scope="col">OT</th>
-                      <th scope="col">T</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr id="score-row-away" class="scoreboard-row scoreboard-row--away">
-                      <th scope="row" class="scoreboard-team-label">
-                        <span id="score-away-name">Away</span>
-                        <span class="team-code" id="score-away-code">AWY</span>
-                      </th>
-                      <td><span id="score-away-q1">0</span></td>
-                      <td><span id="score-away-q2">0</span></td>
-                      <td><span id="score-away-q3">0</span></td>
-                      <td><span id="score-away-q4">0</span></td>
-                      <td><span id="score-away-ot">0</span></td>
-                      <td class="scoreboard-total-cell"><span id="score-away-total">0</span></td>
-                    </tr>
-                    <tr id="score-row-home" class="scoreboard-row scoreboard-row--home">
-                      <th scope="row" class="scoreboard-team-label">
-                        <span id="score-home-name">Home</span>
-                        <span class="team-code" id="score-home-code">HOM</span>
-                      </th>
-                      <td><span id="score-home-q1">0</span></td>
-                      <td><span id="score-home-q2">0</span></td>
-                      <td><span id="score-home-q3">0</span></td>
-                      <td><span id="score-home-q4">0</span></td>
-                      <td><span id="score-home-ot">0</span></td>
-                      <td class="scoreboard-total-cell"><span id="score-home-total">0</span></td>
-                    </tr>
-                  </tbody>
-                </table>
+              <div class="scoreboard" aria-label="Scoreboard">
+                <div class="score-team">
+                  <div class="score-team-label">Away</div>
+                  <div class="score-team-name" id="gameday-away-name">Opponent</div>
+                  <div class="score-team-value" id="gameday-away-score">0</div>
+                </div>
+                <div class="score-center">
+                  <div class="score-center-label">Status</div>
+                  <div class="score-meta-line" id="gameday-score-meta">
+                    Pre-game • Waiting for simulation
+                  </div>
+                  <div class="score-additional">
+                    Franchise engine: full-game sim with Layer 3 rosters.
+                  </div>
+                </div>
+                <div class="score-team" style="text-align:right;">
+                  <div class="score-team-label">Home</div>
+                  <div class="score-team-name" id="gameday-home-name">Franchise Team</div>
+                  <div class="score-team-value" id="gameday-home-score">0</div>
+                </div>
               </div>
 
-              <div class="game-status-row">
-                <div id="game-status-label">Not started</div>
-                <div id="game-clock-label">Kickoff time TBA</div>
-              </div>
-
-              <div class="game-controls-row">
-                <button type="button" class="btn btn-primary" id="btn-sim-game">
-                  Sim full game
+              <div class="primary-actions-row">
+                <button type="button" class="btn btn-primary" id="btn-gameday-sim">
+                  Simulate game
                 </button>
-                <button type="button" class="btn btn-ghost" id="btn-view-boxscore" disabled>
-                  View box score
-                </button>
-                <button type="button" class="btn btn-ghost" id="btn-back-hub">
-                  Back to hub
-                </button>
-                <button type="button" class="btn btn-ghost" id="btn-back-schedule">
-                  Back to schedule
-                </button>
-              </div>
-
-              <div class="realism-line" id="realism-line">
-                Injuries: On • Cap: Realistic • Difficulty: Simulation • Ironman: On
+                <div class="inline-hint">
+                  Uses your existing game engine and Layer 3 rosters.
+                </div>
               </div>
             </div>
           </article>
 
-          <!-- Scoring summary -->
-          <article class="card" id="card-scoring-summary" aria-labelledby="card-scoring-summary-title">
+          <!-- Summary + play log -->
+          <article class="card" id="card-summary" aria-labelledby="card-summary-title" style="margin-top:12px;">
             <div class="card-header">
               <div>
-                <div class="card-title" id="card-scoring-summary-title">
-                  <strong>Scoring Summary</strong>
+                <div class="card-title" id="card-summary-title">
+                  <strong>Game Summary</strong>
                 </div>
-                <div class="card-subtitle" id="scoring-summary-subline">
-                  Drive-by-drive scoring events will appear here after simulation.
+                <div class="card-subtitle">
+                  High-level result plus key plays from your franchise perspective.
                 </div>
               </div>
             </div>
             <div class="card-body">
-              <ul class="scoring-summary-list" id="scoring-summary-list">
-                <!-- Populated by JS after game sim -->
-              </ul>
+              <div class="summary-line" id="gameday-summary-line">
+                Ready to simulate your current franchise matchup.
+              </div>
+              <div class="log-container" id="gameday-play-log" aria-label="Key plays">
+                <div class="log-line">
+                  Pre-game — Simulation has not been run yet. When you simulate, key scoring
+                  and impact plays will be summarized here in franchise context.
+                </div>
+              </div>
             </div>
           </article>
         </section>
 
-        <!-- Right column: drive log + team stats -->
+        <!-- RIGHT: Game flow + team stats -->
         <section>
-          <!-- Drive log -->
-          <article class="card" id="card-drive-log" aria-labelledby="card-drive-log-title">
+          <!-- Drive summary -->
+          <article class="card" id="card-drive-summary" aria-labelledby="card-drive-title">
             <div class="card-header">
               <div>
-                <div class="card-title" id="card-drive-log-title">
-                  <strong>Drive Log</strong>
+                <div class="card-title" id="card-drive-title">
+                  <strong>Drive Summary</strong>
                 </div>
-                <div class="card-subtitle" id="drive-log-subline">
-                  Play-by-play drive summaries for this matchup.
+                <div class="card-subtitle">
+                  Each offensive possession, result, and efficiency.
                 </div>
               </div>
             </div>
             <div class="card-body">
-              <div class="drive-log-scroll">
-                <ul class="drive-log-list" id="drive-log-list">
-                  <!-- Populated by JS as drives are simulated -->
-                </ul>
+              <div class="table-wrapper" id="drive-summary-wrapper">
+                <table id="drive-summary-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Team</th>
+                      <th>Result</th>
+                      <th>Plays</th>
+                      <th>Yards</th>
+                      <th>Time</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <!-- Populated by JS later -->
+                  </tbody>
+                </table>
               </div>
             </div>
           </article>
 
-          <!-- Team stats / top performers -->
-          <article class="card" id="card-team-stats" aria-labelledby="card-team-stats-title">
+          <!-- Team stats -->
+          <article class="card" id="card-team-stats" aria-labelledby="card-team-stats-title" style="margin-top:12px;">
             <div class="card-header">
               <div>
                 <div class="card-title" id="card-team-stats-title">
-                  <strong>Box Score</strong>
+                  <strong>Team Stats</strong>
                 </div>
-                <div class="card-subtitle" id="team-stats-subline">
-                  Team stats and top performers appear after the game is simulated.
+                <div class="card-subtitle">
+                  Total yardage, balance, turnovers, and efficiency.
                 </div>
               </div>
             </div>
             <div class="card-body">
-              <div class="boxscore-grid">
-                <!-- Team stats -->
-                <div class="team-stats-wrapper">
-                  <table class="team-stats-table" aria-label="Team statistics">
-                    <thead>
-                      <tr>
-                        <th scope="col">Stat</th>
-                        <th scope="col" id="team-stats-home-header">Home</th>
-                        <th scope="col" id="team-stats-away-header">Away</th>
-                      </tr>
-                    </thead>
-                    <tbody id="team-stats-body">
-                      <!-- Populated by JS: rows for total yards, pass yards, rush yards, turnovers, etc. -->
-                    </tbody>
-                  </table>
-                </div>
-
-                <!-- Top performers -->
-                <div class="top-performers-wrapper">
-                  <div class="top-performers-title">Top performers</div>
-                  <div class="top-performers-columns">
-                    <div class="top-performers-col">
-                      <div class="top-performers-col-header" id="top-performers-home-label">
-                        Home
-                      </div>
-                      <ul class="performer-list" id="home-top-performers">
-                        <!-- Populated by JS -->
-                      </ul>
-                    </div>
-                    <div class="top-performers-col">
-                      <div class="top-performers-col-header" id="top-performers-away-label">
-                        Away
-                      </div>
-                      <ul class="performer-list" id="away-top-performers">
-                        <!-- Populated by JS -->
-                      </ul>
-                    </div>
-                  </div>
-                </div>
+              <div class="table-wrapper" id="team-stats-wrapper">
+                <table id="team-stats-table">
+                  <thead>
+                    <tr>
+                      <th>Team</th>
+                      <th>Yards</th>
+                      <th>Yds/Play</th>
+                      <th>Rush</th>
+                      <th>Pass</th>
+                      <th>TO</th>
+                      <th>EPA*</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <!-- Populated by JS later -->
+                  </tbody>
+                </table>
+              </div>
+              <div class="card-subtitle" style="margin-top:6px;">
+                *EPA or composite efficiency proxy, depending on what your engine exposes.
               </div>
             </div>
           </article>
         </section>
       </div>
+
+      <!-- Full-width player box score -->
+      <section class="card" id="card-player-box" aria-labelledby="card-player-box-title" style="margin-top:14px;">
+        <div class="card-header">
+          <div>
+            <div class="card-title" id="card-player-box-title">
+              <strong>Player Box Score</strong>
+            </div>
+            <div class="card-subtitle">
+              Passing, rushing, receiving, and specialist stats for both teams.
+            </div>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="table-wrapper" id="player-stats-wrapper">
+            <table id="player-stats-table">
+              <thead>
+                <tr>
+                  <th>Player</th>
+                  <th>Team</th>
+                  <th>Pos</th>
+                  <th>C/Att</th>
+                  <th>PYds</th>
+                  <th>PTD</th>
+                  <th>INT</th>
+                  <th>RAtt</th>
+                  <th>RYds</th>
+                  <th>RTD</th>
+                  <th>Tgt</th>
+                  <th>Rec</th>
+                  <th>RecYds</th>
+                  <th>RecTD</th>
+                  <th>FG</th>
+                  <th>XP</th>
+                  <th>Punts</th>
+                </tr>
+              </thead>
+              <tbody>
+                <!-- Populated by JS later -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
     </main>
 
-    <!-- No franchise state -->
+    <!-- No franchise fallback (can be toggled by JS if needed) -->
     <section id="no-franchise" class="no-franchise-state" hidden>
       <div class="no-franchise-title">No active franchise found</div>
       <div class="no-franchise-text">
-        There’s no active franchise in this slot. Return to the main menu to start a new franchise or continue an existing one.
+        There’s no active franchise in this slot. Return to the main menu to start
+        a new franchise or continue an existing one.
       </div>
       <div class="no-franchise-actions">
         <button type="button" class="btn btn-primary" id="btn-go-main-menu">
@@ -908,27 +743,13 @@
       </div>
     </section>
 
-    <!-- Optional modal placeholder (if you later add confirmations here) -->
-    <div id="gameday-modal" class="modal-backdrop" hidden>
-      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="gameday-modal-title">
-        <div class="modal-title" id="gameday-modal-title">Confirm action</div>
-        <div class="modal-body" id="gameday-modal-body">
-          <!-- Set by JS when needed -->
-        </div>
-        <div class="modal-actions">
-          <button type="button" class="btn-ghost" id="btn-modal-cancel">Cancel</button>
-          <button type="button" class="btn-primary" id="btn-modal-confirm">Confirm</button>
-        </div>
-      </div>
-    </div>
-
     <footer>
-      <span>Franchise GM • Game Day / Single Game Sim</span>
-      <span>Future: in-game decisions, substitutions, live adjustments</span>
+      <span>Franchise GM • Game Day (Single game sim)</span>
+      <span>Future: step modes, advanced drive analytics, player grades</span>
     </footer>
   </div>
 
-  <!-- JS: franchise_gameday.js will import and use game_engine.js and league state -->
+  <!-- Existing bridge to your engine + franchise state -->
   <script type="module" src="franchise_gameday.js"></script>
 </body>
 </html>
