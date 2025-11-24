@@ -2,167 +2,111 @@
 //
 // Franchise GM – Team View & Depth Chart
 //
-// This page shows the current team's roster and depth chart, and allows the
-// GM to assign starters / backups / special teams roles without exposing
-// numeric ratings.
-//
-// It uses the same FranchiseSave + LeagueState storage pattern as
-// franchise.js and schedule.js:
-//
-// - FranchiseSave summary:  localStorage["franchiseGM_lastFranchise"]
-// - LeagueState per franchise: localStorage["franchiseGM_leagueState_<id>"]
-//
-// New fields on LeagueState used here:
-//
-//   leagueState.teamRosters:     { [teamCode: string]: Player[] }
-//   leagueState.teamDepthCharts: { [teamCode: string]: TeamDepthChart }
-//   leagueState.depthChartMeta:  { lockedForCurrentWeek?: boolean }
-//
-// This file is intentionally conservative: roster-building and depth chart
-// seeding are stubbed and should be wired into the real engine later.
+// This file drives the team/roster page. It:
+// - Loads the current FranchiseSave from localStorage.
+// - Loads the LeagueState for lock status and basic context.
+// - Fetches the master roster CSV (all teams) and filters down to this team.
+// - Builds or loads a depth chart object for this franchise.
+// - Renders depth chart by unit (offense / defense / special) and full roster list.
+// - Persists changes immediately.
 
+// ---------------------------------------------------------------------------
+// Types (doc comments only for reference)
+// ---------------------------------------------------------------------------
 /**
  * @typedef {Object} FranchiseSave
- * @property {number} version
  * @property {string} franchiseId
  * @property {string} franchiseName
+ * @property {string} teamCode        // e.g. "CAR"
  * @property {string} [teamName]
- * @property {string} teamCode
  * @property {number} seasonYear
  * @property {number} weekIndex
  * @property {string} phase
  * @property {string} record
- * @property {string} lastPlayedISO
- *
- * @property {Object} accolades
- * @property {number} accolades.seasons
- * @property {number} accolades.playoffAppearances
- * @property {number} accolades.divisionTitles
- * @property {number} accolades.championships
- *
- * @property {Object} gmJob
- * @property {number} gmJob.contractYears
- * @property {number} gmJob.currentYear
- * @property {number} gmJob.salaryPerYearMillions
- * @property {number} gmJob.contractTotalMillions
- * @property {string} gmJob.status
- * @property {number} gmJob.ageYears
- * @property {number} gmJob.birthYear
- *
- * @property {Object} leagueSummary
- * @property {number} leagueSummary.teams
- * @property {number} leagueSummary.seasonsSimmed
- *
- * @property {Object} realismOptions
- * @property {boolean} realismOptions.injuriesOn
- * @property {string} realismOptions.capMode
- * @property {string} realismOptions.difficulty
- * @property {boolean} realismOptions.ironman
- *
  * @property {Object} ownerExpectation
  * @property {string} ownerExpectation.patience
- * @property {number} ownerExpectation.targetYear
  * @property {number} ownerExpectation.baselineWins
- *
- * @property {number} gmCredibility
- */
-
-/**
- * @typedef {Object} Player
- * @property {string} id
- * @property {string} teamCode
- * @property {string} firstName
- * @property {string} lastName
- * @property {number|null} jerseyNumber
- * @property {string} position
- * @property {"offense"|"defense"|"special"} sideOfBall
- * @property {string} [status]    // "healthy" | "questionable" | "out" | "ir" | ...
- * @property {string} [notes]
- */
-
-/**
- * Up to three depth chart slots per position: [starter, 2nd, 3rd].
- * Values are Player IDs or null-ish.
- *
- * @typedef {Object} DepthChartOffense
- * @property {Array<string|null>} QB
- * @property {Array<string|null>} RB
- * @property {Array<string|null>} FB
- * @property {Array<string|null>} WR
- * @property {Array<string|null>} TE
- * @property {Array<string|null>} LT
- * @property {Array<string|null>} LG
- * @property {Array<string|null>} C
- * @property {Array<string|null>} RG
- * @property {Array<string|null>} RT
- */
-
-/**
- * @typedef {Object} DepthChartDefense
- * @property {Array<string|null>} DT
- * @property {Array<string|null>} EDGE
- * @property {Array<string|null>} LB
- * @property {Array<string|null>} CB
- * @property {Array<string|null>} S
- */
-
-/**
- * @typedef {Object} DepthChartSpecial
- * @property {Array<string|null>} K
- * @property {Array<string|null>} P
- * @property {Array<string|null>} KR
- * @property {Array<string|null>} PR
- * @property {Array<string|null>} LS
- */
-
-/**
- * @typedef {Object} TeamDepthChart
- * @property {DepthChartOffense} offense
- * @property {DepthChartDefense} defense
- * @property {DepthChartSpecial} special
- */
-
-/**
- * @typedef {Object} DepthChartMeta
- * @property {boolean} [lockedForCurrentWeek]
+ * @property {number} ownerExpectation.targetYear
  */
 
 /**
  * @typedef {Object} LeagueState
  * @property {string} franchiseId
  * @property {number} seasonYear
- * @property {Object} [timeline]
- * @property {Object} [alerts]
- * @property {Object} [statsSummary]
- * @property {Array<Object>} [ownerNotes]
- * @property {Object} [debug]
- *
- * @property {Object<string, Player[]>} [teamRosters]
- * @property {Object<string, TeamDepthChart>} [teamDepthCharts]
- * @property {DepthChartMeta} [depthChartMeta]
+ * @property {Object} timeline
+ * @property {Object} timeline.nextEvent
+ * @property {string} timeline.nextEvent.type      // "game", "draft", etc.
+ * @property {string|null} timeline.nextEvent.kickoffIso
+ */
+
+/**
+ * @typedef {Object} Player
+ * @property {string} id
+ * @property {string} teamId
+ * @property {string} teamName
+ * @property {string} firstName
+ * @property {string} lastName
+ * @property {string} naturalPos
+ * @property {number} depthCsv
+ * @property {number|null} ratingOverall
+ * @property {number|null} ratingPos
+ * @property {Object<string, number>} positionScores  // e.g. { QB: 10000, WR: 0, ... }
+ * @property {string|null} primaryArchetype
+ */
+
+/**
+ * @typedef {Object} DepthChartState
+ * @property {string} franchiseId
+ * @property {string} teamCode
+ * @property {number} seasonYear
+ * @property {string} lastUpdatedIso
+ * @property {Object<string, Array<string|null>>} positions  // pos -> [playerId or null]
  */
 
 // ---------------------------------------------------------------------------
-// Constants / storage keys
+// Constants / keys
 // ---------------------------------------------------------------------------
 
 const SAVE_KEY_LAST_FRANCHISE = "franchiseGM_lastFranchise";
 const LEAGUE_STATE_KEY_PREFIX = "franchiseGM_leagueState_";
+const DEPTH_CHART_KEY_PREFIX = "franchiseGM_depthChart_";
 
-function getLeagueStateKey(franchiseId) {
-  return `${LEAGUE_STATE_KEY_PREFIX}${franchiseId}`;
-}
+/** URL for the master roster CSV (all teams). Change to local path if desired. */
+const ROSTERS_CSV_URL =
+  "https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/layer3_rosters.csv";
 
-// Positions by side of ball
+// Canonical positions grouped by unit
 const OFFENSE_POSITIONS = ["QB", "RB", "FB", "WR", "TE", "LT", "LG", "C", "RG", "RT"];
 const DEFENSE_POSITIONS = ["DT", "EDGE", "LB", "CB", "S"];
-const SPECIAL_POSITIONS = ["K", "P", "KR", "PR", "LS"];
+const SPECIAL_POSITIONS = ["K", "P"];
 
-const ALL_POSITIONS = [
-  ...OFFENSE_POSITIONS,
-  ...DEFENSE_POSITIONS,
-  ...SPECIAL_POSITIONS
-];
+// Map canonical positions to CSV column names for position scores
+const POSITION_SCORE_COLUMNS = {
+  QB: "position_score_QB",
+  RB: "position_score_RB",
+  WR: "position_score_WR",
+  TE: "position_score_TE",
+  FB: "position_score_FB",
+  LT: "position_score_LT",
+  LG: "position_score_LG",
+  C: "position_score_C",
+  RG: "position_score_RG",
+  RT: "position_score_RT",
+  DT: "position_score_DT",
+  EDGE: "position_score_EDGE",
+  LB: "position_score_LB",
+  CB: "position_score_CB",
+  S: "position_score_S",
+  K: "position_score_K",
+  P: "position_score_P"
+};
+
+// Threshold for "eligible" position based on position_score_X (0–10000 scale).
+// Natural position is always considered eligible regardless of score.
+const POSITION_ELIGIBILITY_THRESHOLD = 3500;
+
+// Max depth slots per position to show
+const MAX_DEPTH_SLOTS = 4;
 
 // ---------------------------------------------------------------------------
 // Storage helpers
@@ -170,7 +114,7 @@ const ALL_POSITIONS = [
 
 function storageAvailable() {
   try {
-    const testKey = "__franchise_gm_storage_test__";
+    const testKey = "__franchise_gm_storage_test__team";
     window.localStorage.setItem(testKey, "1");
     window.localStorage.removeItem(testKey);
     return true;
@@ -179,7 +123,6 @@ function storageAvailable() {
   }
 }
 
-/** @returns {FranchiseSave|null} */
 function loadLastFranchise() {
   if (!storageAvailable()) return null;
   const raw = window.localStorage.getItem(SAVE_KEY_LAST_FRANCHISE);
@@ -189,12 +132,14 @@ function loadLastFranchise() {
     if (!parsed || typeof parsed !== "object") return null;
     return parsed;
   } catch {
-    console.warn("[Franchise GM] Failed to parse FranchiseSave.");
     return null;
   }
 }
 
-/** @returns {LeagueState|null} */
+function getLeagueStateKey(franchiseId) {
+  return `${LEAGUE_STATE_KEY_PREFIX}${franchiseId}`;
+}
+
 function loadLeagueState(franchiseId) {
   if (!storageAvailable() || !franchiseId) return null;
   const raw = window.localStorage.getItem(getLeagueStateKey(franchiseId));
@@ -204,1208 +149,934 @@ function loadLeagueState(franchiseId) {
     if (!parsed || typeof parsed !== "object") return null;
     return parsed;
   } catch {
-    console.warn("[Franchise GM] Failed to parse LeagueState.");
     return null;
   }
 }
 
-/** @param {LeagueState} state */
-function saveLeagueState(state) {
-  if (!storageAvailable() || !state || !state.franchiseId) return;
+function getDepthChartKey(franchiseId) {
+  return `${DEPTH_CHART_KEY_PREFIX}${franchiseId}`;
+}
+
+function loadDepthChart(franchiseId) {
+  if (!storageAvailable() || !franchiseId) return null;
+  const raw = window.localStorage.getItem(getDepthChartKey(franchiseId));
+  if (!raw) return null;
   try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function saveDepthChart(depthState) {
+  if (!storageAvailable() || !depthState || !depthState.franchiseId) return;
+  try {
+    depthState.lastUpdatedIso = new Date().toISOString();
     window.localStorage.setItem(
-      getLeagueStateKey(state.franchiseId),
-      JSON.stringify(state)
+      getDepthChartKey(depthState.franchiseId),
+      JSON.stringify(depthState)
     );
   } catch (err) {
-    console.warn("[Franchise GM] Failed to save LeagueState:", err);
+    console.warn("[Franchise GM] Failed to save depth chart:", err);
   }
 }
 
 // ---------------------------------------------------------------------------
-// UI helpers
+// CSV parsing for layer3_rosters.csv
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse a CSV string into an array of row objects with string values.
+ * Assumes simple CSV (no quoted commas). Good enough for this data.
+ * @param {string} text
+ * @returns {Array<Object<string,string>>}
+ */
+function parseSimpleCsv(text) {
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+
+  if (!lines.length) return [];
+
+  const headerCells = lines[0].split(",");
+  const headers = headerCells.map((h) => h.trim());
+
+  /** @type {Array<Object<string,string>>} */
+  const rows = [];
+
+  for (let i = 1; i < lines.length; i++) {
+    const cells = lines[i].split(",");
+    if (cells.length === 1 && cells[0] === "") continue; // skip empty
+    const row = {};
+    for (let j = 0; j < headers.length; j++) {
+      const key = headers[j] || `col_${j}`;
+      row[key] = (cells[j] || "").trim();
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
+/**
+ * Convert a raw CSV row into a normalized Player object.
+ * @param {Object<string,string>} row
+ * @param {number} index
+ * @returns {Player}
+ */
+function playerFromCsvRow(row, index) {
+  const teamId = row.team_id || row.teamId || "";
+  const teamName = row.team_name || row.teamName || "";
+  const first = row.first_name || "";
+  const last = row.last_name || "";
+  const naturalPos = row.position || row.pos || "";
+  const depthCsv = Number(row.depth || "0") || 0;
+  const ratingOverall = row.rating_overall ? Number(row.rating_overall) : null;
+  const ratingPos = row.rating_pos ? Number(row.rating_pos) : null;
+  const primaryArchetype = row.primary_archetype || null;
+
+  /** @type {Object<string, number>} */
+  const positionScores = {};
+  for (const [pos, colName] of Object.entries(POSITION_SCORE_COLUMNS)) {
+    const rawVal = row[colName];
+    if (rawVal !== undefined && rawVal !== "") {
+      const num = Number(rawVal);
+      if (!Number.isNaN(num)) {
+        positionScores[pos] = num;
+      }
+    }
+  }
+
+  const id = `${teamId || "TEAM"}_${first || "Player"}_${last || "X"}_${index}`;
+
+  return {
+    id,
+    teamId,
+    teamName,
+    firstName: first,
+    lastName: last,
+    naturalPos: naturalPos,
+    depthCsv,
+    ratingOverall: Number.isFinite(ratingOverall) ? ratingOverall : null,
+    ratingPos: Number.isFinite(ratingPos) ? ratingPos : null,
+    positionScores,
+    primaryArchetype
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Depth chart helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Turn a rating number into a rough text tier, without exposing the number.
+ * @param {number|null} rating
+ */
+function ratingToTierLabel(rating) {
+  if (rating == null || Number.isNaN(rating)) return "Fringe contributor";
+  const r = rating;
+  if (r >= 92) return "Elite";
+  if (r >= 88) return "Pro bowl caliber";
+  if (r >= 84) return "High-end starter";
+  if (r >= 80) return "Solid starter";
+  if (r >= 75) return "Spot starter";
+  if (r >= 70) return "Reliable depth";
+  if (r >= 65) return "Depth piece";
+  if (r >= 60) return "Fringe roster";
+  return "Camp body";
+}
+
+/**
+ * Human-readable position archetype from primary_archetype.
+ * e.g. "arch_WR_deep_threat" -> "Deep threat WR"
+ */
+function archetypeToLabel(archetype, naturalPos) {
+  if (!archetype) return naturalPos || "";
+  if (!archetype.startsWith("arch_")) return archetype;
+  const parts = archetype.split("_");
+  // Typical: ["arch", "WR", "deep", "threat"]
+  if (parts.length < 3) return archetype;
+  const pos = parts[1];
+  const descriptor = parts.slice(2).join(" ");
+  const niceDescriptor =
+    descriptor
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (c) => c.toUpperCase()) || "";
+  return `${niceDescriptor} ${pos}`;
+}
+
+/**
+ * Determine if a player is "eligible" for a given position based on:
+ * - natural position match, or
+ * - position_scores threshold.
+ * @param {Player} player
+ * @param {string} pos
+ */
+function isPlayerEligibleForPosition(player, pos) {
+  if (!player) return false;
+  if (player.naturalPos === pos) return true;
+  const score = player.positionScores[pos];
+  if (typeof score === "number" && score >= POSITION_ELIGIBILITY_THRESHOLD) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Build a default depth chart from scratch based on roster.
+ * This only runs when no saved depth chart exists for this franchise.
+ * @param {Array<Player>} players
+ * @param {FranchiseSave} save
+ * @returns {DepthChartState}
+ */
+function createDefaultDepthChart(players, save) {
+  /** @type {DepthChartState} */
+  const depth = {
+    franchiseId: save.franchiseId,
+    teamCode: save.teamCode,
+    seasonYear: save.seasonYear,
+    lastUpdatedIso: new Date().toISOString(),
+    positions: {}
+  };
+
+  const allPositions = [
+    ...OFFENSE_POSITIONS,
+    ...DEFENSE_POSITIONS,
+    ...SPECIAL_POSITIONS
+  ];
+
+  // Group players by natural position
+  /** @type {Record<string, Player[]>} */
+  const byPos = {};
+  for (const p of players) {
+    const pos = (p.naturalPos || "").toUpperCase();
+    if (!pos) continue;
+    if (!byPos[pos]) byPos[pos] = [];
+    byPos[pos].push(p);
+  }
+
+  // For each position: sort by position-specific rating or overall, then assign
+  for (const pos of allPositions) {
+    const pool = (byPos[pos] || []).slice();
+    if (!pool.length) {
+      depth.positions[pos] = new Array(MAX_DEPTH_SLOTS).fill(null);
+      continue;
+    }
+
+    pool.sort((a, b) => {
+      const ra = (a.ratingPos ?? a.ratingOverall ?? 0);
+      const rb = (b.ratingPos ?? b.ratingOverall ?? 0);
+      return rb - ra;
+    });
+
+    const slots = [];
+    for (let i = 0; i < MAX_DEPTH_SLOTS; i++) {
+      const player = pool[i];
+      slots.push(player ? player.id : null);
+    }
+    depth.positions[pos] = slots;
+  }
+
+  return depth;
+}
+
+/**
+ * Get the unit label for a position (offense/defense/special).
+ * @param {string} pos
+ */
+function unitForPosition(pos) {
+  const up = pos.toUpperCase();
+  if (OFFENSE_POSITIONS.includes(up)) return "offense";
+  if (DEFENSE_POSITIONS.includes(up)) return "defense";
+  if (SPECIAL_POSITIONS.includes(up)) return "special";
+  return "other";
+}
+
+/**
+ * Get the human-readable description for a position group.
+ * @param {string} pos
+ */
+function posGroupSubLabel(pos) {
+  const up = pos.toUpperCase();
+  switch (up) {
+    case "QB":
+      return "Quarterbacks";
+    case "RB":
+      return "Halfbacks / tailbacks";
+    case "FB":
+      return "Fullbacks";
+    case "WR":
+      return "Wide receivers";
+    case "TE":
+      return "Tight ends";
+    case "LT":
+    case "LG":
+    case "C":
+    case "RG":
+    case "RT":
+      return "Offensive line";
+    case "DT":
+      return "Interior defensive line";
+    case "EDGE":
+      return "Edge rushers";
+    case "LB":
+      return "Linebackers";
+    case "CB":
+      return "Cornerbacks";
+    case "S":
+      return "Safeties";
+    case "K":
+      return "Kicker";
+    case "P":
+      return "Punter";
+    default:
+      return "";
+  }
+}
+
+/**
+ * Return an ordered list of positions for a given unit filter.
+ * @param {"offense"|"defense"|"special"|"all"} unitFilter
+ */
+function positionsForUnit(unitFilter) {
+  if (unitFilter === "offense") return OFFENSE_POSITIONS.slice();
+  if (unitFilter === "defense") return DEFENSE_POSITIONS.slice();
+  if (unitFilter === "special") return SPECIAL_POSITIONS.slice();
+  return [
+    ...OFFENSE_POSITIONS,
+    ...DEFENSE_POSITIONS,
+    ...SPECIAL_POSITIONS
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// DOM helpers
 // ---------------------------------------------------------------------------
 
 function getEl(id) {
   return document.getElementById(id);
 }
 
-/** @param {FranchiseSave} save */
-function getTeamDisplayName(save) {
-  if (save.teamName && typeof save.teamName === "string") {
-    return save.teamName;
-  }
-  if (save.franchiseName && typeof save.franchiseName === "string") {
-    return save.franchiseName;
-  }
-  if (save.teamCode) return save.teamCode;
-  return "Franchise Team";
-}
-
-/** @param {FranchiseSave} save */
-function formatHeaderSubline(save) {
-  const season = save.seasonYear ? `Season ${save.seasonYear}` : "Season";
-  const phase = save.phase || "";
-  const weekIndex = typeof save.weekIndex === "number" ? save.weekIndex : null;
-  const weekLabel =
-    weekIndex !== null && Number.isFinite(weekIndex)
-      ? `Week ${weekIndex + 1}`
-      : "";
-  if (phase && weekLabel) {
-    return `${season} • ${phase} • ${weekLabel}`;
-  }
-  if (phase) return `${season} • ${phase}`;
-  return season;
-}
-
-function formatRecord(record) {
-  const str = (record || "").trim();
-  if (!str) return "0–0";
-  return str.replace("-", "–");
-}
-
-function formatPlayerDisplayName(player) {
-  const num = player.jerseyNumber != null ? `#${player.jerseyNumber} ` : "";
-  const lastInitial = player.lastName ? player.lastName : "";
-  const firstInitial = player.firstName ? player.firstName.charAt(0) + "." : "";
-  return `${num}${firstInitial} ${lastInitial}`.trim();
-}
-
-function formatStatusLabel(status) {
-  const s = (status || "healthy").toLowerCase();
-  if (s === "healthy") return "Healthy";
-  if (s === "questionable") return "Questionable";
-  if (s === "doubtful") return "Doubtful";
-  if (s === "out") return "Out";
-  if (s === "ir") return "Injured reserve";
-  if (s === "ps") return "Practice squad";
-  if (s === "suspended") return "Suspended";
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
-function isPlayerUnavailable(player) {
-  const s = (player.status || "healthy").toLowerCase();
-  return s === "out" || s === "ir" || s === "suspended";
-}
-
-function slotLabelFromIndex(index) {
-  if (index === 0) return "Starter";
-  if (index === 1) return "2nd";
-  if (index === 2) return "3rd";
-  return `#${index + 1}`;
-}
-
-function sideLabel(side) {
-  if (side === "offense") return "Offense";
-  if (side === "defense") return "Defense";
-  return "Special Teams";
-}
-
 // ---------------------------------------------------------------------------
-// Eligibility mapping
+// Lock state
 // ---------------------------------------------------------------------------
 
 /**
- * Return eligibility for assigning a player to a given position.
- * allowed: false means we don't show them at all.
- * needsConfirm: true means show a "this is risky" confirmation.
- *
- * @param {Player} player
- * @param {string} slotPosition
- * @returns {{allowed: boolean, needsConfirm: boolean}}
+ * Determine whether the depth chart should be locked based on the next event.
+ * Lock once the next game's kickoff time has passed.
+ * @param {LeagueState|null} leagueState
  */
-function isPlayerEligibleForSlot(player, slotPosition) {
-  const pos = player.position;
-  if (!pos || !slotPosition) {
-    return { allowed: false, needsConfirm: false };
+function computeLockState(leagueState) {
+  if (!leagueState || !leagueState.timeline || !leagueState.timeline.nextEvent) {
+    return { locked: false, reason: "No upcoming game set." };
   }
 
-  /** @type {Record<string, {natural: string[], flex: string[]}>} */
-  const map = {
-    QB: { natural: ["QB"], flex: [] },
-    RB: { natural: ["RB"], flex: ["FB"] },
-    FB: { natural: ["FB"], flex: ["RB", "TE"] },
-    WR: { natural: ["WR"], flex: ["RB"] },
-    TE: { natural: ["TE"], flex: ["FB", "WR"] },
+  const next = leagueState.timeline.nextEvent;
+  if (next.type !== "game") {
+    // For non-game phases, we leave things editable for now.
+    return { locked: false, reason: "No active game window." };
+  }
 
-    LT: { natural: ["LT"], flex: ["LG"] },
-    LG: { natural: ["LG"], flex: ["LT", "C"] },
-    C:  { natural: ["C"],  flex: ["LG", "RG"] },
-    RG: { natural: ["RG"], flex: ["C", "RT"] },
-    RT: { natural: ["RT"], flex: ["RG"] },
+  if (!next.kickoffIso) {
+    return {
+      locked: false,
+      reason: "Game time not set; depth chart editable."
+    };
+  }
 
-    DT:   { natural: ["DT"],   flex: ["EDGE"] },
-    EDGE: { natural: ["EDGE"], flex: ["DT", "LB"] },
-    LB:   { natural: ["LB"],   flex: ["EDGE", "S"] },
-    CB:   { natural: ["CB"],   flex: ["S"] },
-    S:    { natural: ["S"],    flex: ["CB"] },
+  const kickoff = new Date(next.kickoffIso);
+  if (Number.isNaN(kickoff.getTime())) {
+    return { locked: false, reason: "Game time invalid; chart editable." };
+  }
 
-    K:  { natural: ["K"], flex: [] },
-    P:  { natural: ["P"], flex: [] },
-    KR: { natural: ["WR", "RB"], flex: ["CB", "S"] },
-    PR: { natural: ["WR", "RB"], flex: ["CB", "S"] },
-    LS: { natural: ["C", "TE"], flex: ["LB"] }
+  const now = new Date();
+  if (now >= kickoff) {
+    return {
+      locked: true,
+      reason: "Kickoff has passed; depth chart locked for this game."
+    };
+  }
+
+  // Before kickoff, editable but close to lock
+  return {
+    locked: false,
+    reason: `Editable until kickoff on ${kickoff.toLocaleString()}`
   };
-
-  const entry = map[slotPosition];
-  if (!entry) {
-    return { allowed: true, needsConfirm: true };
-  }
-
-  if (entry.natural.includes(pos)) {
-    return { allowed: true, needsConfirm: false };
-  }
-  if (entry.flex.includes(pos)) {
-    return { allowed: true, needsConfirm: true };
-  }
-
-  // Out-of-family positions are still technically allowed but high-risk.
-  return { allowed: true, needsConfirm: true };
 }
 
 // ---------------------------------------------------------------------------
-// League state helpers for roster & depth chart
-// ---------------------------------------------------------------------------
-
-/**
- * Build a default LeagueState-like shell if missing.
- * We only touch roster/depth-chart-related fields here.
- *
- * @param {FranchiseSave} save
- * @param {LeagueState|null} existing
- * @returns {LeagueState}
- */
-function ensureLeagueStateForTeam(save, existing) {
-  const state = existing || {
-    franchiseId: save.franchiseId,
-    seasonYear: save.seasonYear
-  };
-
-  if (!state.teamRosters) state.teamRosters = {};
-  if (!state.teamDepthCharts) state.teamDepthCharts = {};
-  if (!state.depthChartMeta) state.depthChartMeta = {};
-
-  const teamCode = save.teamCode;
-
-  if (!state.teamRosters[teamCode]) {
-    state.teamRosters[teamCode] = buildInitialRosterForTeam(teamCode);
-  }
-
-  if (!state.teamDepthCharts[teamCode]) {
-    const players = state.teamRosters[teamCode];
-    state.teamDepthCharts[teamCode] = buildInitialDepthChartForTeam(players);
-  }
-
-  return state;
-}
-
-/**
- * Stubbed roster builder. In the real project this should be wired to
- * the roster & engine data (e.g., layer3_rosters/game_engine).
- *
- * @param {string} teamCode
- * @returns {Player[]}
- */
-function buildInitialRosterForTeam(teamCode) {
-  console.warn(
-    "[Franchise GM] buildInitialRosterForTeam is using stub data. " +
-      "Wire this into your real roster source."
-  );
-
-  // Minimal, fake roster just so the page is useful during UI dev.
-  // You can replace this entire function with real roster loading.
-  const mk = (suffix, first, last, pos, side, num) => ({
-    id: `${teamCode}-${pos}-${suffix}`,
-    teamCode,
-    firstName: first,
-    lastName: last,
-    jerseyNumber: num,
-    position: pos,
-    sideOfBall: side,
-    status: "healthy",
-    notes: ""
-  });
-
-  return [
-    mk("QB1", "Marcus", "Banks", "QB", "offense", 12),
-    mk("QB2", "Tyler", "Hodge", "QB", "offense", 8),
-    mk("RB1", "Kendrick", "Hall", "RB", "offense", 25),
-    mk("WR1", "Jalen", "Cole", "WR", "offense", 11),
-    mk("WR2", "Darius", "Young", "WR", "offense", 13),
-    mk("TE1", "Logan", "Price", "TE", "offense", 86),
-    mk("LT1", "Evan", "Sloan", "LT", "offense", 71),
-    mk("LG1", "Connor", "Reed", "LG", "offense", 67),
-    mk("C1", "Noah", "Fields", "C", "offense", 60),
-    mk("RG1", "Isaiah", "Clark", "RG", "offense", 64),
-    mk("RT1", "Mason", "Brooks", "RT", "offense", 72),
-
-    mk("DT1", "Jordan", "Steele", "DT", "defense", 94),
-    mk("EDGE1", "Rashad", "King", "EDGE", "defense", 91),
-    mk("LB1", "Cole", "Mitchell", "LB", "defense", 52),
-    mk("CB1", "Aaron", "Wells", "CB", "defense", 23),
-    mk("S1", "Brandon", "Lewis", "S", "defense", 32),
-
-    mk("K1", "Elliot", "James", "K", "special", 3),
-    mk("P1", "Ryan", "Foster", "P", "special", 6),
-    mk("KR1", "Myles", "Patton", "WR", "offense", 16),
-    mk("LS1", "Grant", "Hughes", "C", "offense", 61)
-  ];
-}
-
-/**
- * Build an initial depth chart from a roster.
- *
- * @param {Player[]} players
- * @returns {TeamDepthChart}
- */
-function buildInitialDepthChartForTeam(players) {
-  /** @type {TeamDepthChart} */
-  const chart = {
-    offense: {
-      QB: [null, null, null],
-      RB: [null, null, null],
-      FB: [null, null, null],
-      WR: [null, null, null],
-      TE: [null, null, null],
-      LT: [null, null, null],
-      LG: [null, null, null],
-      C: [null, null, null],
-      RG: [null, null, null],
-      RT: [null, null, null]
-    },
-    defense: {
-      DT: [null, null, null],
-      EDGE: [null, null, null],
-      LB: [null, null, null],
-      CB: [null, null, null],
-      S: [null, null, null]
-    },
-    special: {
-      K: [null, null, null],
-      P: [null, null, null],
-      KR: [null, null, null],
-      PR: [null, null, null],
-      LS: [null, null, null]
-    }
-  };
-
-  // Fill each position with up to 3 players, in roster order.
-  const byPos = {};
-  for (const p of players) {
-    if (!byPos[p.position]) byPos[p.position] = [];
-    byPos[p.position].push(p);
-  }
-
-  function seed(posList, sideKey) {
-    for (const pos of posList) {
-      const arr = chart[sideKey][pos];
-      const pool = byPos[pos] || [];
-      for (let i = 0; i < arr.length && i < pool.length; i++) {
-        arr[i] = pool[i].id;
-      }
-    }
-  }
-
-  seed(OFFENSE_POSITIONS, "offense");
-  seed(DEFENSE_POSITIONS, "defense");
-  seed(SPECIAL_POSITIONS, "special");
-
-  return chart;
-}
-
-/**
- * @param {LeagueState} leagueState
- * @param {string} teamCode
- * @returns {Player[]}
- */
-function getTeamPlayers(leagueState, teamCode) {
-  if (!leagueState.teamRosters) return [];
-  return leagueState.teamRosters[teamCode] || [];
-}
-
-/**
- * @param {LeagueState} leagueState
- * @param {string} teamCode
- * @returns {TeamDepthChart|null}
- */
-function getTeamDepthChart(leagueState, teamCode) {
-  if (!leagueState.teamDepthCharts) return null;
-  return leagueState.teamDepthCharts[teamCode] || null;
-}
-
-/**
- * Ensure an array has length >= n, pad with null.
- * @param {Array<any>} arr
- * @param {number} n
- */
-function ensureLength(arr, n) {
-  while (arr.length < n) arr.push(null);
-}
-
-/**
- * Set a depth chart slot (auto-saves).
- *
- * @param {LeagueState} leagueState
- * @param {string} teamCode
- * @param {"offense"|"defense"|"special"} side
- * @param {string} position
- * @param {number} slotIndex
- * @param {string|null} playerId
- */
-function setDepthChartSlot(leagueState, teamCode, side, position, slotIndex, playerId) {
-  const chart = getTeamDepthChart(leagueState, teamCode);
-  if (!chart) return;
-
-  const group = chart[side];
-  if (!group || !group[position]) return;
-
-  // Remove this player from all slots of this position on this side
-  if (playerId) {
-    const posKeys = Object.keys(group);
-    for (const pos of posKeys) {
-      const arr = group[pos];
-      for (let i = 0; i < arr.length; i++) {
-        if (arr[i] === playerId && (pos !== position || i !== slotIndex)) {
-          arr[i] = null;
-        }
-      }
-    }
-  }
-
-  const slots = group[position];
-  ensureLength(slots, slotIndex + 1);
-  slots[slotIndex] = playerId || null;
-
-  // Persist
-  if (!leagueState.teamDepthCharts) leagueState.teamDepthCharts = {};
-  leagueState.teamDepthCharts[teamCode] = chart;
-  saveLeagueState(leagueState);
-}
-
-// ---------------------------------------------------------------------------
-// Depth chart health & usage
-// ---------------------------------------------------------------------------
-
-/**
- * Build a usage map: which players are starters / backups where.
- *
- * @param {TeamDepthChart} chart
- * @returns {Record<string, {roles: Array<{side:string, position:string, slotIndex:number}>}>}
- */
-function buildUsageMap(chart) {
-  const usage = {};
-
-  function addRole(sideKey, positions) {
-    for (const pos of positions) {
-      const arr = chart[sideKey][pos] || [];
-      for (let i = 0; i < arr.length; i++) {
-        const id = arr[i];
-        if (!id) continue;
-        if (!usage[id]) usage[id] = { roles: [] };
-        usage[id].roles.push({ side: sideKey, position: pos, slotIndex: i });
-      }
-    }
-  }
-
-  addRole("offense", OFFENSE_POSITIONS);
-  addRole("defense", DEFENSE_POSITIONS);
-  addRole("special", SPECIAL_POSITIONS);
-
-  return usage;
-}
-
-/**
- * Compute simple health summary: missing starters and empty slots.
- *
- * @param {TeamDepthChart} chart
- * @returns {{missingStarters: number, emptySlots: number}}
- */
-function computeDepthChartHealth(chart) {
-  let missingStarters = 0;
-  let emptySlots = 0;
-
-  function countPositions(sideKey, positions) {
-    for (const pos of positions) {
-      const arr = chart[sideKey][pos] || [];
-      if (!arr[0]) missingStarters++;
-      for (let i = 0; i < arr.length; i++) {
-        if (!arr[i]) emptySlots++;
-      }
-    }
-  }
-
-  countPositions("offense", OFFENSE_POSITIONS);
-  countPositions("defense", DEFENSE_POSITIONS);
-  countPositions("special", SPECIAL_POSITIONS);
-
-  return { missingStarters, emptySlots };
-}
-
-// ---------------------------------------------------------------------------
-// Global state for this page
+// Global-ish page state
 // ---------------------------------------------------------------------------
 
 /** @type {FranchiseSave|null} */
 let currentFranchiseSave = null;
 /** @type {LeagueState|null} */
 let currentLeagueState = null;
-
-/** @type {"offense"|"defense"|"special"} */
-let currentSide = "offense";
-
+/** @type {Array<Player>} */
+let currentRoster = [];
+/** @type {DepthChartState|null} */
+let currentDepthChart = null;
+/** @type {"offense"|"defense"|"special"|"all"} */
+let currentUnitFilter = "offense";
+/** @type {boolean} */
+let depthLocked = false;
 /** @type {string|null} */
 let highlightedPlayerId = null;
 
-/** Is depth chart locked for current week? */
-let isLockedForWeek = false;
-
-/**
- * Current slot being edited in assign modal.
- * @type {{side:"offense"|"defense"|"special", position:string, slotIndex:number}|null}
- */
-let currentAssignContext = null;
-
 // ---------------------------------------------------------------------------
-// Render: header & banners
+// Rendering – header
 // ---------------------------------------------------------------------------
 
-/** @param {FranchiseSave} save */
-function renderHeader(save) {
+function getTeamDisplayName(save) {
+  if (save.teamName && typeof save.teamName === "string") return save.teamName;
+  if (save.franchiseName && typeof save.franchiseName === "string") return save.franchiseName;
+  if (save.teamCode) return save.teamCode;
+  return "Franchise Team";
+}
+
+function formatSeasonSubline(save) {
+  const season = save.seasonYear ? `Season ${save.seasonYear}` : "Season";
+  const phase = save.phase || "";
+  const weekIndex =
+    typeof save.weekIndex === "number" && Number.isFinite(save.weekIndex)
+      ? save.weekIndex
+      : null;
+  const weekLabel =
+    weekIndex != null ? `Week ${weekIndex + 1}` : "";
+
+  return [season, phase, weekLabel].filter(Boolean).join(" • ");
+}
+
+function renderHeader() {
   const nameEl = getEl("team-header-name");
-  const seasonLineEl = getEl("team-header-season-line");
-  const recordValueEl = getEl("team-header-record-value");
+  const sublineEl = getEl("team-header-subline");
+  const recordValueEl = getEl("team-record-value");
+  const lockPill = getEl("depth-lock-pill");
+  const lockLabel = getEl("depth-lock-label");
 
-  if (nameEl) nameEl.textContent = getTeamDisplayName(save);
-  if (seasonLineEl) seasonLineEl.textContent = formatHeaderSubline(save);
-  if (recordValueEl) recordValueEl.textContent = formatRecord(save.record);
-}
+  if (!currentFranchiseSave) return;
 
-/**
- * @param {FranchiseSave} save
- * @param {LeagueState} leagueState
- */
-function renderStatusBanners(save, leagueState) {
-  const healthBanner = getEl("depthchart-health-banner");
-  const healthTextEl = getEl("depthchart-health-text");
-  const lockBanner = getEl("depthchart-lock-banner");
+  if (nameEl) nameEl.textContent = getTeamDisplayName(currentFranchiseSave);
+  if (sublineEl) sublineEl.textContent = formatSeasonSubline(currentFranchiseSave);
 
-  const chart = getTeamDepthChart(leagueState, save.teamCode);
-  if (chart && healthBanner && healthTextEl) {
-    const health = computeDepthChartHealth(chart);
-    if (health.missingStarters === 0) {
-      healthTextEl.textContent =
-        "Depth chart complete — all positions have a named starter.";
-    } else {
-      healthTextEl.textContent =
-        `Depth chart incomplete — ${health.missingStarters} ` +
-        `position${health.missingStarters === 1 ? "" : "s"} missing a starter.`;
-    }
-    healthBanner.hidden = false;
-  } else if (healthBanner) {
-    healthBanner.hidden = true;
+  const record = (currentFranchiseSave.record || "").trim() || "0–0";
+  if (recordValueEl) recordValueEl.textContent = record;
+
+  const lockInfo = computeLockState(currentLeagueState);
+  depthLocked = lockInfo.locked;
+
+  if (lockPill && lockLabel) {
+    lockPill.classList.toggle("pill-lock--locked", depthLocked);
+    lockPill.classList.toggle("pill-lock--editable", !depthLocked);
+    lockLabel.textContent = depthLocked
+      ? "Depth chart locked"
+      : "Depth chart editable";
   }
 
-  isLockedForWeek =
-    !!leagueState.depthChartMeta &&
-    !!leagueState.depthChartMeta.lockedForCurrentWeek;
-
-  if (lockBanner) {
-    lockBanner.hidden = !isLockedForWeek;
+  const lockBannerContainer = getEl("lock-banner-container");
+  if (lockBannerContainer) {
+    lockBannerContainer.innerHTML = "";
+    const div = document.createElement("div");
+    div.className =
+      "lock-banner " +
+      (depthLocked ? "lock-banner--locked" : "lock-banner--warning");
+    div.textContent = lockInfo.reason;
+    lockBannerContainer.appendChild(div);
   }
 }
 
 // ---------------------------------------------------------------------------
-// Render: depth chart
+// Rendering – depth chart
 // ---------------------------------------------------------------------------
 
 /**
- * @param {FranchiseSave} save
- * @param {LeagueState} leagueState
+ * Get player by id.
+ * @param {string|null} playerId
+ * @returns {Player|null}
  */
-function renderDepthChart(save, leagueState) {
-  const rowsContainer = getEl("depthchart-rows");
-  const subtitleEl = getEl("depthchart-subtitle");
-  if (!rowsContainer) return;
+function getPlayerById(playerId) {
+  if (!playerId) return null;
+  return currentRoster.find((p) => p.id === playerId) || null;
+}
 
-  const chart = getTeamDepthChart(leagueState, save.teamCode);
-  const players = getTeamPlayers(leagueState, save.teamCode);
-  const playersById = {};
-  for (const p of players) playersById[p.id] = p;
+/**
+ * Build a human description of how "risky" this assignment is.
+ * @param {Player} player
+ * @param {string} pos
+ */
+function buildSlotRiskTags(player, pos) {
+  const tags = [];
 
-  rowsContainer.innerHTML = "";
+  if (!player) return tags;
 
-  const usageMap = chart ? buildUsageMap(chart) : {};
-
-  let positions;
-  if (currentSide === "offense") {
-    positions = OFFENSE_POSITIONS;
-  } else if (currentSide === "defense") {
-    positions = DEFENSE_POSITIONS;
+  if (player.naturalPos === pos) {
+    tags.push("Natural fit");
+  } else if (isPlayerEligibleForPosition(player, pos)) {
+    tags.push("Reasonable fit");
   } else {
-    positions = SPECIAL_POSITIONS;
+    tags.push("Emergency only");
   }
 
-  if (subtitleEl) {
-    subtitleEl.textContent = `${sideLabel(currentSide)} • Starters & backups`;
-  }
+  // We could later add injury flags, fatigue, etc. For now we only look at fit.
+  return tags;
+}
 
-  if (!chart) {
-    const msg = document.createElement("div");
-    msg.textContent = "Depth chart not available for this team yet.";
-    msg.className = "card-subtitle";
-    rowsContainer.appendChild(msg);
-    return;
-  }
+/**
+ * Render the entire depth chart for the current unit filter.
+ */
+function renderDepthChart() {
+  const container = getEl("depth-chart-container");
+  if (!container || !currentDepthChart) return;
+
+  container.innerHTML = "";
+
+  const positions = positionsForUnit(currentUnitFilter);
 
   positions.forEach((pos) => {
-    const row = document.createElement("div");
-    row.className = "depth-row";
-    row.setAttribute("data-position", pos);
-
-    const label = document.createElement("div");
-    label.className = "depth-row-label";
-    label.textContent = pos;
-
-    const slotsContainer = document.createElement("div");
-    slotsContainer.className = "depth-row-slots";
-
-    const sideChart = chart[currentSide];
-    const slotArr = sideChart[pos] || [null, null, null];
-
-    for (let i = 0; i < 3; i++) {
-      const playerId = slotArr[i] || null;
-      const player = playerId ? playersById[playerId] : null;
-
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "depth-slot";
-      if (i === 0) btn.classList.add("depth-slot--starter");
-      if (!player) btn.classList.add("depth-slot--empty");
-
-      if (isLockedForWeek) {
-        btn.classList.add("depth-slot--locked");
-      }
-
-      btn.setAttribute("data-side", currentSide);
-      btn.setAttribute("data-position", pos);
-      btn.setAttribute("data-slot-index", String(i));
-      if (playerId) btn.setAttribute("data-player-id", playerId);
-
-      const main = document.createElement("div");
-      main.className = "depth-slot-main";
-
-      const labelSpan = document.createElement("div");
-      labelSpan.className = "depth-slot-label";
-      labelSpan.textContent = slotLabelFromIndex(i);
-
-      const nameSpan = document.createElement("div");
-      nameSpan.className = "depth-slot-player";
-      nameSpan.textContent = player ? formatPlayerDisplayName(player) : "Empty";
-
-      main.appendChild(labelSpan);
-      main.appendChild(nameSpan);
-
-      const tagsSpan = document.createElement("div");
-      tagsSpan.className = "depth-slot-tags";
-
-      if (player) {
-        const usage = usageMap[player.id];
-        let primaryRole = "";
-        if (usage && usage.roles && usage.roles.length) {
-          const starterRole = usage.roles.find((r) => r.slotIndex === 0);
-          const anyRole = starterRole || usage.roles[0];
-          const roleLabel =
-            anyRole.slotIndex === 0 ? "Starter" : `Depth (${anyRole.position})`;
-          primaryRole = roleLabel;
-        }
-        const statusLabel = formatStatusLabel(player.status);
-        tagsSpan.textContent = `${player.position}${primaryRole ? " • " + primaryRole : ""} • ${statusLabel}`;
-      } else {
-        tagsSpan.textContent = "";
-      }
-
-      if (highlightedPlayerId && playerId === highlightedPlayerId) {
-        btn.classList.add("depth-slot--highlight");
-      }
-
-      btn.appendChild(main);
-      if (tagsSpan.textContent) {
-        btn.appendChild(tagsSpan);
-      }
-
-      btn.addEventListener("click", onDepthSlotClick);
-
-      slotsContainer.appendChild(btn);
+    const unit = unitForPosition(pos);
+    // If filtering by offense/defense/special, skip mismatched
+    if (
+      currentUnitFilter !== "all" &&
+      unit !== currentUnitFilter
+    ) {
+      return;
     }
 
-    row.appendChild(label);
-    row.appendChild(slotsContainer);
-    rowsContainer.appendChild(row);
+    const posSlots = currentDepthChart.positions[pos] || [];
+
+    const group = document.createElement("div");
+    group.className = "pos-group";
+    group.dataset.pos = pos;
+
+    const header = document.createElement("div");
+    header.className = "pos-group-header";
+
+    const left = document.createElement("div");
+    const label = document.createElement("div");
+    label.className = "pos-group-label";
+    label.textContent = pos;
+    const sub = document.createElement("div");
+    sub.className = "pos-group-sub";
+    sub.textContent = posGroupSubLabel(pos);
+
+    left.appendChild(label);
+    if (sub.textContent) left.appendChild(sub);
+
+    header.appendChild(left);
+    group.appendChild(header);
+
+    // Slots
+    const maxSlots = Math.max(posSlots.length, MAX_DEPTH_SLOTS);
+    for (let i = 0; i < maxSlots; i++) {
+      const slotRow = document.createElement("div");
+      slotRow.className = "slot-row";
+
+      const labelEl = document.createElement("div");
+      labelEl.className = "slot-row-label";
+      if (i === 0) labelEl.textContent = "Starter";
+      else if (i === 1) labelEl.textContent = "2nd";
+      else if (i === 2) labelEl.textContent = "3rd";
+      else labelEl.textContent = `${i + 1}th`;
+
+      const slotPlayerId = posSlots[i] || null;
+      const player = getPlayerById(slotPlayerId);
+
+      const pill = document.createElement("button");
+      pill.type = "button";
+      pill.className = "slot-player-pill";
+      pill.dataset.pos = pos;
+      pill.dataset.slotIndex = String(i);
+
+      if (!player) {
+        pill.classList.add("slot-player-pill--empty");
+        pill.textContent = depthLocked
+          ? "Unfilled"
+          : "Click to assign player";
+      } else {
+        const nameDiv = document.createElement("div");
+        nameDiv.className = "slot-player-name";
+        nameDiv.textContent = `${player.firstName} ${player.lastName}`;
+
+        const metaDiv = document.createElement("div");
+        metaDiv.className = "slot-player-meta";
+        const tier = ratingToTierLabel(player.ratingOverall ?? player.ratingPos);
+        const archetypeLabel = archetypeToLabel(
+          player.primaryArchetype,
+          player.naturalPos
+        );
+        metaDiv.textContent = `${archetypeLabel || player.naturalPos} • ${tier}`;
+
+        pill.appendChild(nameDiv);
+        pill.appendChild(metaDiv);
+      }
+
+      if (depthLocked) {
+        pill.disabled = true;
+      } else {
+        pill.addEventListener("click", () => {
+          openPlayerPickerForSlot(pos, i);
+        });
+      }
+
+      const badgeCell = document.createElement("div");
+      badgeCell.className = "slot-badge-row";
+
+      if (player) {
+        const tags = buildSlotRiskTags(player, pos);
+        tags.forEach((tag) => {
+          const b = document.createElement("span");
+          b.className = "slot-badge";
+          if (tag === "Natural fit") b.classList.add("slot-badge--starter");
+          if (tag === "Emergency only") b.classList.add("slot-badge--risk");
+          b.textContent = tag;
+          badgeCell.appendChild(b);
+        });
+      }
+
+      slotRow.appendChild(labelEl);
+      slotRow.appendChild(pill);
+      slotRow.appendChild(badgeCell);
+      group.appendChild(slotRow);
+    }
+
+    container.appendChild(group);
   });
 }
 
 // ---------------------------------------------------------------------------
-// Render: roster
+// Rendering – roster list
 // ---------------------------------------------------------------------------
 
-let rosterFilterSide = "all";     // "all"|"offense"|"defense"|"special"
-let rosterFilterPosition = "all"; // position code or "all"
-let rosterSearchQuery = "";
+function passesRosterFilter(player, query, posFilter) {
+  const q = query.trim().toLowerCase();
+  const pos = posFilter.trim().toUpperCase();
+
+  if (pos && player.naturalPos.toUpperCase() !== pos) return false;
+
+  if (!q) return true;
+
+  const fullName = `${player.firstName} ${player.lastName}`.toLowerCase();
+  if (fullName.includes(q)) return true;
+
+  if (player.naturalPos.toLowerCase().includes(q)) return true;
+
+  return false;
+}
 
 /**
- * @param {FranchiseSave} save
- * @param {LeagueState} leagueState
+ * Determine whether a player appears anywhere on the depth chart.
+ * @param {Player} player
  */
-function renderRoster(save, leagueState) {
+function playerIsAssignedSomewhere(player) {
+  if (!currentDepthChart) return false;
+  for (const pos of Object.keys(currentDepthChart.positions || {})) {
+    const slots = currentDepthChart.positions[pos] || [];
+    if (slots.some((id) => id === player.id)) return true;
+  }
+  return false;
+}
+
+function renderRosterList() {
   const listEl = getEl("roster-list");
-  const subtitleEl = getEl("roster-subtitle");
+  const emptyMsg = getEl("roster-empty-msg");
+  const searchInput = /** @type {HTMLInputElement|null} */ (
+    getEl("roster-search-input")
+  );
+  const posSelect = /** @type {HTMLSelectElement|null} */ (
+    getEl("roster-filter-pos")
+  );
+
   if (!listEl) return;
 
-  const players = getTeamPlayers(leagueState, save.teamCode);
-  const chart = getTeamDepthChart(leagueState, save.teamCode);
+  const query = searchInput ? searchInput.value || "" : "";
+  const posFilter = posSelect ? posSelect.value || "" : "";
+
+  const filtered = currentRoster.filter((player) =>
+    passesRosterFilter(player, query, posFilter)
+  );
 
   listEl.innerHTML = "";
 
-  if (!players.length) {
-    const empty = document.createElement("div");
-    empty.className = "roster-empty";
-    empty.textContent = "Roster data not available yet.";
-    listEl.appendChild(empty);
-    return;
-  }
-
-  if (subtitleEl) {
-    subtitleEl.textContent = `${players.length} players under contract`;
-  }
-
-  const usageMap = chart ? buildUsageMap(chart) : {};
-
-  const q = rosterSearchQuery.trim().toLowerCase();
-
-  const filtered = players.filter((p) => {
-    if (rosterFilterSide !== "all" && p.sideOfBall !== rosterFilterSide) {
-      return false;
-    }
-    if (rosterFilterPosition !== "all" && p.position !== rosterFilterPosition) {
-      return false;
-    }
-    if (q) {
-      const name = `${p.firstName} ${p.lastName}`.toLowerCase();
-      if (!name.includes(q)) return false;
-    }
-    return true;
-  });
-
   if (!filtered.length) {
-    const empty = document.createElement("div");
-    empty.className = "roster-empty";
-    empty.textContent = "No players match the current filters.";
-    listEl.appendChild(empty);
+    if (emptyMsg) {
+      emptyMsg.textContent = query
+        ? "No players match this filter."
+        : "No players loaded for this roster.";
+      emptyMsg.style.display = "block";
+      listEl.appendChild(emptyMsg);
+    }
     return;
   }
 
-  filtered.forEach((p) => {
+  if (emptyMsg) emptyMsg.style.display = "none";
+
+  filtered.forEach((player) => {
     const row = document.createElement("div");
-    row.className = "roster-player-row";
-    row.setAttribute("data-player-id", p.id);
-
-    if (highlightedPlayerId === p.id) {
-      row.classList.add("roster-player-row--highlight");
+    row.className = "roster-row";
+    if (!playerIsAssignedSomewhere(player)) {
+      row.classList.add("roster-row--unassigned");
+    }
+    if (highlightedPlayerId === player.id) {
+      row.classList.add("roster-row-highlight");
     }
 
-    const main = document.createElement("div");
-    main.className = "roster-player-main";
+    const nameCell = document.createElement("div");
+    nameCell.className = "roster-row-name";
+    nameCell.textContent = `${player.firstName} ${player.lastName}`;
 
-    const nameSpan = document.createElement("div");
-    nameSpan.className = "roster-player-name";
-    nameSpan.textContent = formatPlayerDisplayName(p);
+    const posCell = document.createElement("div");
+    posCell.className = "roster-row-pos";
+    posCell.textContent = player.naturalPos || "—";
 
-    const metaSpan = document.createElement("div");
-    metaSpan.className = "roster-player-meta";
+    const roleCell = document.createElement("div");
+    roleCell.className = "roster-row-role";
+    const tier = ratingToTierLabel(player.ratingOverall ?? player.ratingPos);
+    const archetypeLabel = archetypeToLabel(
+      player.primaryArchetype,
+      player.naturalPos
+    );
+    roleCell.textContent = archetypeLabel
+      ? `${archetypeLabel} • ${tier}`
+      : tier;
 
-    const usage = usageMap[p.id];
-    let usageText = "Unassigned";
-    if (usage && usage.roles && usage.roles.length) {
-      const starterRole = usage.roles.find((r) => r.slotIndex === 0);
-      if (starterRole) {
-        usageText = `Starter (${starterRole.position})`;
-      } else if (usage.roles.length === 1) {
-        usageText = `Depth (${usage.roles[0].position})`;
-      } else {
-        usageText = "Multiple roles";
-      }
-    }
-
-    metaSpan.textContent = `${p.position} • ${usageText}`;
-
-    main.appendChild(nameSpan);
-    main.appendChild(metaSpan);
-
-    const statusPill = document.createElement("div");
-    const statusLabel = formatStatusLabel(p.status);
-    statusPill.className = "roster-player-status-pill";
-    const unavailable = isPlayerUnavailable(p);
-    if (unavailable) {
-      statusPill.classList.add("roster-player-status-pill--injured");
-    }
-    statusPill.textContent = statusLabel;
-
-    row.appendChild(main);
-    row.appendChild(statusPill);
-
-    row.addEventListener("click", () => {
-      highlightedPlayerId = p.id;
-      // Re-render to update highlights.
-      if (currentFranchiseSave && currentLeagueState) {
-        renderDepthChart(currentFranchiseSave, currentLeagueState);
-        renderRoster(currentFranchiseSave, currentLeagueState);
-      }
-    });
+    row.appendChild(nameCell);
+    row.appendChild(posCell);
+    row.appendChild(roleCell);
 
     listEl.appendChild(row);
   });
 }
 
 // ---------------------------------------------------------------------------
-// Render: notes card
+// Player picker for slot assignment
 // ---------------------------------------------------------------------------
 
 /**
- * @param {FranchiseSave} save
- * @param {LeagueState} leagueState
+ * Open a simple inline picker for a specific slot.
+ * For now, we use window.prompt-style selection:
+ * - The user picks a player from a filtered list in a simple dialog-like flow.
+ * - If the player is not eligible, we ask them to confirm the risky move.
+ * @param {string} pos
+ * @param {number} slotIndex
  */
-function renderNotesCard(save, leagueState) {
-  const bodyEl = getEl("notes-card-body");
-  if (!bodyEl) return;
+function openPlayerPickerForSlot(pos, slotIndex) {
+  if (depthLocked) return;
 
-  const baselineWins =
-    save.ownerExpectation?.baselineWins || 9;
-  const targetYear =
-    save.ownerExpectation?.targetYear || (save.seasonYear || 0) + 2;
-  const patience =
-    save.ownerExpectation?.patience || "average";
+  // Build a sorted list of candidates of this team, sorted by fit.
+  const candidates = currentRoster.slice().sort((a, b) => {
+    // Prefer players whose naturalPos == pos, then by position score, then rating.
+    const aNatural = a.naturalPos.toUpperCase() === pos.toUpperCase();
+    const bNatural = b.naturalPos.toUpperCase() === pos.toUpperCase();
+    if (aNatural && !bNatural) return -1;
+    if (!aNatural && bNatural) return 1;
 
-  bodyEl.innerHTML = "";
+    const aScore = a.positionScores[pos] ?? 0;
+    const bScore = b.positionScores[pos] ?? 0;
+    if (bScore !== aScore) return bScore - aScore;
 
-  const p1 = document.createElement("p");
-  p1.textContent =
-    `Staff summary: baseline expectation is around ${baselineWins} wins ` +
-    `by ${targetYear}. Patience level is tagged as "${patience}".`;
+    const aRating = (a.ratingPos ?? a.ratingOverall ?? 0);
+    const bRating = (b.ratingPos ?? b.ratingOverall ?? 0);
+    return bRating - aRating;
+  });
 
-  const p2 = document.createElement("p");
-  p2.textContent =
-    "Use this space to keep your own notes on lineup decisions, " +
-    "position battles, and special teams roles. A future version will let " +
-    "you edit and persist custom notes here.";
+  if (!candidates.length) {
+    window.alert("No players found for this team.");
+    return;
+  }
 
-  const p3 = document.createElement("p");
-  p3.textContent =
-    "Depth chart changes are saved immediately and will be used by the game " +
-    "engine when simulating your next matchup.";
+  const labelLines = candidates.map((p, idx) => {
+    const tier = ratingToTierLabel(p.ratingOverall ?? p.ratingPos);
+    const naturalTag = p.naturalPos.toUpperCase() === pos.toUpperCase()
+      ? " (natural)"
+      : "";
+    return `${idx + 1}. ${p.firstName} ${p.lastName} [${p.naturalPos}${naturalTag}, ${tier}]`;
+  });
 
-  bodyEl.appendChild(p1);
-  bodyEl.appendChild(p2);
-  bodyEl.appendChild(p3);
-}
+  const input = window.prompt(
+    `Assign ${pos} depth ${slotIndex + 1}:\n` +
+      labelLines.slice(0, 30).join("\n") +
+      (labelLines.length > 30 ? "\n…" : "") +
+      `\n\nEnter number (1-${Math.min(labelLines.length, 30)}) or leave blank to cancel:`
+  );
 
-// ---------------------------------------------------------------------------
-// Depth chart interactions
-// ---------------------------------------------------------------------------
+  if (!input) return;
+  const choiceIndex = Number(input) - 1;
+  if (!Number.isFinite(choiceIndex) || choiceIndex < 0 || choiceIndex >= candidates.length) {
+    window.alert("Invalid selection.");
+    return;
+  }
 
-function onDepthSlotClick(event) {
-  const btn = event.currentTarget;
-  if (!(btn instanceof HTMLElement)) return;
+  const chosen = candidates[choiceIndex];
+  if (!chosen) return;
 
-  if (isLockedForWeek) {
-    window.alert(
-      "Depth chart is locked for this week. Changes will apply after the current game."
+  const eligible = isPlayerEligibleForPosition(chosen, pos);
+  if (!eligible) {
+    const confirmRisk = window.confirm(
+      `${chosen.firstName} ${chosen.lastName} is not a natural or rated fit at ${pos}. ` +
+      "In real life this would be an emergency-only assignment. Do you want to proceed anyway?"
     );
-    return;
+    if (!confirmRisk) return;
   }
 
-  const side = btn.getAttribute("data-side");
-  const position = btn.getAttribute("data-position");
-  const slotIndexStr = btn.getAttribute("data-slot-index");
+  // Assign player to this slot. We allow players to appear in multiple positions
+  // (e.g., WR + special teams). We do not forcibly remove them from other slots.
+  if (!currentDepthChart.positions[pos]) {
+    currentDepthChart.positions[pos] = new Array(MAX_DEPTH_SLOTS).fill(null);
+  }
+  currentDepthChart.positions[pos][slotIndex] = chosen.id;
+  saveDepthChart(currentDepthChart);
+  highlightedPlayerId = chosen.id;
 
-  if (!side || !position || slotIndexStr == null) return;
-
-  const slotIndex = Number(slotIndexStr);
-  if (!Number.isFinite(slotIndex)) return;
-
-  const currentPlayerId = btn.getAttribute("data-player-id") || null;
-
-  openAssignModal(
-    /** @type {"offense"|"defense"|"special"} */ (side),
-    position,
-    slotIndex,
-    currentPlayerId
-  );
+  renderDepthChart();
+  renderRosterList();
 }
 
 // ---------------------------------------------------------------------------
-// Assign modal
+// Binding – unit tabs & controls
 // ---------------------------------------------------------------------------
 
-function openAssignModal(side, position, slotIndex, currentPlayerId) {
-  if (!currentFranchiseSave || !currentLeagueState) return;
+function bindUnitTabs() {
+  const tabs = document.querySelectorAll(".unit-tab");
+  tabs.forEach((tab) => {
+    tab.addEventListener("click", () => {
+      const unit = tab.getAttribute("data-unit") || "offense";
+      currentUnitFilter = /** @type any */ (unit);
 
-  currentAssignContext = { side, position, slotIndex };
+      tabs.forEach((t) => t.classList.remove("unit-tab--active"));
+      tab.classList.add("unit-tab--active");
 
-  const modal = getEl("assign-modal");
-  const slotLabelEl = getEl("assign-modal-slot-label");
-  const eligibleListEl = getEl("assign-eligible-list");
-  const oopSection = getEl("assign-oop-section");
-  const oopListEl = getEl("assign-oop-list");
-
-  if (!modal || !slotLabelEl || !eligibleListEl || !oopSection || !oopListEl) {
-    console.warn("[Franchise GM] Assign modal elements missing.");
-    return;
-  }
-
-  const sideLabelText = sideLabel(side);
-  const slotLabel = slotLabelFromIndex(slotIndex);
-  slotLabelEl.textContent = `${sideLabelText} • ${position} — ${slotLabel}`;
-
-  eligibleListEl.innerHTML = "";
-  oopListEl.innerHTML = "";
-
-  const players = getTeamPlayers(currentLeagueState, currentFranchiseSave.teamCode);
-
-  /** @type {Array<{player: Player, needsConfirm: boolean}>} */
-  const eligible = [];
-  /** @type {Array<{player: Player, needsConfirm: boolean}>} */
-  const oop = [];
-
-  players.forEach((p) => {
-    if (isPlayerUnavailable(p)) {
-      return; // unavailable players excluded from assignment lists
-    }
-    const { allowed, needsConfirm } = isPlayerEligibleForSlot(p, position);
-    if (!allowed) return;
-
-    if (!needsConfirm) {
-      eligible.push({ player: p, needsConfirm: false });
-    } else {
-      oop.push({ player: p, needsConfirm: true });
-    }
-  });
-
-  if (!eligible.length) {
-    const div = document.createElement("div");
-    div.className = "assign-empty";
-    div.textContent = "No natural fits for this slot.";
-    eligibleListEl.appendChild(div);
-  } else {
-    eligible.forEach(({ player, needsConfirm }) => {
-      eligibleListEl.appendChild(
-        createAssignPlayerButton(player, needsConfirm)
-      );
+      renderDepthChart();
     });
-  }
-
-  if (!oop.length) {
-    oopSection.style.display = "none";
-  } else {
-    oopSection.style.display = "block";
-    oop.forEach(({ player, needsConfirm }) => {
-      oopListEl.appendChild(
-        createAssignPlayerButton(player, needsConfirm)
-      );
-    });
-  }
-
-  modal.hidden = false;
-
-  const cancelBtn = getEl("assign-modal-cancel");
-  if (cancelBtn) cancelBtn.focus();
-}
-
-function closeAssignModal() {
-  const modal = getEl("assign-modal");
-  if (modal) modal.hidden = true;
-  currentAssignContext = null;
-}
-
-/**
- * @param {Player} player
- * @param {boolean} needsConfirm
- */
-function handleAssignPlayerFromModal(player, needsConfirm) {
-  if (!currentFranchiseSave || !currentLeagueState || !currentAssignContext) {
-    return;
-  }
-
-  const { side, position, slotIndex } = currentAssignContext;
-
-  if (needsConfirm) {
-    const msg =
-      `Use ${formatPlayerDisplayName(player)} at ${position}? ` +
-      "This is an out-of-position assignment and will carry risk in the sim.";
-    const ok = window.confirm(msg);
-    if (!ok) return;
-  }
-
-  setDepthChartSlot(
-    currentLeagueState,
-    currentFranchiseSave.teamCode,
-    side,
-    position,
-    slotIndex,
-    player.id
-  );
-
-  // Re-render everything to reflect new assignment
-  renderDepthChart(currentFranchiseSave, currentLeagueState);
-  renderRoster(currentFranchiseSave, currentLeagueState);
-  renderStatusBanners(currentFranchiseSave, currentLeagueState);
-
-  closeAssignModal();
-}
-
-/**
- * Clear current slot.
- */
-function handleClearSlotFromModal() {
-  if (!currentFranchiseSave || !currentLeagueState || !currentAssignContext) {
-    return;
-  }
-  const { side, position, slotIndex } = currentAssignContext;
-
-  setDepthChartSlot(
-    currentLeagueState,
-    currentFranchiseSave.teamCode,
-    side,
-    position,
-    slotIndex,
-    null
-  );
-
-  renderDepthChart(currentFranchiseSave, currentLeagueState);
-  renderRoster(currentFranchiseSave, currentLeagueState);
-  renderStatusBanners(currentFranchiseSave, currentLeagueState);
-
-  closeAssignModal();
-}
-
-/**
- * @param {Player} player
- * @param {boolean} needsConfirm
- */
-function createAssignPlayerButton(player, needsConfirm) {
-  const btn = document.createElement("button");
-  btn.type = "button";
-  btn.className = "assign-player-btn";
-
-  const main = document.createElement("div");
-  main.className = "assign-player-main";
-
-  const nameSpan = document.createElement("div");
-  nameSpan.className = "assign-player-name";
-  nameSpan.textContent = formatPlayerDisplayName(player);
-
-  const metaSpan = document.createElement("div");
-  metaSpan.className = "assign-player-meta";
-  metaSpan.textContent = `${player.position} • ${formatStatusLabel(player.status)}`;
-
-  main.appendChild(nameSpan);
-  main.appendChild(metaSpan);
-
-  btn.appendChild(main);
-
-  btn.addEventListener("click", () => {
-    handleAssignPlayerFromModal(player, needsConfirm);
   });
-
-  return btn;
 }
-
-// ---------------------------------------------------------------------------
-// Roster filter bindings
-// ---------------------------------------------------------------------------
 
 function bindRosterFilters() {
-  const sideButtons = document.querySelectorAll(".roster-filter-btn");
-  sideButtons.forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const side = btn.getAttribute("data-side-filter") || "all";
-      rosterFilterSide = side;
-      sideButtons.forEach((b) => {
-        const s = b.getAttribute("data-side-filter") || "all";
-        b.setAttribute("aria-pressed", s === side ? "true" : "false");
-      });
-      if (currentFranchiseSave && currentLeagueState) {
-        renderRoster(currentFranchiseSave, currentLeagueState);
-      }
-    });
-  });
-
-  const posSelect = getEl("roster-position-filter");
-  if (posSelect) {
-    posSelect.addEventListener("change", () => {
-      const val = posSelect.value;
-      rosterFilterPosition = val;
-      if (currentFranchiseSave && currentLeagueState) {
-        renderRoster(currentFranchiseSave, currentLeagueState);
-      }
-    });
-  }
-
   const searchInput = getEl("roster-search-input");
+  const posSelect = getEl("roster-filter-pos");
+
   if (searchInput) {
     searchInput.addEventListener("input", () => {
-      rosterSearchQuery = searchInput.value || "";
-      if (currentFranchiseSave && currentLeagueState) {
-        renderRoster(currentFranchiseSave, currentLeagueState);
-      }
+      renderRosterList();
+    });
+  }
+  if (posSelect) {
+    posSelect.addEventListener("change", () => {
+      renderRosterList();
     });
   }
 }
 
-// ---------------------------------------------------------------------------
-// Side-of-ball toggle bindings
-// ---------------------------------------------------------------------------
+function bindButtons() {
+  const backHubBtn = getEl("btn-back-hub");
+  const mainMenuBtn = getEl("btn-go-main-menu");
+  const resetDepthBtn = getEl("btn-sync-default-depth");
 
-function bindSideToggle() {
-  const btnOff = getEl("toggle-offense");
-  const btnDef = getEl("toggle-defense");
-  const btnSpec = getEl("toggle-special");
-
-  function setSide(side) {
-    currentSide = side;
-    if (btnOff) btnOff.setAttribute("aria-pressed", side === "offense" ? "true" : "false");
-    if (btnDef) btnDef.setAttribute("aria-pressed", side === "defense" ? "true" : "false");
-    if (btnSpec) btnSpec.setAttribute("aria-pressed", side === "special" ? "true" : "false");
-
-    if (currentFranchiseSave && currentLeagueState) {
-      renderDepthChart(currentFranchiseSave, currentLeagueState);
-    }
-  }
-
-  if (btnOff) btnOff.addEventListener("click", () => setSide("offense"));
-  if (btnDef) btnDef.addEventListener("click", () => setSide("defense"));
-  if (btnSpec) btnSpec.addEventListener("click", () => setSide("special"));
-}
-
-// ---------------------------------------------------------------------------
-// Shortcuts
-// ---------------------------------------------------------------------------
-
-function bindShortcuts() {
-  const hubBtn = getEl("shortcut-hub");
-  const scheduleBtn = getEl("shortcut-schedule");
-  const statsBtn = getEl("shortcut-stats");
-  const contractsBtn = getEl("shortcut-contracts");
-  const scoutingBtn = getEl("shortcut-scouting");
-
-  if (hubBtn) {
-    hubBtn.addEventListener("click", () => {
+  if (backHubBtn) {
+    backHubBtn.addEventListener("click", () => {
       window.location.href = "franchise.html";
     });
   }
-  if (scheduleBtn) {
-    scheduleBtn.addEventListener("click", () => {
-      window.location.href = "schedule.html";
-    });
-  }
-  if (statsBtn) {
-    statsBtn.addEventListener("click", () => {
-      window.location.href = "stats.html";
-    });
-  }
-  if (contractsBtn) {
-    contractsBtn.addEventListener("click", () => {
-      window.location.href = "contracts.html";
-    });
-  }
-  if (scoutingBtn) {
-    scoutingBtn.addEventListener("click", () => {
-      window.location.href = "scouting.html";
-    });
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Modal bindings
-// ---------------------------------------------------------------------------
-
-function bindAssignModal() {
-  const modal = getEl("assign-modal");
-  const cancelBtn = getEl("assign-modal-cancel");
-  const clearBtn = getEl("assign-clear-slot");
-
-  if (cancelBtn) {
-    cancelBtn.addEventListener("click", () => {
-      closeAssignModal();
-    });
-  }
-
-  if (clearBtn) {
-    clearBtn.addEventListener("click", () => {
-      handleClearSlotFromModal();
-    });
-  }
-
-  // ESC closes modal
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") {
-      if (modal && !modal.hidden) {
-        e.preventDefault();
-        closeAssignModal();
-      }
-    }
-  });
-}
-
-// ---------------------------------------------------------------------------
-// No-franchise handling
-// ---------------------------------------------------------------------------
-
-function showNoFranchiseState() {
-  const page = getEl("team-page");
-  const fallback = getEl("no-franchise");
-  if (page) page.style.display = "none";
-  if (fallback) fallback.hidden = false;
-
-  const btn = getEl("btn-go-main-menu");
-  if (btn) {
-    btn.addEventListener("click", () => {
+  if (mainMenuBtn) {
+    mainMenuBtn.addEventListener("click", () => {
       window.location.href = "main_page.html";
     });
   }
+  if (resetDepthBtn) {
+    resetDepthBtn.addEventListener("click", () => {
+      if (!currentFranchiseSave) return;
+      const ok = window.confirm(
+        "Reset depth chart to an automatic, engine-style default for this roster?"
+      );
+      if (!ok) return;
+
+      currentDepthChart = createDefaultDepthChart(currentRoster, currentFranchiseSave);
+      saveDepthChart(currentDepthChart);
+      highlightedPlayerId = null;
+      renderDepthChart();
+      renderRosterList();
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
-// Init
+// No-franchise state handling
 // ---------------------------------------------------------------------------
 
-function initTeamView() {
+function showNoFranchiseState() {
+  const main = getEl("team-main");
+  const noFranchise = getEl("no-franchise");
+  if (main) main.hidden = true;
+  if (noFranchise) noFranchise.hidden = false;
+}
+
+// ---------------------------------------------------------------------------
+// Init sequence
+// ---------------------------------------------------------------------------
+
+async function initTeamPage() {
   const save = loadLastFranchise();
   if (!save) {
     showNoFranchiseState();
     return;
   }
-
-  let leagueState = loadLeagueState(save.franchiseId);
-  leagueState = ensureLeagueStateForTeam(save, leagueState);
-  saveLeagueState(leagueState);
-
   currentFranchiseSave = save;
-  currentLeagueState = leagueState;
 
-  renderHeader(save);
-  renderStatusBanners(save, leagueState);
-  renderDepthChart(save, leagueState);
-  renderRoster(save, leagueState);
-  renderNotesCard(save, leagueState);
+  currentLeagueState = loadLeagueState(save.franchiseId) || null;
 
-  bindSideToggle();
+  // Load roster CSV
+  let csvText;
+  try {
+    const resp = await fetch(ROSTERS_CSV_URL);
+    if (!resp.ok) {
+      throw new Error(`HTTP ${resp.status}`);
+    }
+    csvText = await resp.text();
+  } catch (err) {
+    console.error("[Franchise GM] Failed to load roster CSV:", err);
+    const rosterList = getEl("roster-list");
+    const empty = getEl("roster-empty-msg");
+    if (rosterList && empty) {
+      rosterList.innerHTML = "";
+      empty.textContent =
+        "Failed to load roster data. Check the CSV URL or network.";
+      empty.style.display = "block";
+      rosterList.appendChild(empty);
+    }
+    renderHeader();
+    return;
+  }
+
+  const rawRows = parseSimpleCsv(csvText);
+
+  const teamCode = (save.teamCode || "").toUpperCase();
+  currentRoster = rawRows
+    .map(playerFromCsvRow)
+    .filter((p) => p.teamId.toUpperCase() === teamCode);
+
+  // Load or create depth chart
+  const existingDepth = loadDepthChart(save.franchiseId);
+  if (existingDepth && existingDepth.positions) {
+    currentDepthChart = existingDepth;
+  } else {
+    currentDepthChart = createDefaultDepthChart(currentRoster, save);
+    saveDepthChart(currentDepthChart);
+  }
+
+  // Render everything
+  renderHeader();
+  renderDepthChart();
+  renderRosterList();
+
+  // Wire controls
+  bindUnitTabs();
   bindRosterFilters();
-  bindShortcuts();
-  bindAssignModal();
+  bindButtons();
 }
 
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", initTeamView);
+  document.addEventListener("DOMContentLoaded", initTeamPage);
 } else {
-  initTeamView();
+  initTeamPage();
 }

@@ -75,12 +75,8 @@
     }
 
     @keyframes ambientShift {
-      0% {
-        transform: translate3d(0,0,0) scale(1);
-      }
-      100% {
-        transform: translate3d(-3%, -2%, 0) scale(1.04);
-      }
+      0% { transform: translate3d(0,0,0) scale(1); }
+      100% { transform: translate3d(-3%, -2%, 0) scale(1.04); }
     }
 
     header.team-header {
@@ -88,7 +84,7 @@
       justify-content: space-between;
       align-items: center;
       gap: 16px;
-      margin-bottom: 20px;
+      margin-bottom: 16px;
     }
 
     .header-left {
@@ -104,7 +100,7 @@
       text-transform: uppercase;
     }
 
-    #team-header-season-line {
+    #team-header-subline {
       font-size: 0.86rem;
       color: var(--muted);
     }
@@ -117,7 +113,7 @@
       justify-content: flex-end;
     }
 
-    .record-pill {
+    .pill-record {
       border-radius: var(--radius-pill);
       border: 1px solid rgba(34,197,94,0.8);
       padding: 6px 14px;
@@ -129,7 +125,7 @@
       box-shadow: 0 10px 22px rgba(22,163,74,0.35);
     }
 
-    .record-pill-dot {
+    .pill-record-dot {
       width: 8px;
       height: 8px;
       border-radius: 999px;
@@ -137,15 +133,38 @@
       box-shadow: 0 0 0 4px rgba(34,197,94,0.18);
     }
 
-    .record-pill span.label {
+    .pill-record-label {
       text-transform: uppercase;
       letter-spacing: 0.18em;
       font-size: 0.7rem;
       color: rgba(209,250,229,0.88);
     }
 
-    .record-pill span.value {
+    .pill-record-value {
       font-weight: 600;
+    }
+
+    .pill-lock {
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(148,163,184,0.6);
+      padding: 5px 12px;
+      font-size: 0.78rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(15,23,42,0.95);
+    }
+
+    .pill-lock--locked {
+      border-color: var(--danger);
+      background: var(--danger-soft);
+      color: #fecaca;
+    }
+
+    .pill-lock--editable {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+      color: #bbf7d0;
     }
 
     main {
@@ -155,48 +174,10 @@
       gap: 14px;
     }
 
-    .status-banners {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      margin-bottom: 8px;
-    }
-
-    .status-banner {
-      border-radius: var(--radius-md);
-      border: 1px solid var(--card-border);
-      padding: 8px 12px;
-      font-size: 0.8rem;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.7), rgba(15,23,42,0.98));
-    }
-
-    .status-banner-label {
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.16em;
-      font-size: 0.7rem;
-    }
-
-    .status-banner--info {
-      border-color: rgba(148,163,184,0.6);
-    }
-
-    .status-banner--lock {
-      border-color: var(--warn);
-      background: var(--warn-soft);
-      color: #fef3c7;
-    }
-
-    .status-banner[hidden] {
-      display: none;
-    }
-
+    /* Layout */
     .layout-grid {
       display: grid;
-      grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.1fr);
+      grid-template-columns: minmax(0, 2.1fr) minmax(0, 1.1fr);
       gap: 14px;
       align-items: flex-start;
     }
@@ -239,333 +220,244 @@
       font-size: 0.84rem;
     }
 
-    .segment-toggle {
+    /* Tabs */
+    .unit-tabs {
       display: inline-flex;
       border-radius: var(--radius-pill);
-      border: 1px solid rgba(148,163,184,0.5);
-      overflow: hidden;
-      background: rgba(15,23,42,0.96);
-      margin-bottom: 10px;
+      border: 1px solid var(--card-border);
+      background: rgba(15,23,42,0.98);
+      padding: 2px;
+      gap: 2px;
     }
 
-    .segment-toggle button {
+    .unit-tab {
+      border-radius: var(--radius-pill);
       border: none;
-      background: transparent;
-      padding: 6px 14px;
+      padding: 6px 12px;
       font-size: 0.8rem;
-      color: var(--muted);
-      cursor: pointer;
-      text-transform: uppercase;
-      letter-spacing: 0.14em;
-    }
-
-    .segment-toggle button[aria-pressed="true"] {
-      background: linear-gradient(135deg, rgba(34,197,94,0.2), rgba(56,189,248,0.2));
-      color: var(--text);
-    }
-
-    .segment-toggle button:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 2px;
-    }
-
-    .depthchart-rows {
-      margin-top: 6px;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-
-    .depth-row {
-      display: grid;
-      grid-template-columns: 70px minmax(0, 1fr);
-      gap: 8px;
-      align-items: center;
-      padding: 6px 8px;
-      border-radius: var(--radius-md);
-      border: 1px solid rgba(30,64,175,0.35);
-      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.76), rgba(15,23,42,0.98));
-    }
-
-    .depth-row-label {
-      font-size: 0.8rem;
-      font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.12em;
-      color: rgba(191,219,254,0.9);
+      color: var(--muted);
+      background: transparent;
+      cursor: pointer;
     }
 
-    .depth-row-slots {
+    .unit-tab--active {
+      background: linear-gradient(135deg, rgba(56,189,248,0.32), rgba(37,99,235,0.6));
+      color: #0b1120;
+    }
+
+    /* Depth chart */
+    .depth-chart-container {
       display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 4px;
     }
 
-    .depth-slot {
-      flex: 1 1 0;
-      min-width: 0;
+    .pos-group {
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(31,41,55,0.95);
+      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.9), rgba(15,23,42,0.98));
+      padding: 8px 10px 8px;
+    }
+
+    .pos-group-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+
+    .pos-group-label {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--muted);
+    }
+
+    .pos-group-sub {
+      font-size: 0.74rem;
+      color: var(--muted);
+    }
+
+    .slot-row {
+      display: grid;
+      grid-template-columns: 80px minmax(0, 1fr) auto;
+      gap: 6px;
+      align-items: center;
+      padding: 4px 0;
+      border-top: 1px solid rgba(31,41,55,0.8);
+    }
+
+    .slot-row:first-of-type {
+      border-top: none;
+      padding-top: 0;
+    }
+
+    .slot-row-label {
+      font-size: 0.74rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+    }
+
+    .slot-player-pill {
       border-radius: var(--radius-pill);
       border: 1px solid rgba(148,163,184,0.7);
-      background: rgba(15,23,42,0.96);
       padding: 5px 10px;
-      font-size: 0.78rem;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 6px;
-      transition:
-        background-color 140ms ease-out,
-        border-color 140ms ease-out,
-        transform 140ms ease-out;
-      text-align: left;
-    }
-
-    .depth-slot-main {
+      min-height: 30px;
       display: flex;
       flex-direction: column;
-      gap: 1px;
-      min-width: 0;
+      justify-content: center;
+      gap: 2px;
+      background: rgba(15,23,42,0.96);
+      cursor: pointer;
+      transition:
+        background-color 120ms ease-out,
+        border-color 120ms ease-out,
+        transform 120ms ease-out;
     }
 
-    .depth-slot-label {
-      font-size: 0.7rem;
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-      color: var(--muted);
-    }
-
-    .depth-slot-player {
-      font-weight: 500;
-      white-space: nowrap;
-      text-overflow: ellipsis;
-      overflow: hidden;
-    }
-
-    .depth-slot-tags {
-      font-size: 0.7rem;
-      color: var(--muted);
-      white-space: nowrap;
-    }
-
-    .depth-slot--starter {
-      border-color: rgba(34,197,94,0.9);
-      background: linear-gradient(135deg, rgba(22,163,74,0.2), rgba(15,23,42,0.96));
-    }
-
-    .depth-slot--empty .depth-slot-player {
-      color: rgba(148,163,184,0.9);
-      font-style: italic;
-    }
-
-    .depth-slot--locked {
-      opacity: 0.6;
-      cursor: default;
-    }
-
-    .depth-slot--highlight {
-      box-shadow: 0 0 0 1px rgba(56,189,248,0.7), 0 0 0 6px rgba(56,189,248,0.2);
-      transform: translateY(-1px);
-    }
-
-    .depth-slot:hover:not(.depth-slot--locked) {
+    .slot-player-pill:hover {
       background: rgba(31,41,55,0.98);
       border-color: rgba(226,232,240,0.8);
-      transform: translateY(-1px);
+      transform: translateY(-0.5px);
     }
 
-    .depth-slot:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 2px;
+    .slot-player-pill--empty {
+      border-style: dashed;
+      border-color: rgba(75,85,99,0.9);
+      color: var(--muted);
+      font-size: 0.78rem;
     }
 
-    /* Roster card */
-    .roster-filters-row {
+    .slot-player-name {
+      font-size: 0.82rem;
+      font-weight: 500;
+    }
+
+    .slot-player-meta {
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+
+    .slot-badge-row {
       display: flex;
       flex-wrap: wrap;
+      gap: 4px;
+      justify-content: flex-end;
+    }
+
+    .slot-badge {
+      border-radius: 999px;
+      border: 1px solid rgba(148,163,184,0.7);
+      padding: 2px 7px;
+      font-size: 0.7rem;
+      color: var(--muted);
+    }
+
+    .slot-badge--risk {
+      border-color: var(--warn);
+      background: var(--warn-soft);
+      color: #fef3c7;
+    }
+
+    .slot-badge--injury {
+      border-color: var(--danger);
+      background: var(--danger-soft);
+      color: #fee2e2;
+    }
+
+    .slot-badge--starter {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+      color: #bbf7d0;
+    }
+
+    /* Roster panel */
+    .roster-search-row {
+      display: flex;
       gap: 8px;
       align-items: center;
       margin-bottom: 8px;
+      flex-wrap: wrap;
     }
 
-    .roster-side-filters {
-      display: inline-flex;
+    .roster-search-input {
+      flex: 1 1 160px;
       border-radius: var(--radius-pill);
-      border: 1px solid rgba(148,163,184,0.5);
-      overflow: hidden;
+      border: 1px solid rgba(55,65,81,0.9);
       background: rgba(15,23,42,0.96);
-    }
-
-    .roster-side-filters button {
-      border: none;
-      background: transparent;
-      padding: 4px 10px;
-      font-size: 0.76rem;
-      cursor: pointer;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-    }
-
-    .roster-side-filters button[aria-pressed="true"] {
-      background: rgba(30,64,175,0.7);
-      color: #e0f2fe;
-    }
-
-    .roster-position-filter {
-      flex: 0 0 auto;
-    }
-
-    .roster-position-filter select {
-      background: rgba(15,23,42,0.96);
-      border-radius: var(--radius-pill);
-      border: 1px solid rgba(148,163,184,0.7);
+      padding: 6px 10px;
+      font-size: 0.82rem;
       color: var(--text);
-      font-size: 0.78rem;
-      padding: 4px 10px;
     }
 
-    .roster-search {
-      flex: 1 1 120px;
+    .roster-search-input::placeholder {
+      color: rgba(148,163,184,0.85);
     }
 
-    .roster-search input {
-      width: 100%;
+    .roster-filter-select {
       border-radius: var(--radius-pill);
-      border: 1px solid rgba(148,163,184,0.7);
+      border: 1px solid rgba(55,65,81,0.9);
       background: rgba(15,23,42,0.96);
+      padding: 6px 10px;
+      font-size: 0.82rem;
       color: var(--text);
-      font-size: 0.78rem;
-      padding: 4px 10px;
     }
 
     .roster-list {
-      margin-top: 8px;
-      max-height: 360px;
+      max-height: 420px;
       overflow-y: auto;
-      border-top: 1px solid rgba(31,41,55,0.9);
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(31,41,55,0.95);
+      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.9), rgba(15,23,42,0.98));
     }
 
-    .roster-player-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 2px;
-      border-bottom: 1px solid rgba(31,41,55,0.7);
+    .roster-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) 60px minmax(0, 1fr);
+      gap: 6px;
+      padding: 6px 9px;
       font-size: 0.8rem;
-      cursor: pointer;
+      align-items: baseline;
+      border-bottom: 1px solid rgba(31,41,55,0.9);
+      cursor: default;
     }
 
-    .roster-player-main {
-      display: flex;
-      flex-direction: column;
-      gap: 1px;
-      min-width: 0;
+    .roster-row:last-child {
+      border-bottom: none;
     }
 
-    .roster-player-name {
+    .roster-row-name {
       font-weight: 500;
-      white-space: nowrap;
-      text-overflow: ellipsis;
-      overflow: hidden;
     }
 
-    .roster-player-meta {
-      font-size: 0.74rem;
+    .roster-row-pos {
+      font-size: 0.78rem;
       color: var(--muted);
-      white-space: nowrap;
+      text-align: center;
     }
 
-    .roster-player-status-pill {
-      border-radius: var(--radius-pill);
-      border: 1px solid rgba(148,163,184,0.7);
-      font-size: 0.7rem;
-      padding: 2px 8px;
-      white-space: nowrap;
+    .roster-row-role {
+      font-size: 0.76rem;
+      color: var(--muted);
     }
 
-    .roster-player-status-pill--injured {
-      border-color: var(--danger);
-      background: var(--danger-soft);
-      color: #fecaca;
+    .roster-row--unassigned {
+      background: rgba(24,24,27,0.9);
     }
 
-    .roster-player-row--highlight {
-      background: rgba(30,64,175,0.35);
+    .roster-row-highlight {
+      background: rgba(56,189,248,0.08);
     }
 
     .roster-empty {
-      padding: 8px 2px;
+      padding: 10px;
       font-size: 0.8rem;
       color: var(--muted);
-    }
-
-    /* Notes card */
-    .notes-body {
-      font-size: 0.8rem;
-      color: var(--muted);
-      line-height: 1.4;
-    }
-
-    .notes-body p {
-      margin: 4px 0;
-    }
-
-    /* Shortcuts */
-    .shortcuts-row {
-      margin-top: 10px;
-      border-radius: var(--radius-lg);
-      border: 1px solid var(--card-border);
-      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.6), rgba(15,23,42,0.98));
-      padding: 10px 12px;
-      box-shadow: var(--shadow-sm);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-
-    .shortcuts-label {
-      font-size: 0.78rem;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: 0.16em;
-    }
-
-    .shortcuts-buttons {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-
-    .shortcut-btn {
-      border-radius: var(--radius-pill);
-      border: 1px solid rgba(148,163,184,0.6);
-      background: rgba(15,23,42,0.96);
-      color: var(--text);
-      font-size: 0.8rem;
-      padding: 6px 14px;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      transition:
-        background-color 140ms ease-out,
-        border-color 140ms ease-out,
-        transform 140ms ease-out;
-    }
-
-    .shortcut-btn:hover {
-      background: rgba(31,41,55,0.98);
-      border-color: rgba(226,232,240,0.8);
-      transform: translateY(-1px);
-    }
-
-    .shortcut-btn:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 2px;
     }
 
     /* Buttons */
@@ -602,144 +494,54 @@
       box-shadow: 0 16px 32px rgba(22,163,74,0.6);
     }
 
-    .btn-secondary {
+    .btn-primary:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+
+    .btn-ghost {
       border-radius: var(--radius-pill);
-      border: 1px solid rgba(148,163,184,0.7);
+      border: 1px solid rgba(148,163,184,0.4);
       background: rgba(15,23,42,0.95);
       color: var(--text);
-      font-size: 0.84rem;
-      padding: 6px 14px;
-      cursor: pointer;
+      font-size: 0.8rem;
+      padding: 6px 12px;
     }
 
-    .btn-secondary:hover {
+    .btn-ghost:hover {
       background: rgba(31,41,55,0.98);
+      border-color: rgba(148,163,184,0.8);
     }
 
-    button:focus-visible {
+    button:focus-visible,
+    .roster-search-input:focus-visible,
+    .roster-filter-select:focus-visible {
       outline: 2px solid var(--accent);
       outline-offset: 3px;
     }
 
-    /* Modal */
-    .modal-backdrop {
-      position: fixed;
-      inset: 0;
-      background: rgba(15,23,42,0.82);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 50;
-    }
-
-    .modal-backdrop[hidden] {
-      display: none;
-    }
-
-    .modal-dialog {
-      width: min(480px, 96vw);
-      border-radius: var(--radius-lg);
-      border: 1px solid var(--card-border-strong);
-      background: radial-gradient(circle at 0% 0%, rgba(34,197,94,0.12), rgba(15,23,42,0.98));
-      box-shadow: 0 24px 60px rgba(0,0,0,0.9);
-      padding: 16px 18px 14px;
-    }
-
-    .modal-title {
-      font-size: 0.96rem;
-      font-weight: 600;
-      margin-bottom: 4px;
-    }
-
-    .modal-body {
-      font-size: 0.84rem;
-      color: var(--muted);
-      margin-bottom: 10px;
-    }
-
-    .assign-slot-label {
-      font-size: 0.8rem;
-      margin-bottom: 8px;
-    }
-
-    .assign-list-label {
-      font-size: 0.78rem;
-      text-transform: uppercase;
-      letter-spacing: 0.14em;
-      color: var(--muted);
-      margin-top: 8px;
-      margin-bottom: 4px;
-    }
-
-    .assign-list {
-      max-height: 160px;
-      overflow-y: auto;
+    /* Lock banner */
+    .lock-banner {
+      margin-top: 6px;
       border-radius: var(--radius-md);
-      border: 1px solid rgba(30,41,59,0.9);
-      padding: 4px 0;
-      background: rgba(15,23,42,0.98);
-    }
-
-    .assign-player-btn {
-      width: 100%;
-      border: none;
-      background: transparent;
-      padding: 4px 10px;
-      font-size: 0.8rem;
-      color: var(--text);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 8px;
-      cursor: pointer;
-    }
-
-    .assign-player-btn:hover {
-      background: rgba(31,41,55,0.98);
-    }
-
-    .assign-player-main {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-      min-width: 0;
-    }
-
-    .assign-player-name {
-      font-weight: 500;
-      white-space: nowrap;
-      text-overflow: ellipsis;
-      overflow: hidden;
-    }
-
-    .assign-player-meta {
-      font-size: 0.74rem;
-      color: var(--muted);
-      white-space: nowrap;
-    }
-
-    .assign-empty {
       padding: 6px 10px;
-      font-size: 0.8rem;
-      color: var(--muted);
-    }
-
-    .modal-actions {
+      font-size: 0.78rem;
       display: flex;
-      justify-content: space-between;
-      gap: 8px;
-      margin-top: 10px;
-      align-items: center;
-    }
-
-    .modal-actions-right {
-      display: flex;
+      align-items: flex-start;
       gap: 8px;
     }
 
-    .modal-warning-text {
-      font-size: 0.74rem;
-      color: var(--warn);
+    .lock-banner--warning {
+      border: 1px solid var(--warn);
+      background: var(--warn-soft);
+      color: #fef3c7;
+    }
+
+    .lock-banner--locked {
+      border: 1px solid var(--danger);
+      background: var(--danger-soft);
+      color: #fee2e2;
     }
 
     /* No-franchise state */
@@ -752,8 +554,6 @@
       text-align: left;
       max-width: 520px;
       box-shadow: var(--shadow-soft);
-      margin-left: auto;
-      margin-right: auto;
     }
 
     .no-franchise-title {
@@ -804,210 +604,150 @@
         align-self: stretch;
         justify-content: flex-start;
       }
+
+      .slot-row {
+        grid-template-columns: 70px minmax(0, 1fr);
+      }
+
+      .slot-badge-row {
+        margin-top: 4px;
+        justify-content: flex-start;
+      }
     }
   </style>
 </head>
 <body>
-  <div class="page" id="team-page">
+  <div class="page" id="team-page-root">
     <header class="team-header">
       <div class="header-left">
         <div id="team-header-name">Franchise Team</div>
-        <div id="team-header-season-line">Season —</div>
+        <div id="team-header-subline">Season —</div>
       </div>
       <div class="header-right">
-        <div class="record-pill" id="team-header-record-pill">
-          <span class="record-pill-dot" aria-hidden="true"></span>
-          <span class="label">Record</span>
-          <span class="value" id="team-header-record-value">0–0</span>
+        <div class="pill-record" id="team-record-pill">
+          <span class="pill-record-dot" aria-hidden="true"></span>
+          <span class="pill-record-label">Record</span>
+          <span class="pill-record-value" id="team-record-value">0–0</span>
         </div>
+        <div class="pill-lock pill-lock--editable" id="depth-lock-pill">
+          <span id="depth-lock-label">Depth chart editable</span>
+        </div>
+        <button type="button" class="btn-ghost" id="btn-back-hub">
+          Back to hub
+        </button>
       </div>
     </header>
 
-    <main>
-      <div class="status-banners">
-        <div class="status-banner status-banner--info" id="depthchart-health-banner" hidden>
-          <span class="status-banner-label">Depth chart</span>
-          <span id="depthchart-health-text">—</span>
-        </div>
-        <div class="status-banner status-banner--lock" id="depthchart-lock-banner" hidden>
-          <span class="status-banner-label">Lock</span>
-          <span id="depthchart-lock-text">Depth chart locked for this week. Changes will apply next game.</span>
-        </div>
-      </div>
-
+    <main id="team-main">
       <div class="layout-grid">
-        <!-- Left: depth chart -->
-        <section aria-label="Depth chart">
-          <article class="card" id="depthchart-card">
-            <div class="card-header">
-              <div>
-                <div class="card-title">
-                  <strong>Depth Chart</strong>
-                </div>
-                <div class="card-subtitle" id="depthchart-subtitle">Offense • Starters & backups</div>
-              </div>
-            </div>
-            <div class="card-body">
-              <div class="segment-toggle" role="tablist" aria-label="Side of ball">
-                <button type="button" id="toggle-offense" data-side="offense" aria-pressed="true">
-                  Offense
-                </button>
-                <button type="button" id="toggle-defense" data-side="defense" aria-pressed="false">
-                  Defense
-                </button>
-                <button type="button" id="toggle-special" data-side="special" aria-pressed="false">
-                  Special Teams
-                </button>
+        <!-- Left: Depth chart -->
+        <section class="card" id="card-depth-chart" aria-labelledby="card-depth-chart-title">
+          <div class="card-header">
+            <div>
+              <div class="card-title" id="card-depth-chart-title">
+                <strong>Depth Chart</strong>
               </div>
               <div class="card-subtitle">
-                Click a slot to assign a player. Starters are shown on the left.
-              </div>
-              <div class="depthchart-rows" id="depthchart-rows">
-                <!-- Populated by JS -->
+                Set starters, backups, and special teams roles.
               </div>
             </div>
-          </article>
+            <div class="unit-tabs" role="tablist">
+              <button type="button" class="unit-tab unit-tab--active" data-unit="offense" id="tab-offense">
+                Offense
+              </button>
+              <button type="button" class="unit-tab" data-unit="defense" id="tab-defense">
+                Defense
+              </button>
+              <button type="button" class="unit-tab" data-unit="special" id="tab-special">
+                Special
+              </button>
+              <button type="button" class="unit-tab" data-unit="all" id="tab-all">
+                All
+              </button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div id="lock-banner-container"></div>
+            <div class="depth-chart-container" id="depth-chart-container">
+              <!-- Populated by JS -->
+            </div>
+          </div>
         </section>
 
-        <!-- Right: roster + notes -->
-        <section aria-label="Roster and notes">
-          <article class="card" id="roster-card">
-            <div class="card-header">
-              <div>
-                <div class="card-title">
-                  <strong>Team Roster</strong>
-                </div>
-                <div class="card-subtitle" id="roster-subtitle">All players under contract</div>
+        <!-- Right: Roster & meta -->
+        <section class="card" id="card-roster" aria-labelledby="card-roster-title">
+          <div class="card-header">
+            <div>
+              <div class="card-title" id="card-roster-title">
+                <strong>Roster</strong>
+              </div>
+              <div class="card-subtitle" id="card-roster-subtitle">
+                All players currently on this team.
               </div>
             </div>
-            <div class="card-body">
-              <div class="roster-filters-row">
-                <div class="roster-side-filters" role="group" aria-label="Side filter">
-                  <button type="button" class="roster-filter-btn" id="roster-filter-all" data-side-filter="all" aria-pressed="true">All</button>
-                  <button type="button" class="roster-filter-btn" id="roster-filter-offense" data-side-filter="offense" aria-pressed="false">Offense</button>
-                  <button type="button" class="roster-filter-btn" id="roster-filter-defense" data-side-filter="defense" aria-pressed="false">Defense</button>
-                  <button type="button" class="roster-filter-btn" id="roster-filter-special" data-side-filter="special" aria-pressed="false">Special</button>
-                </div>
-                <div class="roster-position-filter">
-                  <select id="roster-position-filter">
-                    <option value="all">All positions</option>
-                    <option value="QB">QB</option>
-                    <option value="RB">RB</option>
-                    <option value="FB">FB</option>
-                    <option value="WR">WR</option>
-                    <option value="TE">TE</option>
-                    <option value="LT">LT</option>
-                    <option value="LG">LG</option>
-                    <option value="C">C</option>
-                    <option value="RG">RG</option>
-                    <option value="RT">RT</option>
-                    <option value="DT">DT</option>
-                    <option value="EDGE">EDGE</option>
-                    <option value="LB">LB</option>
-                    <option value="CB">CB</option>
-                    <option value="S">S</option>
-                    <option value="K">K</option>
-                    <option value="P">P</option>
-                    <option value="KR">KR</option>
-                    <option value="PR">PR</option>
-                    <option value="LS">LS</option>
-                  </select>
-                </div>
-                <div class="roster-search">
-                  <input type="text" id="roster-search-input" placeholder="Search by name" />
-                </div>
-              </div>
-              <div class="roster-list" id="roster-list">
-                <!-- Populated by JS -->
+            <button type="button" class="btn-ghost" id="btn-sync-default-depth">
+              Reset to automatic
+            </button>
+          </div>
+          <div class="card-body">
+            <div class="roster-search-row">
+              <input
+                type="search"
+                id="roster-search-input"
+                class="roster-search-input"
+                placeholder="Search by name or position"
+                autocomplete="off"
+              />
+              <select id="roster-filter-pos" class="roster-filter-select">
+                <option value="">All positions</option>
+                <option value="QB">QB</option>
+                <option value="RB">RB</option>
+                <option value="FB">FB</option>
+                <option value="WR">WR</option>
+                <option value="TE">TE</option>
+                <option value="LT">LT</option>
+                <option value="LG">LG</option>
+                <option value="C">C</option>
+                <option value="RG">RG</option>
+                <option value="RT">RT</option>
+                <option value="DT">DT</option>
+                <option value="EDGE">EDGE</option>
+                <option value="LB">LB</option>
+                <option value="CB">CB</option>
+                <option value="S">S</option>
+                <option value="K">K</option>
+                <option value="P">P</option>
+              </select>
+            </div>
+            <div class="roster-list" id="roster-list">
+              <div class="roster-empty" id="roster-empty-msg">
+                Loading roster…
               </div>
             </div>
-          </article>
-
-          <article class="card" id="notes-card" style="margin-top:12px;">
-            <div class="card-header">
-              <div>
-                <div class="card-title">
-                  <strong>Unit Notes</strong>
-                </div>
-                <div class="card-subtitle" id="notes-subtitle">Staff notes on roster & usage</div>
-              </div>
-            </div>
-            <div class="card-body">
-              <div class="notes-body" id="notes-card-body">
-                <!-- Populated by JS -->
-              </div>
-            </div>
-          </article>
+          </div>
         </section>
       </div>
-
-      <!-- Shortcuts -->
-      <section class="shortcuts-row" aria-label="Shortcuts">
-        <div class="shortcuts-label">Shortcuts</div>
-        <div class="shortcuts-buttons">
-          <button type="button" class="shortcut-btn" id="shortcut-hub">Back to Hub</button>
-          <button type="button" class="shortcut-btn" id="shortcut-schedule">Schedule</button>
-          <button type="button" class="shortcut-btn" id="shortcut-stats">Stats</button>
-          <button type="button" class="shortcut-btn" id="shortcut-contracts">Contracts / Cap</button>
-          <button type="button" class="shortcut-btn" id="shortcut-scouting">Scouting</button>
-        </div>
-      </section>
     </main>
+
+    <!-- No franchise state -->
+    <section id="no-franchise" class="no-franchise-state" hidden>
+      <div class="no-franchise-title">No active franchise found</div>
+      <div class="no-franchise-text">
+        There’s no active franchise in this slot. Return to the main menu to start a new franchise or continue an existing one.
+      </div>
+      <div class="no-franchise-actions">
+        <button type="button" class="btn-primary" id="btn-go-main-menu">
+          Back to main menu
+        </button>
+      </div>
+    </section>
 
     <footer>
       <span>Franchise GM • Team View & Depth Chart</span>
-      <span>Future: player detail, coach feedback, deeper usage analytics</span>
+      <span>Depth chart changes are saved immediately</span>
     </footer>
   </div>
 
-  <!-- No franchise state -->
-  <section id="no-franchise" class="no-franchise-state" hidden>
-    <div class="no-franchise-title">No active franchise found</div>
-    <div class="no-franchise-text">
-      There’s no active franchise in this slot. Return to the main menu to start a new franchise or continue an existing one.
-    </div>
-    <div class="no-franchise-actions">
-      <button type="button" class="btn btn-primary" id="btn-go-main-menu">
-        Back to main menu
-      </button>
-    </div>
-  </section>
-
-  <!-- Assign player modal -->
-  <div id="assign-modal" class="modal-backdrop" hidden>
-    <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="assign-modal-title">
-      <div class="modal-title" id="assign-modal-title">Assign player</div>
-      <div class="modal-body">
-        <div class="assign-slot-label" id="assign-modal-slot-label">—</div>
-
-        <div class="assign-list-label">Eligible players</div>
-        <div class="assign-list" id="assign-eligible-list">
-          <!-- Populated by JS -->
-        </div>
-
-        <div id="assign-oop-section">
-          <div class="assign-list-label">Out-of-position options</div>
-          <div class="assign-list" id="assign-oop-list">
-            <!-- Populated by JS -->
-          </div>
-        </div>
-      </div>
-      <div class="modal-actions">
-        <button type="button" class="btn-secondary" id="assign-clear-slot">
-          Clear slot
-        </button>
-        <div class="modal-actions-right">
-          <span class="modal-warning-text" id="assign-modal-warning-text">
-            Out-of-position assignments carry risk in the sim.
-          </span>
-          <button type="button" class="btn-secondary" id="assign-modal-cancel">
-            Cancel
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <script src="team.js"></script>
+  <script src="team_view.js"></script>
 </body>
 </html>
