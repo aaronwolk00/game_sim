@@ -7,76 +7,39 @@
   <style>
     :root {
       --bg: #020617;
-      --panel: #020617;
-      --card: #020617;
-      --card-border: #1e293b;
-      --card-border-strong: #4b5563;
-      --text: #e5e7eb;
-      --muted: #9ca3af;
-      --accent: #22c55e;
-      --accent-soft: rgba(34,197,94,0.18);
-      --accent-alt: #38bdf8;
-      --danger: #f97373;
-      --danger-soft: rgba(248,113,113,0.18);
-      --warn: #fbbf24;
-      --warn-soft: rgba(251,191,36,0.18);
-      --radius-lg: 18px;
+      --card: #0f172a;
+      --border: #1e293b;
+      --border-strong: #334155;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --accent-home: #22c55e;
+      --accent-away: #38bdf8;
+      --accent-bye: #64748b;
+      --radius-lg: 16px;
       --radius-md: 12px;
       --radius-pill: 999px;
       --shadow-soft: 0 22px 45px rgba(0,0,0,0.65);
-      --shadow-sm: 0 10px 24px rgba(0,0,0,0.55);
-      --font: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
-              "Segoe UI", Roboto, sans-serif;
+      --font: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
     }
 
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
     html, body {
       margin: 0;
       padding: 0;
-      height: 100%;
       font-family: var(--font);
-      background: radial-gradient(circle at 0% 0%, #0b1120 0, #020617 48%, #000 100%);
+      background: radial-gradient(circle at 0% 0%, #0b1120 0%, #020617 50%, #000 100%);
       color: var(--text);
       -webkit-font-smoothing: antialiased;
     }
 
-    body {
-      display: flex;
-      flex-direction: column;
-      min-height: 100vh;
-    }
-
     .page {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      padding: 24px 40px 28px;
       max-width: 1280px;
       margin: 0 auto;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .page::before {
-      content: "";
-      position: fixed;
-      inset: -40%;
-      background:
-        radial-gradient(circle at 0% 0%, rgba(56,189,248,0.14), transparent 55%),
-        radial-gradient(circle at 100% 100%, rgba(34,197,94,0.12), transparent 60%);
-      opacity: 0.85;
-      mix-blend-mode: screen;
-      pointer-events: none;
-      z-index: -2;
-      animation: ambientShift 26s ease-in-out infinite alternate;
-    }
-
-    @keyframes ambientShift {
-      0% { transform: translate3d(0,0,0) scale(1); }
-      100% { transform: translate3d(-3%, -2%, 0) scale(1.04); }
+      padding: 24px 40px 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
     }
 
     header.schedule-header {
@@ -84,7 +47,6 @@
       justify-content: space-between;
       align-items: center;
       gap: 16px;
-      margin-bottom: 16px;
     }
 
     .header-left {
@@ -101,38 +63,35 @@
     }
 
     #season-phase-line {
-      font-size: 0.86rem;
+      font-size: 0.9rem;
       color: var(--muted);
     }
 
     .header-tabs {
-      margin-top: 6px;
-      display: inline-flex;
-      align-items: center;
+      display: flex;
       gap: 6px;
-      border-radius: var(--radius-pill);
+      margin-top: 8px;
       padding: 3px;
+      border-radius: var(--radius-pill);
       background: rgba(15,23,42,0.96);
       border: 1px solid rgba(51,65,85,0.9);
     }
 
     .view-tab {
-      border-radius: var(--radius-pill);
       border: none;
+      border-radius: var(--radius-pill);
       padding: 6px 14px;
       font-size: 0.78rem;
+      letter-spacing: 0.12em;
       text-transform: uppercase;
-      letter-spacing: 0.14em;
-      cursor: pointer;
-      background: transparent;
       color: var(--muted);
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
+      background: transparent;
+      cursor: pointer;
+      transition: all 0.2s ease-in-out;
     }
 
     .view-tab[data-active="true"] {
-      background: linear-gradient(135deg, #22c55e, #16a34a);
+      background: linear-gradient(135deg, var(--accent-home), #16a34a);
       color: #020617;
       box-shadow: 0 8px 18px rgba(22,163,74,0.5);
     }
@@ -146,53 +105,43 @@
     }
 
     .record-pill {
-      border-radius: var(--radius-pill);
-      border: 1px solid rgba(34,197,94,0.8);
-      padding: 6px 14px;
-      font-size: 0.84rem;
-      background: linear-gradient(135deg, rgba(22,163,74,0.18), rgba(15,23,42,0.96));
       display: inline-flex;
       align-items: center;
       gap: 6px;
+      border-radius: var(--radius-pill);
+      border: 1px solid var(--accent-home);
+      padding: 6px 14px;
+      background: linear-gradient(135deg, rgba(22,163,74,0.18), rgba(15,23,42,0.96));
       box-shadow: 0 10px 22px rgba(22,163,74,0.35);
+      font-size: 0.84rem;
     }
 
     .record-pill-dot {
       width: 8px;
       height: 8px;
-      border-radius: 999px;
-      background: var(--accent);
-      box-shadow: 0 0 0 4px rgba(34,197,94,0.18);
+      border-radius: 50%;
+      background: var(--accent-home);
     }
 
     .record-pill span.label {
       text-transform: uppercase;
-      letter-spacing: 0.18em;
+      letter-spacing: 0.14em;
       font-size: 0.7rem;
-      color: rgba(209,250,229,0.88);
+      color: rgba(209,250,229,0.9);
     }
 
-    .record-pill span.value {
-      font-weight: 600;
-    }
+    .record-pill span.value { font-weight: 600; }
 
     .btn-outline {
       border-radius: var(--radius-pill);
-      border: 1px solid rgba(148,163,184,0.8);
+      border: 1px solid var(--border-strong);
       background: rgba(15,23,42,0.96);
-      padding: 6px 14px;
+      color: var(--text);
       font-size: 0.78rem;
       text-transform: uppercase;
-      letter-spacing: 0.16em;
-      color: var(--text);
+      padding: 6px 14px;
       cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      transition:
-        background-color 140ms ease-out,
-        border-color 140ms ease-out,
-        transform 140ms ease-out;
+      transition: all 0.2s ease-in-out;
     }
 
     .btn-outline:hover {
@@ -201,110 +150,91 @@
       transform: translateY(-1px);
     }
 
-    main {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-    }
-
     .layout-grid {
       display: grid;
       grid-template-columns: minmax(0, 1.4fr) minmax(0, 2fr);
-      gap: 14px;
+      gap: 20px;
       align-items: stretch;
     }
 
+    /* --- Card styling --- */
     .card {
+      background: var(--card);
+      border: 1px solid var(--border);
       border-radius: var(--radius-lg);
-      border: 1px solid var(--card-border);
-      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.75), rgba(15,23,42,0.98));
       box-shadow: var(--shadow-soft);
-      padding: 14px 16px 12px;
-      position: relative;
-      overflow: hidden;
+      padding: 16px 18px;
+      display: flex;
+      flex-direction: column;
     }
 
     .card-header {
       display: flex;
       justify-content: space-between;
       align-items: baseline;
-      gap: 8px;
       margin-bottom: 8px;
     }
 
     .card-title {
-      font-size: 0.88rem;
+      font-size: 0.9rem;
+      letter-spacing: 0.16em;
       text-transform: uppercase;
-      letter-spacing: 0.2em;
       color: var(--muted);
     }
 
-    .card-title strong {
-      color: var(--text);
-    }
+    .card-title strong { color: var(--text); }
 
     .card-subtitle {
-      font-size: 0.74rem;
+      font-size: 0.75rem;
       color: var(--muted);
     }
 
-    .card-body {
-      font-size: 0.84rem;
-    }
+    .card-body { flex: 1; }
 
-    /* Left panel – week list */
-    #card-season-weeks {
-      min-height: 420px;
-    }
-
-    .weeks-intro {
-      margin-bottom: 10px;
-      font-size: 0.78rem;
-      color: var(--muted);
-    }
-
-    .weeks-range-label {
-      font-size: 0.74rem;
-      color: var(--muted);
-      margin-bottom: 8px;
-    }
-
+    /* --- Week list --- */
     .week-list-container {
       border-radius: var(--radius-md);
-      border: 1px solid var(--card-border-strong);
-      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.85), rgba(15,23,42,0.98));
-      max-height: 460px;
+      border: 1px solid var(--border-strong);
+      background: rgba(15,23,42,0.9);
+      box-shadow: var(--shadow-soft);
+      max-height: 500px;
       overflow-y: auto;
       padding: 4px;
-      box-shadow: var(--shadow-sm);
     }
 
     .week-row {
-      width: 100%;
-      text-align: left;
-      border: none;
+      border: 1px solid transparent;
       border-radius: 10px;
-      padding: 6px 8px;
-      margin: 2px 0;
-      background: rgba(15,23,42,0.96);
-      color: var(--text);
-      font-size: 0.78rem;
+      padding: 8px 10px;
+      margin: 3px 0;
+      font-size: 0.8rem;
       display: flex;
       flex-direction: column;
-      gap: 2px;
       cursor: pointer;
-      transition:
-        background-color 110ms ease-out,
-        border-color 110ms ease-out,
-        transform 110ms ease-out;
-      border: 1px solid transparent;
+      transition: all 0.15s ease-in-out;
     }
 
-    .week-row:hover {
-      background: rgba(30,64,175,0.45);
-      border-color: rgba(59,130,246,0.85);
+    .week-row--home {
+      border-left: 3px solid var(--accent-home);
+      background: rgba(34,197,94,0.08);
+    }
+
+    .week-row--away {
+      border-left: 3px solid var(--accent-away);
+      background: rgba(56,189,248,0.08);
+    }
+
+    .week-row--bye {
+      border-left: 3px solid var(--accent-bye);
+      background: rgba(100,116,139,0.08);
+      color: var(--muted);
+      cursor: default;
+    }
+
+    .week-row:hover:not(.week-row--bye) {
       transform: translateY(-1px);
+      background: rgba(59,130,246,0.15);
+      border-color: rgba(59,130,246,0.9);
     }
 
     .week-row[data-selected="true"] {
@@ -316,38 +246,12 @@
     .week-row-topline {
       display: flex;
       justify-content: space-between;
-      gap: 8px;
-      font-weight: 500;
+      font-weight: 600;
     }
 
     .week-row-meta {
       font-size: 0.72rem;
       color: var(--muted);
-      display: flex;
-      justify-content: space-between;
-      gap: 6px;
-    }
-
-    .week-row-result-tag {
-      font-size: 0.7rem;
-      text-transform: uppercase;
-      letter-spacing: 0.16em;
-      border-radius: 999px;
-      padding: 1px 8px;
-      border: 1px solid rgba(148,163,184,0.8);
-      background: rgba(15,23,42,0.96);
-    }
-
-    .week-row-result-tag--win {
-      border-color: rgba(34,197,94,0.95);
-      background: rgba(22,163,74,0.28);
-      color: #bbf7d0;
-    }
-
-    .week-row-result-tag--loss {
-      border-color: rgba(248,113,113,0.95);
-      background: rgba(248,113,113,0.25);
-      color: #fecaca;
     }
 
     .week-list-footer {
@@ -355,7 +259,7 @@
       justify-content: flex-start;
       align-items: center;
       gap: 8px;
-      margin-top: 6px;
+      margin-top: 8px;
       font-size: 0.7rem;
       color: var(--muted);
     }
@@ -363,26 +267,16 @@
     .legend-dot {
       width: 8px;
       height: 8px;
-      border-radius: 999px;
+      border-radius: 50%;
       margin-right: 4px;
       display: inline-block;
     }
 
-    .legend-win { background: rgba(22,163,74,0.95); }
-    .legend-loss { background: rgba(248,113,113,0.95); }
-    .legend-bye { background: rgba(148,163,184,0.9); }
+    .legend-home { background: var(--accent-home); }
+    .legend-away { background: var(--accent-away); }
+    .legend-bye { background: var(--accent-bye); }
 
-    /* Right panel – week detail */
-    #card-week-detail {
-      min-height: 420px;
-    }
-
-    .detail-header {
-      font-size: 0.78rem;
-      color: var(--muted);
-      margin-bottom: 6px;
-    }
-
+    /* --- Week detail --- */
     #week-detail-title {
       font-size: 1rem;
       font-weight: 600;
@@ -390,34 +284,23 @@
     }
 
     #week-detail-subline {
-      font-size: 0.8rem;
+      font-size: 0.82rem;
       color: var(--muted);
       margin-bottom: 10px;
     }
 
     .matchup-block {
       border-radius: var(--radius-md);
-      border: 1px solid rgba(31,41,55,0.95);
-      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.9), rgba(15,23,42,0.98));
+      border: 1px solid var(--border-strong);
+      background: rgba(15,23,42,0.95);
       padding: 10px 12px;
-      margin-bottom: 8px;
-      box-shadow: var(--shadow-sm);
-      font-size: 0.82rem;
+      box-shadow: var(--shadow-soft);
+      font-size: 0.84rem;
     }
 
-    .matchup-headline {
-      font-weight: 600;
-      margin-bottom: 4px;
-    }
+    .matchup-headline { font-weight: 600; margin-bottom: 4px; }
 
-    .matchup-meta-line {
-      font-size: 0.78rem;
-      color: var(--muted);
-    }
-
-    .matchup-meta-line strong {
-      color: var(--text);
-    }
+    .matchup-meta-line { font-size: 0.78rem; color: var(--muted); }
 
     .matchup-note {
       margin-top: 6px;
@@ -432,32 +315,18 @@
       gap: 8px;
     }
 
-    .btn {
-      border-radius: var(--radius-pill);
-      border: none;
-      padding: 7px 16px;
-      font-size: 0.78rem;
-      font-weight: 600;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      cursor: pointer;
-      transition:
-        background-color 140ms ease-out,
-        transform 140ms ease-out,
-        box-shadow 140ms ease-out,
-        border-color 140ms ease-out,
-        color 140ms ease-out;
-    }
-
     .btn-primary {
-      background: linear-gradient(135deg, #22c55e, #16a34a);
+      background: linear-gradient(135deg, var(--accent-home), #16a34a);
       color: #020617;
       border: 1px solid rgba(22,163,74,0.9);
-      box-shadow: 0 10px 24px rgba(22,163,74,0.45);
+      border-radius: var(--radius-pill);
+      padding: 6px 14px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: all 0.2s ease-in-out;
     }
 
     .btn-primary:hover:enabled {
@@ -465,15 +334,9 @@
       box-shadow: 0 16px 32px rgba(22,163,74,0.6);
     }
 
-    .btn-primary:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-      box-shadow: none;
-    }
-
     .btn-secondary {
+      border: 1px solid var(--border-strong);
       border-radius: var(--radius-pill);
-      border: 1px solid rgba(148,163,184,0.7);
       background: rgba(15,23,42,0.95);
       color: var(--text);
       font-size: 0.78rem;
@@ -491,65 +354,26 @@
       padding: 0;
       margin: 0;
       font-size: 0.8rem;
-      color: var(--accent-alt);
+      color: var(--accent-away);
       cursor: pointer;
       text-decoration: none;
     }
 
-    .btn-text-link:hover {
-      text-decoration: underline;
-    }
-
-    .section-divider {
-      margin: 10px 0 6px;
-      font-size: 0.78rem;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: 0.16em;
-    }
-
-    .context-lines {
-      font-size: 0.78rem;
-      color: var(--muted);
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-
-    .context-lines strong {
-      color: var(--text);
-    }
+    .btn-text-link:hover { text-decoration: underline; }
 
     footer {
-      margin-top: 10px;
       font-size: 0.78rem;
       color: var(--muted);
       display: flex;
       justify-content: space-between;
       gap: 8px;
       flex-wrap: wrap;
+      margin-top: 10px;
     }
 
     @media (max-width: 1024px) {
-      .page {
-        padding: 20px 18px 24px;
-      }
-
-      .layout-grid {
-        grid-template-columns: minmax(0, 1fr);
-      }
-    }
-
-    @media (max-width: 640px) {
-      header.schedule-header {
-        flex-direction: column;
-        align-items: flex-start;
-      }
-
-      .header-right {
-        align-self: stretch;
-        justify-content: flex-start;
-      }
+      .layout-grid { grid-template-columns: 1fr; }
+      .page { padding: 20px; }
     }
   </style>
 </head>
@@ -558,117 +382,68 @@
     <header class="schedule-header">
       <div class="header-left">
         <div id="team-name-heading">Franchise Team</div>
-        <div id="season-phase-line">Season — Schedule</div>
-
-        <div class="header-tabs" aria-label="Schedule view">
-          <button type="button" class="view-tab" id="tab-my-team" data-active="true">
-            My Team
-          </button>
-          <button type="button" class="view-tab" id="tab-league" data-active="false">
-            League
-          </button>
+        <div id="season-phase-line">2025 • Regular Season • Schedule</div>
+        <div class="header-tabs">
+          <button type="button" class="view-tab" id="tab-my-team" data-active="true">My Team</button>
+          <button type="button" class="view-tab" id="tab-league" data-active="false">League</button>
         </div>
       </div>
 
       <div class="header-right">
         <div class="record-pill" id="record-pill">
-          <span class="record-pill-dot" aria-hidden="true"></span>
+          <span class="record-pill-dot"></span>
           <span class="label">Record</span>
           <span class="value" id="record-pill-value">0–0</span>
         </div>
-        <button type="button" class="btn-outline" id="btn-jump-current-week">
-          Jump to current week
-        </button>
+        <button type="button" class="btn-outline" id="btn-jump-current-week">Jump to current week</button>
       </div>
     </header>
 
     <main>
       <div class="layout-grid">
-        <!-- Left panel: Season weeks list -->
-        <section class="card" id="card-season-weeks" aria-labelledby="card-season-weeks-title">
+        <section class="card" id="card-season-weeks">
           <div class="card-header">
             <div>
-              <div class="card-title" id="card-season-weeks-title">
-                <strong>Season Weeks</strong>
-              </div>
-              <div class="card-subtitle">
-                Select a week to view details for your team or the full league.
-              </div>
+              <div class="card-title"><strong>Season Weeks</strong></div>
+              <div class="card-subtitle">Select a week to view details for your team or league.</div>
             </div>
           </div>
-
           <div class="card-body">
-            <div class="weeks-range-label" id="weeks-range-label">
-              Weeks 1–18 • Regular season only
-            </div>
-            <div class="week-list-container" id="week-list-container">
-              <!-- Populated by JS -->
-              <div id="week-list-empty" style="font-size:0.8rem;color:var(--muted);padding:6px 4px;">
-                No schedule generated yet.
-              </div>
+            <div class="weeks-range-label">Weeks 1–18 • Regular season only</div>
+            <div class="week-list-container">
+              <div id="week-list-empty" style="font-size:0.8rem;color:var(--muted);padding:6px 4px;">No schedule generated yet.</div>
               <div id="week-list" hidden></div>
             </div>
-
             <div class="week-list-footer">
-              <span><span class="legend-dot legend-win"></span>Win</span>
-              <span><span class="legend-dot legend-loss"></span>Loss</span>
+              <span><span class="legend-dot legend-home"></span>Home</span>
+              <span><span class="legend-dot legend-away"></span>Away</span>
               <span><span class="legend-dot legend-bye"></span>Bye week</span>
             </div>
           </div>
         </section>
 
-        <!-- Right panel: Week detail -->
-        <section class="card" id="card-week-detail" aria-labelledby="card-week-detail-title">
+        <section class="card" id="card-week-detail">
           <div class="card-header">
-            <div>
-              <div class="card-title" id="card-week-detail-title">
-                <strong>Week Detail</strong>
-              </div>
-            </div>
+            <div class="card-title"><strong>Week Detail</strong></div>
           </div>
-
           <div class="card-body">
-            <div class="detail-header">Select a week on the left to view schedule details.</div>
-
             <div id="week-detail-title">No week selected</div>
             <div id="week-detail-subline">—</div>
-
             <div class="matchup-block">
               <div class="matchup-headline" id="matchup-headline">No matchup</div>
-              <div class="matchup-meta-line" id="matchup-kickoff-line">
-                Kickoff — 
-              </div>
-              <div class="matchup-meta-line" id="matchup-record-line">
-                Team record — • Opponent record —
-              </div>
-              <div class="matchup-note" id="matchup-note">
-                When this game is played, score and key notes will appear here.
-              </div>
-
+              <div class="matchup-meta-line" id="matchup-kickoff-line">Kickoff —</div>
+              <div class="matchup-meta-line" id="matchup-record-line">Team record — • Opponent record —</div>
+              <div class="matchup-note" id="matchup-note">When this game is played, score and key notes will appear here.</div>
               <div class="matchup-actions">
-                <button type="button" class="btn btn-primary" id="btn-gameplan">
-                  Gameplan / Prep
-                </button>
-                <button type="button" class="btn-secondary" id="btn-advance-week">
-                  Advance to game day
-                </button>
-                <button type="button" class="btn-secondary" id="btn-view-box-score">
-                  View box score
-                </button>
-                <button type="button" class="btn-secondary" id="btn-back-hub">
-                  Open franchise hub
-                </button>
+                <button type="button" class="btn-primary" id="btn-gameplan">Gameplan / Prep</button>
+                <button type="button" class="btn-secondary" id="btn-advance-week">Advance to game day</button>
+                <button type="button" class="btn-secondary" id="btn-view-box-score">View box score</button>
+                <button type="button" class="btn-secondary" id="btn-back-hub">Open franchise hub</button>
               </div>
             </div>
-
             <div class="section-divider">Around the league</div>
-            <div class="context-lines" id="league-context-lines">
-              <span>No broader league context available yet.</span>
-            </div>
-            <button type="button" class="btn-text-link" id="btn-view-league-slate">
-              View full league slate
-            </button>
-
+            <div class="context-lines" id="league-context-lines"><span>No broader league context available yet.</span></div>
+            <button type="button" class="btn-text-link" id="btn-view-league-slate">View full league slate</button>
             <div class="section-divider">Season context</div>
             <div class="context-lines">
               <span id="context-division-line">Division —</span>
