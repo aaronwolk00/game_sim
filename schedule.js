@@ -771,10 +771,17 @@ function renderWeekDetail() {
   if (gameDayBtn) {
     gameDayBtn.disabled = false;
     gameDayBtn.onclick = function () {
-      // For now, send back to hub or game-day page placeholder.
-      window.location.href = "franchise.html";
+      const weekParam = game.index; // 0-based
+      const oppParam = game.opponentCode; // e.g. "BUF"
+      const homeFlag = game.isHome ? "1" : "0";
+  
+      window.location.href =
+        `gameday.html?week=${weekParam}&opp=${encodeURIComponent(
+          oppParam
+        )}&home=${homeFlag}`;
     };
   }
+  
 
   if (boxBtn) {
     const isFinal = game.status === "final";
