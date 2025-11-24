@@ -2,78 +2,31 @@
 //
 // Franchise GM – Franchise Hub (GM Dashboard)
 //
-// This file drives the main GM dashboard view. It:
-// - Loads the current FranchiseSave summary from localStorage.
-// - Loads or creates the LeagueState object tied to that franchise.
-// - Renders header + dashboard cards (Next Event, Alerts, Season Summary,
-//   Owner & Expectations, Developer Debug).
-// - Wires basic navigation and modal interactions, including the Game Day
-//   / schedule.html link.
+// Responsibilities:
+// - Load current FranchiseSave summary from localStorage.
+// - Load or create a LeagueState object per franchise.
+// - Render:
+//   * Header (team + season/phase/week + record).
+//   * Next Major Event card (Game Day -> schedule.html).
+//   * Key Alerts card.
+//   * Season Summary card.
+//   * Owner & Expectations card.
+//   * Developer Debug card.
+// - Wire shortcuts and the Advance-to-event modal.
 //
-// Assumptions about HTML structure:
-// - Header fields:
-//   - #header-team-name
-//   - #header-season-line
-//   - #header-record-pill
-// - Cards (Next Event):
-//   - #next-event-title
-//   - #next-event-subline
-//   - #next-event-main
-//   - #next-event-detail
-//   - #next-event-primary-btn
-//   - #next-event-secondary-link
-//   - #next-event-notice (optional, for placeholder messages)
-// - Alerts card:
-//   - #alerts-title
-//   - #alerts-meta
-//   - #alerts-body
-//   - #alerts-empty
-//   - #btn-view-alerts
-// - Season summary card:
-//   - #season-summary-season
-//   - #season-summary-record
-//   - #season-summary-pfpa
-//   - #season-summary-diff
-//   - #season-summary-last5
-//   - #chip-offense-rank
-//   - #chip-defense-rank
-// - Owner card:
-//   - #owner-baseline-line
-//   - #owner-goals-line
-//   - #btn-meet-owner
-//   - #owner-notes-toggle
-//   - #owner-notes-container
-//   - #owner-notes-list
-//   - #btn-add-owner-note
-// - Debug card:
-//   - #debug-franchise-id
-//   - #debug-season
-//   - #debug-phase
-//   - #debug-week-index
-//   - #debug-gm-credibility
-//   - #btn-toggle-raw-league
-//   - #debug-raw-container
-//   - #debug-raw-pre
-// - Advance modal:
-//   - #advance-modal
-//   - #advance-modal-backdrop (optional, if present)
-//   - #btn-advance-cancel
-//   - #btn-advance-confirm
-// - Shortcuts row:
-//   - #shortcut-team
-//   - #shortcut-standings
-//   - #shortcut-stats
-//   - #shortcut-contracts
-//   - #shortcut-scouting
-//
-// If any element is missing, the relevant renderer will fail gracefully.
+// This file is self-contained; it shares storage keys with schedule.js
+// but does not depend on schedule.js being loaded.
+
+// ---------------------------------------------------------------------------
+// Types (JSDoc – documentation only)
+// ---------------------------------------------------------------------------
 
 /**
  * @typedef {Object} FranchiseSave
  * @property {number} version
  * @property {string} franchiseId
  * @property {string} franchiseName
- * @property {string} [teamName]      // optional helper
+ * @property {string} [teamName]
  * @property {string} teamCode
  * @property {number} seasonYear
  * @property {number} weekIndex
@@ -82,46 +35,21 @@
  * @property {string} lastPlayedISO
  *
  * @property {Object} accolades
- * @property {number} accolades.seasons
- * @property {number} accolades.playoffAppearances
- * @property {number} accolades.divisionTitles
- * @property {number} accolades.championships
- *
  * @property {Object} gmJob
- * @property {number} gmJob.contractYears
- * @property {number} gmJob.currentYear
- * @property {number} gmJob.salaryPerYearMillions
- * @property {number} gmJob.contractTotalMillions
- * @property {string} gmJob.status
- * @property {number} gmJob.ageYears
- * @property {number} gmJob.birthYear
- *
  * @property {Object} leagueSummary
- * @property {number} leagueSummary.teams
- * @property {number} leagueSummary.seasonsSimmed
- *
  * @property {Object} realismOptions
- * @property {boolean} realismOptions.injuriesOn
- * @property {string} realismOptions.capMode
- * @property {string} realismOptions.difficulty
- * @property {boolean} realismOptions.ironman
- *
  * @property {Object} ownerExpectation
- * @property {string} ownerExpectation.patience
- * @property {number} ownerExpectation.targetYear
- * @property {number} ownerExpectation.baselineWins
- *
  * @property {number} gmCredibility
  */
 
 /**
  * @typedef {Object} AlertItem
  * @property {string} id
- * @property {string} type           // "injury" | "contract" | "morale" | "deadline" | "trade_rumor" | ...
+ * @property {string} type          // "injury" | "contract" | "morale" | "deadline" | "trade_rumor" | etc
  * @property {string} createdIso
  * @property {string} title
  * @property {string} body
- * @property {"high" | "medium" | "low"} severity
+ * @property {"high"|"medium"|"low"} severity
  * @property {string} [relatedPlayerId]
  * @property {string} [relatedTeamCode]
  */
@@ -130,7 +58,7 @@
  * @typedef {Object} OwnerNote
  * @property {string} id
  * @property {string} createdIso
- * @property {"system" | "user"} source
+ * @property {"system"|"user"} source
  * @property {string} text
  */
 
@@ -150,17 +78,17 @@
  * @property {string|null} timeline.nextEvent.kickoffIso
  *
  * @property {Object} alerts
- * @property {Array<AlertItem>} alerts.items
+ * @property {AlertItem[]} alerts.items
  *
  * @property {Object} statsSummary
  * @property {string} statsSummary.record
  * @property {number} statsSummary.pointsFor
  * @property {number} statsSummary.pointsAgainst
- * @property {Array<string>} statsSummary.lastFive
+ * @property {string[]} statsSummary.lastFive
  * @property {number|null} statsSummary.offenseRankPointsPerGame
  * @property {number|null} statsSummary.defenseRankPointsPerGame
  *
- * @property {Array<OwnerNote>} ownerNotes
+ * @property {OwnerNote[]} ownerNotes
  *
  * @property {Object} debug
  * @property {number} debug.gmCredibility
@@ -201,7 +129,7 @@ function loadLastFranchise() {
   try {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
-    return parsed; // assume valid v1 summary for now
+    return parsed;
   } catch {
     return null;
   }
@@ -233,13 +161,12 @@ function saveLeagueState(state) {
 }
 
 // ---------------------------------------------------------------------------
-/** League state creation / defaults */
+// League state creation / defaults
 // ---------------------------------------------------------------------------
 
 /**
- * Create a default LeagueState when none exists yet for this franchise.
- * This is intentionally conservative: we set placeholders for upcoming events
- * and leave most stats neutral so the sim engine can fill them in later.
+ * Create a default LeagueState when none exists.
+ * This infers a reasonable nextEvent and neutral stats.
  *
  * @param {FranchiseSave} save
  * @returns {LeagueState}
@@ -255,12 +182,10 @@ function createDefaultLeagueStateFromSummary(save) {
   /** @type {LeagueState["timeline"]["nextEvent"]} */
   let nextEvent;
 
-  // Basic heuristic: if we're in a regular season phase and have a week index,
-  // show the *upcoming* game as next event. Otherwise default to an offseason
-  // event appropriate to the phase.
+  // Regular season with a defined week -> treat the upcoming game as next event.
   if (typeof phase === "string" && phase.includes("Regular Season") && rawWeekIndex !== null) {
-    const upcomingWeekIndex = rawWeekIndex; // treat current index as "next" for UI
-    const isHome = (save.teamCode || "").length % 2 === 0; // arbitrary but stable
+    const upcomingWeekIndex = rawWeekIndex; // assume this is the upcoming game index
+    const isHome = (save.teamCode || "").length % 2 === 0; // arbitrary but stable per team
     const opponentName =
       upcomingWeekIndex % 3 === 0
         ? "Division Rival"
@@ -268,11 +193,9 @@ function createDefaultLeagueStateFromSummary(save) {
         ? "Conference Opponent"
         : "Non-Conference Opponent";
 
-    // Set an arbitrary kickoff time a few days from now;
-    // this is placeholder until the schedule engine drives it.
-    const kickoffDate = new Date();
-    kickoffDate.setDate(kickoffDate.getDate() + 3);
-    kickoffDate.setHours(16, 25, 0, 0); // 4:25 PM local by default
+    const kickoff = new Date();
+    kickoff.setDate(kickoff.getDate() + 3);
+    kickoff.setHours(16, 25, 0, 0); // 4:25 PM
 
     nextEvent = {
       type: "game",
@@ -281,11 +204,11 @@ function createDefaultLeagueStateFromSummary(save) {
       weekIndex: upcomingWeekIndex,
       isHome,
       opponentName,
-      kickoffIso: kickoffDate.toISOString()
+      kickoffIso: kickoff.toISOString()
     };
   } else if (typeof phase === "string" && phase.toLowerCase().includes("offseason")) {
-    // Simplified offseason assumption: next big event is the draft.
-    const draftDate = new Date(seasonYear, 3, 25, 20, 0, 0, 0); // late April, 8pm
+    // Simple offseason assumption: draft is next major event.
+    const draftDate = new Date(seasonYear, 3, 25, 20, 0, 0, 0); // late April 8 PM
     nextEvent = {
       type: "draft",
       label: `${seasonYear} Draft – Round 1`,
@@ -296,9 +219,9 @@ function createDefaultLeagueStateFromSummary(save) {
       kickoffIso: draftDate.toISOString()
     };
   } else {
-    // Generic fallback
-    const genericDate = new Date();
-    genericDate.setDate(genericDate.getDate() + 7);
+    // Generic fallback front-office event.
+    const generic = new Date();
+    generic.setDate(generic.getDate() + 7);
     nextEvent = {
       type: "owner_meeting",
       label: "Next scheduled front-office event",
@@ -306,7 +229,7 @@ function createDefaultLeagueStateFromSummary(save) {
       weekIndex: null,
       isHome: null,
       opponentName: null,
-      kickoffIso: genericDate.toISOString()
+      kickoffIso: generic.toISOString()
     };
   }
 
@@ -333,7 +256,6 @@ function createDefaultLeagueStateFromSummary(save) {
       nextEvent
     },
     alerts: {
-      // Start empty; sim engine will add real items later.
       items: []
     },
     statsSummary: {
@@ -356,8 +278,47 @@ function createDefaultLeagueStateFromSummary(save) {
   return leagueState;
 }
 
+/**
+ * Ensure a loaded leagueState has baseline structures; patch missing
+ * fields from a default template if necessary.
+ *
+ * @param {LeagueState|null} leagueState
+ * @param {FranchiseSave} save
+ * @returns {LeagueState}
+ */
+function normalizeLeagueState(leagueState, save) {
+  if (!leagueState || typeof leagueState !== "object") {
+    return createDefaultLeagueStateFromSummary(save);
+  }
+  const template = createDefaultLeagueStateFromSummary(save);
+
+  if (!leagueState.timeline || !leagueState.timeline.nextEvent) {
+    leagueState.timeline = template.timeline;
+  }
+  if (!leagueState.alerts || !Array.isArray(leagueState.alerts.items)) {
+    leagueState.alerts = template.alerts;
+  }
+  if (!leagueState.statsSummary) {
+    leagueState.statsSummary = template.statsSummary;
+  }
+  if (!Array.isArray(leagueState.ownerNotes)) {
+    leagueState.ownerNotes = template.ownerNotes;
+  }
+  if (!leagueState.debug) {
+    leagueState.debug = template.debug;
+  } else if (typeof leagueState.debug.gmCredibility !== "number") {
+    leagueState.debug.gmCredibility = template.debug.gmCredibility;
+  }
+
+  // Always ensure seasonYear/franchiseId are aligned with save
+  leagueState.franchiseId = save.franchiseId;
+  leagueState.seasonYear = save.seasonYear;
+
+  return leagueState;
+}
+
 // ---------------------------------------------------------------------------
-// UI helper functions
+// UI helpers
 // ---------------------------------------------------------------------------
 
 function getEl(id) {
@@ -368,25 +329,29 @@ function formatWeekFromIndex(weekIndex) {
   if (weekIndex === null || weekIndex === undefined) return null;
   const n = Number(weekIndex);
   if (!Number.isFinite(n)) return null;
-  // Assumption: weekIndex 0 => Week 1 for user-facing labels
   return `Week ${n + 1}`;
 }
 
 function formatHeaderSubline(save) {
-  const seasonText = `Season ${save.seasonYear || ""}`.trim();
+  const year = save.seasonYear;
+  const seasonText = year ? `Season ${year}` : "Season";
   const phaseText = save.phase || "";
   const weekLabel = formatWeekFromIndex(save.weekIndex);
-  if (weekLabel) {
+
+  if (phaseText && weekLabel) {
     return `${seasonText} • ${phaseText} • ${weekLabel}`;
   }
-  return `${seasonText} • ${phaseText}`.replace(/\s+•\s+$/, "");
+  if (phaseText) {
+    return `${seasonText} • ${phaseText}`;
+  }
+  return seasonText;
 }
 
 function formatIsoToNice(iso) {
   if (!iso) return null;
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return null;
-  // Example: "Sun, Sep 29 • 4:25 PM"
+
   const dayPart = date.toLocaleDateString(undefined, {
     weekday: "short",
     month: "short",
@@ -399,9 +364,7 @@ function formatIsoToNice(iso) {
   return `${dayPart} • ${timePart}`;
 }
 
-function getTeamDisplayName(save) {
-  // In a full implementation, we'd map teamCode -> "Chicago Bears" etc,
-  // but here we fall back to whatever summary provides or franchiseName.
+function getTeamDisplayNameFromSave(save) {
   if (save.teamName && typeof save.teamName === "string") {
     return save.teamName;
   }
@@ -458,9 +421,9 @@ function formatPointDiff(pf, pa) {
 }
 
 function formatNoteTimestamp(iso) {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso || "";
-  return date.toLocaleDateString(undefined, {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso || "";
+  return d.toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
     year: "numeric"
@@ -468,88 +431,97 @@ function formatNoteTimestamp(iso) {
 }
 
 // ---------------------------------------------------------------------------
-// Global-ish current state (for this page)
+// Page state
 // ---------------------------------------------------------------------------
 
-/** @type {FranchiseSave | null} */
+/** @type {FranchiseSave|null} */
 let currentFranchiseSave = null;
-/** @type {LeagueState | null} */
+/** @type {LeagueState|null} */
 let currentLeagueState = null;
+/** @type {boolean} */
+let advanceModalOpen = false;
 
 // ---------------------------------------------------------------------------
-// UI render helpers
+// Rendering – header
 // ---------------------------------------------------------------------------
 
-function renderHeader(save /* , leagueState */) {
-  const teamNameEl = getEl("header-team-name");
-  const seasonLineEl = getEl("header-season-line");
-  const recordPillEl = getEl("header-record-pill");
+function renderHeader(save) {
+  const teamNameEl = getEl("team-name-heading");
+  const seasonLineEl = getEl("season-phase-line");
+  const recordValueEl = getEl("record-pill-value");
 
   if (teamNameEl) {
-    teamNameEl.textContent = getTeamDisplayName(save);
+    teamNameEl.textContent = getTeamDisplayNameFromSave(save);
   }
 
   if (seasonLineEl) {
     seasonLineEl.textContent = formatHeaderSubline(save);
   }
 
-  if (recordPillEl) {
-    const record = (save.record && save.record.trim()) || "0-0";
-    recordPillEl.textContent = `Record: ${record}`;
+  const record = (save.record && save.record.trim()) || "0-0";
+  if (recordValueEl) {
+    recordValueEl.textContent = record;
   }
 }
 
+// ---------------------------------------------------------------------------
+// Rendering – Next Major Event card
+// ---------------------------------------------------------------------------
+
 function renderNextEventCard(save, leagueState) {
-  const titleEl = getEl("next-event-title");
+  const titleEl = getEl("card-next-event-title");
   const sublineEl = getEl("next-event-subline");
-  const mainEl = getEl("next-event-main");
+  const headlineEl = getEl("next-event-headline");
   const detailEl = getEl("next-event-detail");
-  const primaryBtn = getEl("next-event-primary-btn");
-  const secondaryLink = getEl("next-event-secondary-link");
-  const noticeEl = getEl("next-event-notice");
+  const primaryBtn = getEl("btn-next-event-primary");
+  const fullScheduleBtn = getEl("btn-view-schedule");
+  const inlineNoteEl = getEl("next-event-inline-note");
 
   const nextEvent = leagueState.timeline?.nextEvent || null;
 
   if (!nextEvent) {
     if (titleEl) titleEl.textContent = "Next Major Event";
-    if (mainEl) mainEl.textContent = "No event scheduled.";
-    if (detailEl) detailEl.textContent = "";
+    if (sublineEl) sublineEl.textContent = "Timeline";
+    if (headlineEl) headlineEl.textContent = "No event scheduled";
+    if (detailEl) detailEl.textContent = "The schedule engine will populate this soon.";
     if (primaryBtn) {
-      primaryBtn.textContent = "Schedule";
+      primaryBtn.textContent = "Game Day";
       primaryBtn.disabled = true;
+      primaryBtn.onclick = null;
     }
-    if (secondaryLink) {
-      secondaryLink.textContent = "View full schedule";
-      secondaryLink.href = "schedule.html";
+    if (fullScheduleBtn) {
+      fullScheduleBtn.onclick = function () {
+        window.location.href = "schedule.html";
+      };
     }
-    if (noticeEl) {
-      noticeEl.textContent = "";
-    }
+    if (inlineNoteEl) inlineNoteEl.textContent = "";
     return;
   }
 
   const isGame = nextEvent.type === "game";
 
   if (isGame) {
+    // --- Game mode: wire Game Day -> schedule.html -------------------------
     if (titleEl) titleEl.textContent = "Next Game";
+
     const weekLabel = formatWeekFromIndex(nextEvent.weekIndex);
     const phase = nextEvent.phase || "Regular Season";
     if (sublineEl) {
-      sublineEl.textContent = weekLabel
-        ? `${phase} • ${weekLabel}`
-        : phase;
+      sublineEl.textContent = weekLabel ? `${phase} • ${weekLabel}` : phase;
     }
 
     const opponent = nextEvent.opponentName || "TBD Opponent";
-    let mainText;
+    let matchupText;
     if (nextEvent.isHome === true) {
-      mainText = `vs ${opponent}`;
+      matchupText = `vs ${opponent}`;
     } else if (nextEvent.isHome === false) {
-      mainText = `at ${opponent}`;
+      matchupText = `at ${opponent}`;
     } else {
-      mainText = opponent;
+      matchupText = opponent;
     }
-    if (mainEl) mainEl.textContent = mainText;
+    if (headlineEl) {
+      headlineEl.textContent = matchupText;
+    }
 
     const niceTime = formatIsoToNice(nextEvent.kickoffIso);
     if (detailEl) {
@@ -558,39 +530,40 @@ function renderNextEventCard(save, leagueState) {
         : "Kickoff time TBA";
     }
 
-    // --- Wire into schedule.html (Game Day) ---------------------------------
-    //
-    // We route to schedule.html and, if we know the week index, include
-    // query parameters so schedule.js can optionally jump to that week
-    // and stay in "My Team" scope.
     if (primaryBtn) {
-      let targetUrl = "schedule.html";
+      // Build schedule link; include week query for future use.
+      let url = "schedule.html";
       if (typeof nextEvent.weekIndex === "number") {
         const params = new URLSearchParams();
-        params.set("view", "my-team"); // schedule.html can read this in future
+        params.set("view", "my-team");
         params.set("week", String(nextEvent.weekIndex));
-        targetUrl = `schedule.html?${params.toString()}`;
+        url = `schedule.html?${params.toString()}`;
       }
       primaryBtn.textContent = "Game Day";
       primaryBtn.disabled = false;
       primaryBtn.onclick = function () {
-        window.location.href = targetUrl;
+        window.location.href = url;
       };
     }
 
-    if (secondaryLink) {
-      // Secondary link: go to full schedule, league or team view
-      secondaryLink.textContent = "View full schedule";
-      secondaryLink.href = "schedule.html";
+    if (fullScheduleBtn) {
+      fullScheduleBtn.onclick = function () {
+        window.location.href = "schedule.html";
+      };
     }
 
-    if (noticeEl) noticeEl.textContent = "";
+    if (inlineNoteEl) inlineNoteEl.textContent = "";
   } else {
+    // --- Non-game event (draft, FA, camp, owner meeting…) ------------------
     if (titleEl) titleEl.textContent = "Next Major Event";
-    if (sublineEl) sublineEl.textContent = nextEvent.phase || "Timeline";
 
-    if (mainEl) {
-      mainEl.textContent = nextEvent.label || "Upcoming front-office event";
+    if (sublineEl) {
+      sublineEl.textContent = nextEvent.phase || "Timeline";
+    }
+
+    if (headlineEl) {
+      headlineEl.textContent =
+        nextEvent.label || "Upcoming front-office event";
     }
 
     const niceTime = formatIsoToNice(nextEvent.kickoffIso);
@@ -606,37 +579,38 @@ function renderNextEventCard(save, leagueState) {
       };
     }
 
-    if (secondaryLink) {
-      secondaryLink.textContent = "View full schedule";
-      secondaryLink.href = "schedule.html";
+    if (fullScheduleBtn) {
+      fullScheduleBtn.onclick = function () {
+        window.location.href = "schedule.html";
+      };
     }
 
-    if (noticeEl) {
-      // Placeholder for later; kept empty by default.
-      noticeEl.textContent = "";
+    if (inlineNoteEl) {
+      inlineNoteEl.textContent = "";
     }
   }
 }
 
-function renderAlertsCard(save, leagueState) {
-  const alertsTitleEl = getEl("alerts-title");
-  const alertsMetaEl = getEl("alerts-meta");
-  const alertsBodyEl = getEl("alerts-body");
-  const alertsEmptyEl = getEl("alerts-empty");
-  const viewAllBtn = getEl("btn-view-alerts");
+// ---------------------------------------------------------------------------
+// Rendering – Alerts card
+// ---------------------------------------------------------------------------
+
+function renderAlertsCard(leagueState) {
+  const container = getEl("alerts-content");
+  const viewAllBtn = getEl("btn-view-all-alerts");
+
+  if (!container) return;
 
   const items = (leagueState.alerts && leagueState.alerts.items) || [];
 
+  container.innerHTML = "";
+
   if (!items.length) {
-    if (alertsTitleEl) alertsTitleEl.textContent = "Key Alerts";
-    if (alertsMetaEl) alertsMetaEl.textContent = "";
-    if (alertsBodyEl) alertsBodyEl.textContent = "";
-    if (alertsEmptyEl) {
-      alertsEmptyEl.style.display = "block";
-      alertsEmptyEl.textContent = "No urgent alerts at this time.";
-    }
+    const p = document.createElement("div");
+    p.className = "alert-body";
+    p.textContent = "No urgent alerts at this time.";
+    container.appendChild(p);
   } else {
-    // Sort by severity then createdIso desc.
     const sorted = items.slice().sort((a, b) => {
       const sDiff =
         alertSeverityRank(b.severity) - alertSeverityRank(a.severity);
@@ -647,44 +621,63 @@ function renderAlertsCard(save, leagueState) {
     });
     const top = sorted[0];
 
-    if (alertsTitleEl) alertsTitleEl.textContent = "Key Alert";
-    if (alertsMetaEl) {
-      const severityLabel =
-        top.severity === "high"
-          ? "High priority"
-          : top.severity === "medium"
-          ? "Medium priority"
-          : "Low priority";
-      const typeLabel = alertTypeLabel(top.type);
-      alertsMetaEl.textContent = `${typeLabel} • ${severityLabel}`;
-    }
-    if (alertsBodyEl) {
-      alertsBodyEl.textContent =
-        truncateText(top.title, 80) +
-        (top.body ? ` — ${truncateText(top.body, 120)}` : "");
-    }
-    if (alertsEmptyEl) {
-      alertsEmptyEl.style.display = "none";
-      alertsEmptyEl.textContent = "";
+    const tag = document.createElement("div");
+    tag.className = "alert-tag";
+    const dot = document.createElement("span");
+    dot.className = "alert-tag-dot";
+    tag.appendChild(dot);
+
+    const label = document.createElement("span");
+    const typeText = alertTypeLabel(top.type);
+    const severityText =
+      top.severity === "high"
+        ? "High"
+        : top.severity === "medium"
+        ? "Medium"
+        : "Low";
+    label.textContent = `${typeText} • ${severityText} priority`;
+    tag.appendChild(label);
+
+    if (top.severity === "high") tag.classList.add("alert-tag--high");
+    else if (top.severity === "medium") tag.classList.add("alert-tag--medium");
+
+    const title = document.createElement("div");
+    title.className = "alert-title";
+    title.textContent = truncateText(top.title, 80);
+
+    const body = document.createElement("div");
+    body.className = "alert-body";
+    const bodyText = top.body ? truncateText(top.body, 140) : "";
+    body.textContent = bodyText;
+
+    container.appendChild(tag);
+    container.appendChild(title);
+    if (bodyText) {
+      container.appendChild(body);
     }
   }
 
   if (viewAllBtn) {
     viewAllBtn.onclick = function () {
-      // For now, navigate to a placeholder alerts hub.
+      // Placeholder for a future alerts center.
       window.location.href = "alerts.html";
     };
   }
 }
 
+// ---------------------------------------------------------------------------
+// Rendering – Season Summary
+// ---------------------------------------------------------------------------
+
 function renderSeasonSummaryCard(save, leagueState) {
-  const seasonEl = getEl("season-summary-season");
+  const sublineEl = getEl("season-summary-subline");
   const recordEl = getEl("season-summary-record");
   const pfpaEl = getEl("season-summary-pfpa");
-  const diffEl = getEl("season-summary-diff");
-  const last5Container = getEl("season-summary-last5");
+  const lastRowEl = getEl("recent-form-row");
   const offenseChip = getEl("chip-offense-rank");
   const defenseChip = getEl("chip-defense-rank");
+  const offValEl = getEl("offense-rank-value");
+  const defValEl = getEl("defense-rank-value");
 
   const stats = leagueState.statsSummary || {
     record: save.record || "0-0",
@@ -695,8 +688,8 @@ function renderSeasonSummaryCard(save, leagueState) {
     defenseRankPointsPerGame: null
   };
 
-  if (seasonEl) {
-    seasonEl.textContent = `Season ${save.seasonYear}`;
+  if (sublineEl) {
+    sublineEl.textContent = `Season ${save.seasonYear || ""}`;
   }
 
   const record =
@@ -710,47 +703,46 @@ function renderSeasonSummaryCard(save, leagueState) {
   const pf = Number(stats.pointsFor) || 0;
   const pa = Number(stats.pointsAgainst) || 0;
   if (pfpaEl) {
-    pfpaEl.textContent = `PF: ${pf} • PA: ${pa}`;
+    pfpaEl.textContent = `PF: ${pf} • PA: ${pa} • ${formatPointDiff(pf, pa)}`;
   }
 
-  if (diffEl) {
-    diffEl.textContent = formatPointDiff(pf, pa);
-  }
-
-  if (last5Container) {
-    last5Container.innerHTML = "";
-    const list = Array.isArray(stats.lastFive) ? stats.lastFive.slice(-5) : [];
-    if (!list.length) {
+  if (lastRowEl) {
+    lastRowEl.innerHTML = "";
+    const lastFive = Array.isArray(stats.lastFive) ? stats.lastFive.slice(-5) : [];
+    if (!lastFive.length) {
       const span = document.createElement("span");
       span.textContent = "No games played yet.";
-      span.className = "summary-last5-empty";
-      last5Container.appendChild(span);
+      span.style.color = "var(--muted)";
+      span.style.fontSize = "0.78rem";
+      lastRowEl.appendChild(span);
     } else {
-      list.forEach((result, idx) => {
+      lastFive.forEach((result) => {
         const chip = document.createElement("span");
-        chip.className =
-          "summary-last5-chip summary-last5-chip-" +
-          (result === "W" ? "win" : "loss");
+        chip.className = "result-chip";
+        if (result === "W") chip.classList.add("result-chip--w");
+        if (result === "L") chip.classList.add("result-chip--l");
         chip.textContent = result;
-        chip.title = `Game ${list.length - idx}: ${
-          result === "W" ? "Win" : "Loss"
-        }`;
-        last5Container.appendChild(chip);
+        lastRowEl.appendChild(chip);
       });
     }
   }
 
-  // Defensive & offensive rank chips — click to go to stats page.
   const teamCode = encodeURIComponent(save.teamCode || "");
 
+  const offRank = stats.offenseRankPointsPerGame;
+  const defRank = stats.defenseRankPointsPerGame;
+
+  if (offValEl) {
+    offValEl.textContent = Number.isFinite(offRank) ? String(offRank) : "—";
+  }
+  if (defValEl) {
+    defValEl.textContent = Number.isFinite(defRank) ? String(defRank) : "—";
+  }
+
   if (offenseChip) {
-    const rank = stats.offenseRankPointsPerGame;
-    offenseChip.textContent =
-      "Offense: " +
-      (Number.isFinite(rank) ? `${rank} in points/game` : "—");
     offenseChip.classList.toggle(
-      "chip-disabled",
-      !Number.isFinite(rank)
+      "stat-chip--disabled",
+      !Number.isFinite(offRank)
     );
     offenseChip.onclick = function () {
       window.location.href = "stats.html?view=team&team=" + teamCode;
@@ -758,13 +750,9 @@ function renderSeasonSummaryCard(save, leagueState) {
   }
 
   if (defenseChip) {
-    const rank = stats.defenseRankPointsPerGame;
-    defenseChip.textContent =
-      "Defense: " +
-      (Number.isFinite(rank) ? `${rank} in points/game` : "—");
     defenseChip.classList.toggle(
-      "chip-disabled",
-      !Number.isFinite(rank)
+      "stat-chip--disabled",
+      !Number.isFinite(defRank)
     );
     defenseChip.onclick = function () {
       window.location.href = "stats.html?view=team&team=" + teamCode;
@@ -772,13 +760,16 @@ function renderSeasonSummaryCard(save, leagueState) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Rendering – Owner & Expectations
+// ---------------------------------------------------------------------------
+
 function renderOwnerCard(save, leagueState) {
-  const baselineLineEl = getEl("owner-baseline-line");
-  const goalsLineEl = getEl("owner-goals-line");
+  const line1El = getEl("owner-line-1");
+  const line2El = getEl("owner-line-2");
   const meetOwnerBtn = getEl("btn-meet-owner");
-  const notesToggle = getEl("owner-notes-toggle");
-  const notesContainer = getEl("owner-notes-container");
-  const notesList = getEl("owner-notes-list");
+  const toggleBtn = getEl("btn-toggle-owner-notes");
+  const notesListEl = getEl("owner-notes-list");
   const addNoteBtn = getEl("btn-add-owner-note");
 
   const patience = save.ownerExpectation?.patience || "average";
@@ -786,12 +777,12 @@ function renderOwnerCard(save, leagueState) {
     save.ownerExpectation?.targetYear || (save.seasonYear || 0) + 2;
   const baselineWins = save.ownerExpectation?.baselineWins || 9;
 
-  if (baselineLineEl) {
-    baselineLineEl.textContent = `Patience: ${patience} • Target year: ${targetYear}`;
+  if (line1El) {
+    line1El.textContent = `Patience: ${patience} • Target: ${targetYear}`;
   }
 
-  if (goalsLineEl) {
-    goalsLineEl.textContent = `Baseline goal: ${baselineWins} wins by ${targetYear}`;
+  if (line2El) {
+    line2El.textContent = `Baseline goal: ${baselineWins} wins by ${targetYear}`;
   }
 
   if (meetOwnerBtn) {
@@ -800,46 +791,54 @@ function renderOwnerCard(save, leagueState) {
     };
   }
 
-  // Notes list with simple expand/collapse
-  let notesExpanded = false;
-
-  function updateNotesVisibility() {
-    if (!notesContainer) return;
-    notesContainer.style.display = notesExpanded ? "block" : "none";
-    if (notesToggle) {
-      notesToggle.textContent = notesExpanded ? "Hide notes" : "View notes";
-    }
-  }
-
   function renderNotes() {
-    if (!notesList) return;
-    notesList.innerHTML = "";
+    if (!notesListEl) return;
+    notesListEl.innerHTML = "";
+
     const notes = Array.isArray(leagueState.ownerNotes)
       ? leagueState.ownerNotes
       : [];
+
     if (!notes.length) {
       const li = document.createElement("li");
+      li.className = "owner-note-item";
       li.textContent = "No notes recorded yet.";
-      notesList.appendChild(li);
+      notesListEl.appendChild(li);
       return;
     }
+
     notes
       .slice()
       .sort((a, b) => new Date(b.createdIso) - new Date(a.createdIso))
       .forEach((note) => {
         const li = document.createElement("li");
         li.className = "owner-note-item";
-        const ts = formatNoteTimestamp(note.createdIso);
-        li.textContent = `${ts} – ${note.text}`;
-        notesList.appendChild(li);
+
+        const dateDiv = document.createElement("div");
+        dateDiv.className = "owner-note-date";
+        dateDiv.textContent = formatNoteTimestamp(note.createdIso);
+
+        const textDiv = document.createElement("div");
+        textDiv.textContent = note.text;
+
+        li.appendChild(dateDiv);
+        li.appendChild(textDiv);
+        notesListEl.appendChild(li);
       });
   }
 
-  if (notesToggle) {
-    notesToggle.onclick = function () {
-      notesExpanded = !notesExpanded;
-      updateNotesVisibility();
-      if (notesExpanded) {
+  if (toggleBtn && notesListEl) {
+    toggleBtn.onclick = function () {
+      const expanded =
+        toggleBtn.getAttribute("aria-expanded") === "true" ? true : false;
+      const newExpanded = !expanded;
+      toggleBtn.setAttribute("aria-expanded", String(newExpanded));
+      const labelSpan = toggleBtn.querySelector("span");
+      if (labelSpan) {
+        labelSpan.textContent = newExpanded ? "Hide notes" : "View notes";
+      }
+      notesListEl.hidden = !newExpanded;
+      if (newExpanded) {
         renderNotes();
       }
     };
@@ -847,56 +846,60 @@ function renderOwnerCard(save, leagueState) {
 
   if (addNoteBtn) {
     addNoteBtn.onclick = function () {
-      // Placeholder; future version will allow user-entered notes.
+      // Placeholder; user-authored notes can be layered in later.
       window.alert("Owner notes editing is not implemented yet.");
     };
   }
-
-  // Default: collapsed
-  updateNotesVisibility();
 }
 
+// ---------------------------------------------------------------------------
+// Rendering – Developer Debug
+// ---------------------------------------------------------------------------
+
 function renderDebugCard(save, leagueState) {
-  const idEl = getEl("debug-franchise-id");
-  const seasonEl = getEl("debug-season");
-  const phaseEl = getEl("debug-phase");
-  const weekEl = getEl("debug-week-index");
-  const gmCredEl = getEl("debug-gm-credibility");
-  const toggleRawBtn = getEl("btn-toggle-raw-league");
-  const rawContainer = getEl("debug-raw-container");
-  const rawPre = getEl("debug-raw-pre");
+  const listEl = getEl("debug-summary-list");
+  const toggleBtn = getEl("btn-toggle-raw-state");
+  const rawEl = getEl("debug-raw-state");
 
-  if (idEl) idEl.textContent = String(save.franchiseId || "—");
-  if (seasonEl) seasonEl.textContent = String(save.seasonYear || "—");
-  if (phaseEl) phaseEl.textContent = save.phase || "—";
-  if (weekEl) {
-    weekEl.textContent =
-      typeof save.weekIndex === "number" ? String(save.weekIndex) : "—";
+  if (listEl) {
+    listEl.innerHTML = "";
+
+    const entries = [
+      ["Franchise ID", save.franchiseId || "—"],
+      ["Season", save.seasonYear ?? "—"],
+      ["Phase", save.phase || "—"],
+      [
+        "Week index",
+        typeof save.weekIndex === "number" ? String(save.weekIndex) : "—"
+      ],
+      [
+        "GM credibility",
+        typeof save.gmCredibility === "number"
+          ? String(save.gmCredibility)
+          : String(leagueState.debug?.gmCredibility ?? "—")
+      ]
+    ];
+
+    entries.forEach(([label, value]) => {
+      const div = document.createElement("div");
+      div.textContent = `${label}: ${value}`;
+      listEl.appendChild(div);
+    });
   }
-  const gmCred =
-    typeof save.gmCredibility === "number"
-      ? save.gmCredibility
-      : leagueState?.debug?.gmCredibility ?? "—";
-  if (gmCredEl) gmCredEl.textContent = String(gmCred);
 
-  if (rawPre) {
+  if (rawEl) {
     try {
-      rawPre.textContent = JSON.stringify(leagueState, null, 2);
+      rawEl.textContent = JSON.stringify(leagueState, null, 2);
     } catch {
-      rawPre.textContent = "// Failed to stringify league state";
+      rawEl.textContent = "// Failed to stringify league state";
     }
   }
 
-  if (rawContainer) {
-    rawContainer.style.display = "none";
-  }
-
-  if (toggleRawBtn && rawContainer) {
-    let showing = false;
-    toggleRawBtn.onclick = function () {
-      showing = !showing;
-      rawContainer.style.display = showing ? "block" : "none";
-      toggleRawBtn.textContent = showing
+  if (toggleBtn && rawEl) {
+    toggleBtn.onclick = function () {
+      const hidden = rawEl.hidden;
+      rawEl.hidden = !hidden;
+      toggleBtn.textContent = hidden
         ? "Hide raw league state"
         : "Show raw league state";
     };
@@ -904,7 +907,7 @@ function renderDebugCard(save, leagueState) {
 }
 
 // ---------------------------------------------------------------------------
-// Shortcuts row
+// Shortcuts
 // ---------------------------------------------------------------------------
 
 function bindShortcutButtons() {
@@ -945,24 +948,13 @@ function bindShortcutButtons() {
 // Advance-to-event modal
 // ---------------------------------------------------------------------------
 
-let advanceModalOpen = false;
-
-/**
- * Show the "Advance to event" confirmation modal.
- * This is a visual placeholder; it does not mutate league state yet.
- */
 function openAdvanceModal() {
   const modal = getEl("advance-modal");
-  if (!modal) {
-    console.warn("[Franchise GM] Advance modal not found in DOM.");
-    return;
-  }
-  modal.style.display = "flex";
-  modal.setAttribute("aria-hidden", "false");
+  if (!modal) return;
+  modal.hidden = false;
   advanceModalOpen = true;
 
-  // Simple focus management: focus confirm button first.
-  const confirmBtn = getEl("btn-advance-confirm");
+  const confirmBtn = getEl("btn-modal-confirm");
   if (confirmBtn) {
     confirmBtn.focus();
   }
@@ -971,21 +963,13 @@ function openAdvanceModal() {
 function closeAdvanceModal() {
   const modal = getEl("advance-modal");
   if (!modal) return;
-  modal.style.display = "none";
-  modal.setAttribute("aria-hidden", "true");
+  modal.hidden = true;
   advanceModalOpen = false;
 }
 
-/**
- * Bind handlers to modal buttons and basic ESC/Backdrop behavior.
- */
 function bindModalHandlers() {
-  const modal = getEl("advance-modal");
-  const cancelBtn = getEl("btn-advance-cancel");
-  const confirmBtn = getEl("btn-advance-confirm");
-  const backdrop = getEl("advance-modal-backdrop");
-
-  if (!modal) return;
+  const cancelBtn = getEl("btn-modal-cancel");
+  const confirmBtn = getEl("btn-modal-confirm");
 
   if (cancelBtn) {
     cancelBtn.onclick = function () {
@@ -995,25 +979,18 @@ function bindModalHandlers() {
 
   if (confirmBtn) {
     confirmBtn.onclick = function () {
-      // Placeholder: actual event-advance logic will live here and will
-      // drive timeline + stats updates, autosaves, etc.
+      // Placeholder – future: simulate up to nextEvent, update save + leagueState.
       console.log("Advance to event: not implemented yet.");
-      const noticeEl = getEl("next-event-notice");
-      if (noticeEl) {
-        noticeEl.textContent =
+      const noteEl = getEl("next-event-inline-note");
+      if (noteEl) {
+        noteEl.textContent =
           "Auto-advance simulation is not implemented yet.";
       }
       closeAdvanceModal();
     };
   }
 
-  if (backdrop) {
-    backdrop.onclick = function () {
-      closeAdvanceModal();
-    };
-  }
-
-  // ESC key closes modal when open.
+  // ESC to close modal
   document.addEventListener("keydown", function (e) {
     if (e.key === "Escape" && advanceModalOpen) {
       e.preventDefault();
@@ -1023,35 +1000,23 @@ function bindModalHandlers() {
 }
 
 // ---------------------------------------------------------------------------
-// No-franchise error handling
+// No-franchise fallback
 // ---------------------------------------------------------------------------
 
 function renderNoFranchiseState() {
-  // Try to reuse an existing root container if present; otherwise,
-  // create a simple full-page message.
-  let root = getEl("franchise-root");
-  if (!root) {
-    root = document.createElement("div");
-    root.id = "franchise-root";
-    document.body.innerHTML = "";
-    document.body.appendChild(root);
+  const hubMain = getEl("hub-main");
+  const header = document.querySelector("header.hub-header");
+  const noFranchiseSection = getEl("no-franchise");
+
+  if (hubMain) hubMain.style.display = "none";
+  if (header) header.style.display = "none";
+  if (noFranchiseSection) {
+    noFranchiseSection.hidden = false;
   }
 
-  root.innerHTML = "";
-  const container = document.createElement("div");
-  container.className = "no-franchise-container";
-  container.innerHTML = `
-    <div class="no-franchise-card">
-      <h1>No active franchise</h1>
-      <p>No active franchise was found. Return to the main menu to start or continue a franchise.</p>
-      <button type="button" class="btn-primary" id="btn-return-main">Return to main menu</button>
-    </div>
-  `;
-  root.appendChild(container);
-
-  const btn = getEl("btn-return-main");
-  if (btn) {
-    btn.onclick = function () {
+  const backBtn = getEl("btn-go-main-menu");
+  if (backBtn) {
+    backBtn.onclick = function () {
       window.location.href = "main_page.html";
     };
   }
@@ -1069,17 +1034,15 @@ function initFranchiseHub() {
   }
 
   let leagueState = loadLeagueState(save.franchiseId);
-  if (!leagueState) {
-    leagueState = createDefaultLeagueStateFromSummary(save);
-    saveLeagueState(leagueState);
-  }
+  leagueState = normalizeLeagueState(leagueState, save);
+  saveLeagueState(leagueState);
 
   currentFranchiseSave = save;
   currentLeagueState = leagueState;
 
-  renderHeader(save, leagueState);
-  renderNextEventCard(save, leagueState);   // now routes Game Day into schedule.html
-  renderAlertsCard(save, leagueState);
+  renderHeader(save);
+  renderNextEventCard(save, leagueState); // Game Day -> schedule.html here
+  renderAlertsCard(leagueState);
   renderSeasonSummaryCard(save, leagueState);
   renderOwnerCard(save, leagueState);
   renderDebugCard(save, leagueState);
