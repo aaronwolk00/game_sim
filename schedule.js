@@ -159,18 +159,17 @@ function getEl(id) {
 function formatIsoToNice(iso) {
   if (!iso) return "Date TBA";
   const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "Date TBA";
-  const dayPart = date.toLocaleDateString(undefined, {
+  const options = {
     weekday: "short",
     month: "short",
-    day: "numeric"
-  });
-  const timePart = date.toLocaleTimeString(undefined, {
+    day: "numeric",
     hour: "numeric",
-    minute: "2-digit"
-  });
-  return `${dayPart} • ${timePart}`;
+    minute: "2-digit",
+    timeZone: "America/New_York"
+  };
+  return date.toLocaleString("en-US", options);
 }
+
 
 function parseRecord(recordStr) {
   if (!recordStr || typeof recordStr !== "string") {
@@ -215,6 +214,46 @@ function buildLeagueWideSchedule(leagueState) {
   allGames.sort((a, b) => new Date(a.kickoffIso) - new Date(b.kickoffIso));
   return allGames;
 }
+
+function renderLeagueWeekList() {
+  const listEl = getEl("week-list");
+  const emptyEl = getEl("week-list-empty");
+  if (!listEl || !emptyEl) return;
+
+  listEl.innerHTML = "";
+  const schedule = currentLeagueState?.schedule?.byWeek || {};
+  if (!Object.keys(schedule).length) {
+    emptyEl.hidden = false;
+    listEl.hidden = true;
+    return;
+  }
+
+  emptyEl.hidden = true;
+  listEl.hidden = false;
+
+  for (let week = 1; week <= 18; week++) {
+    const games = schedule[week] || [];
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "week-row";
+    row.textContent = `Week ${week} – ${games.length} games`;
+    row.addEventListener("click", () => renderLeagueWeekDetail(week));
+    listEl.appendChild(row);
+  }
+}
+
+function renderLeagueWeekDetail(week) {
+  const detailLines = getEl("league-context-lines");
+  if (!detailLines) return;
+  const games = currentLeagueState?.schedule?.byWeek?.[week] || [];
+  detailLines.innerHTML = games
+    .map(
+      (g) =>
+        `${g.awayTeam} @ ${g.homeTeam} • ${formatIsoToNice(g.kickoffIso)}`
+    )
+    .join("<br>");
+}
+
 
 
 // ---------------------------------------------------------------------------
@@ -534,11 +573,12 @@ function bindScopeToggle() {
       if (currentScope === "league") return;
       currentScope = "league";
       renderScopeToggle();
-      renderWeekList();
-      renderWeekDetail();
+      renderLeagueWeekList();
+      renderLeagueWeekDetail(1);
     });
   }
 }
+
 
 
 function bindBackButton() {

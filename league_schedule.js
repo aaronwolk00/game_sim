@@ -185,20 +185,23 @@ export function getCrossConferenceDivision(conference, division, seasonYear) {
 // Time helpers
 // -----------------------------------------------------------------------------
 
-/**
- * Compute the *second Thursday of September* (UTC) for a given season.
- * Treated as Week 1 Thursday (TNF opener).
- */
-function getSeasonStartDateUTC(seasonYear) {
-  const d = new Date(Date.UTC(seasonYear, 8, 1, 0, 0, 0, 0)); // Sept 1
-  const THURSDAY = 4; // 0=Sun..4=Thu
-  const firstDow = d.getUTCDay();
-  const offsetToFirstThu = (THURSDAY - firstDow + 7) % 7;
-  const firstThuDate = 1 + offsetToFirstThu;
-  const secondThuDate = firstThuDate + 7;
-  d.setUTCDate(secondThuDate);
-  return d;
-}
+// Compute the second Thursday of September in LOCAL time.
+// This is treated as the Week 1 Thursday night opener.
+function getSeasonStartDateLocal(seasonYear) {
+    // Start at Sept 1, midnight local
+    const d = new Date(seasonYear, 8, 1, 0, 0, 0, 0); // month 8 = September
+    const THURSDAY = 4; // 0 = Sun, 1 = Mon, ... 4 = Thu
+    const firstDow = d.getDay();
+  
+    // Days from Sept 1 to first Thursday
+    const offsetToFirstThu = (THURSDAY - firstDow + 7) % 7;
+    const firstThuDate = 1 + offsetToFirstThu;
+    const secondThuDate = firstThuDate + 7;
+  
+    d.setDate(secondThuDate);
+    return d; // second Thursday in September, local midnight
+  }
+  
 
 const SLOT_DEFS = {
   THU:      { dayOffset: 0, hour: 20, minute: 20 }, // Thu 8:20 PM
@@ -611,162 +614,91 @@ function assignWeeksToGames(games, teamByeWeek) {
  * @param {number} seasonYear
  */
 function assignTimesToGames(weeks, seasonYear) {
-  const seasonStartUtc = getSeasonStartDateUTC(seasonYear);
+    // ----- Realistic calendar: second Thursday of September + weekly offsets -----
+    // IMPORTANT: this is in LOCAL time; display will be forced to Eastern.
+    const seasonStartLocal = getSeasonStartDateLocal(seasonYear);
 
-  /** @type {Object.<string, {thu:boolean, mon:boolean, sunNight:boolean}>} */
-  const primeUsage = {};
-  for (const t of TEAM_META) {
-    primeUsage[t.teamCode] = { thu: false, mon: false, sunNight: false };
-  }
-
-  const possibleLondonWeeks = [5, 6, 7, 8];
-  let londonGamesUsed = 0;
-  const maxLondonGames = 3;
-
-  for (let idx = 0; idx < weeks.length; idx++) {
-    const calendarWeek = idx + 1;
-    const games = weeks[idx];
-    if (!games || games.length === 0) continue;
-
-    // Use a Set so we can remove games as they're assigned slots.
-    const unassigned = new Set(games);
-
-    const popGame = (predicate) => {
-      for (const g of unassigned) {
-        if (predicate(g)) {
-          unassigned.delete(g);
-          return g;
-        }
-      }
-      return null;
+    const SLOTS = {
+    THU:      { dayOffset: 0, hour: 20, minute: 20 }, // Thursday 8:20 PM
+    SUN_930:  { dayOffset: 3, hour: 9,  minute: 30 }, // Sunday 9:30 AM (London-style)
+    SUN_1:    { dayOffset: 3, hour: 13, minute: 0  },
+    SUN_415:  { dayOffset: 3, hour: 16, minute: 15 },
+    SUN_425:  { dayOffset: 3, hour: 16, minute: 25 },
+    SUN_820:  { dayOffset: 3, hour: 20, minute: 20 },
+    MON_700:  { dayOffset: 4, hour: 19, minute: 0  },
+    MON_1000: { dayOffset: 4, hour: 22, minute: 0  }
     };
 
-    // ---- Thursday Night Football (TNF) ----
-    const tnfGame =
-      popGame((g) => {
-        const puH = primeUsage[g.homeTeam];
-        const puA = primeUsage[g.awayTeam];
-        return !puH.thu && !puA.thu && !puH.mon && !puA.mon;
-      }) ||
-      popGame((g) => {
-        const puH = primeUsage[g.homeTeam];
-        const puA = primeUsage[g.awayTeam];
-        return !puH.thu && !puA.thu;
-      });
+    const WEST_COAST = ["SEA", "SF", "LAR", "ARI", "LV", "LAC", "DEN"];
+    const MOUNTAIN   = ["DEN", "ARI"];
 
-    if (tnfGame) {
-      tnfGame.slotId = "THU";
-      primeUsage[tnfGame.homeTeam].thu = true;
-      primeUsage[tnfGame.awayTeam].thu = true;
+    const thursdayTeamUsed = new Set();
+    const mondayTeamUsed   = new Set();
+    const sundayNightUsed  = new Set();
+
+    ordered.forEach((g, idx) => {
+    g.index = idx;
+    g.seasonWeek = idx + 1;
+
+    // Bye week: no kickoff time
+    if (g.type === "bye") {
+        g.kickoffIso = null;
+        return;
     }
 
-    // ---- Sunday Night Football (SNF) ----
-    const snfGame =
-      popGame((g) => {
-        const puH = primeUsage[g.homeTeam];
-        const puA = primeUsage[g.awayTeam];
-        return !puH.sunNight && !puA.sunNight;
-      }) || popGame(() => true);
+    // Default Sunday 1:00 PM
+    let slot = SLOTS.SUN_1;
 
-    if (snfGame) {
-      snfGame.slotId = "SUN_820";
-      primeUsage[snfGame.homeTeam].sunNight = true;
-      primeUsage[snfGame.awayTeam].sunNight = true;
+    // West/Mountain hosts lean late
+    const isLateTeam =
+        WEST_COAST.includes(g.teamCode) || MOUNTAIN.includes(g.teamCode);
+    if (isLateTeam && Math.random() < 0.7) {
+        const lateSlots = [SLOTS.SUN_415, SLOTS.SUN_425, SLOTS.MON_1000];
+        slot = lateSlots[Math.floor(Math.random() * lateSlots.length)];
     }
 
-    // ---- Monday Night Football (MNF) ----
-    const mnfGame =
-      popGame((g) => {
-        const puH = primeUsage[g.homeTeam];
-        const puA = primeUsage[g.awayTeam];
-        return !puH.mon && !puA.mon && !puH.thu && !puA.thu;
-      }) ||
-      popGame((g) => {
-        const puH = primeUsage[g.homeTeam];
-        const puA = primeUsage[g.awayTeam];
-        return !puH.mon && !puA.mon;
-      });
-
-    if (mnfGame) {
-      // Choose early/late based on host being late-window friendly.
-      const hostLate = LATE_HOSTS.has(mnfGame.homeTeam);
-      mnfGame.slotId = hostLate ? "MON_1000" : "MON_700";
-      primeUsage[mnfGame.homeTeam].mon = true;
-      primeUsage[mnfGame.awayTeam].mon = true;
+    // One Thursday game per "cycle" for this team
+    if (idx % 7 === 0 && !thursdayTeamUsed.has(g.teamCode)) {
+        slot = SLOTS.THU;
+        thursdayTeamUsed.add(g.teamCode);
     }
 
-    // ---- Potential London game (Sun 9:30) ----
+    // One Sunday night per "cycle"
+    if (idx % 7 === 1 && !sundayNightUsed.has(g.teamCode)) {
+        slot = SLOTS.SUN_820;
+        sundayNightUsed.add(g.teamCode);
+    }
+
+    // Monday night if they haven't already had TNF
     if (
-      possibleLondonWeeks.includes(calendarWeek) &&
-      londonGamesUsed < maxLondonGames &&
-      unassigned.size > 0
+        idx % 7 === 2 &&
+        !mondayTeamUsed.has(g.teamCode) &&
+        !thursdayTeamUsed.has(g.teamCode)
     ) {
-      const londonGame =
-        popGame((g) => !LATE_HOSTS.has(g.homeTeam)) || // prefer East/Central hosts
-        null;
-      if (londonGame) {
-        londonGame.slotId = "SUN_930";
-        londonGamesUsed++;
-      }
+        slot = Math.random() < 0.5 ? SLOTS.MON_700 : SLOTS.MON_1000;
+        mondayTeamUsed.add(g.teamCode);
     }
 
-    // ---- Late windows (4:15 / 4:25) ----
-    const totalGames = games.length;
-    let remainingForLate = unassigned.size;
-
-    let late415Count = Math.min(3, Math.max(2, Math.round(totalGames * 0.2)));
-    let late425Count = Math.min(2, Math.max(1, Math.round(totalGames * 0.1)));
-
-    if (late415Count + late425Count > remainingForLate) {
-      let diff = late415Count + late425Count - remainingForLate;
-      while (diff > 0 && late415Count > 1) {
-        late415Count--;
-        diff--;
-      }
-      while (diff > 0 && late425Count > 0) {
-        late425Count--;
-        diff--;
-      }
-      if (late415Count + late425Count > remainingForLate) {
-        late415Count = Math.min(late415Count, remainingForLate);
-        late425Count = 0;
-      }
+    // Occasional London game Week 5 or 6
+    if ((g.seasonWeek === 5 || g.seasonWeek === 6) && Math.random() < 0.15) {
+        slot = SLOTS.SUN_930;
     }
 
-    const assignLateSlot = (slotId, count) => {
-      for (let i = 0; i < count; i++) {
-        if (unassigned.size === 0) break;
-        const preferred =
-          popGame((g) => LATE_HOSTS.has(g.homeTeam)) ||
-          popGame(() => true);
-        if (preferred) preferred.slotId = slotId;
-      }
-    };
-
-    assignLateSlot("SUN_415", late415Count);
-    assignLateSlot("SUN_425", late425Count);
-
-    // ---- Remaining games: Sunday 1:00 ----
-    for (const g of unassigned) {
-      g.slotId = "SUN_1";
-    }
-
-    // ---- Convert slots to kickoffIso ----
-    for (const g of games) {
-      const slotKey = g.slotId || "SUN_1";
-      const slot = SLOT_DEFS[slotKey] || SLOT_DEFS.SUN_1;
-
-      const kickoff = new Date(seasonStartUtc.getTime());
-      kickoff.setUTCDate(
-        seasonStartUtc.getUTCDate() +
-          (g.week - 1) * 7 +
-          slot.dayOffset
-      );
-      kickoff.setUTCHours(slot.hour, slot.minute, 0, 0);
-      g.kickoffIso = kickoff.toISOString();
-    }
-  }
+    // Build kickoff time from the *second Thursday of September* base (LOCAL)
+    const kickoff = new Date(seasonStartLocal.getTime());
+    kickoff.setDate(
+        seasonStartLocal.getDate() +
+        (g.seasonWeek - 1) * 7 +
+        slot.dayOffset
+    );
+    // Convert to Eastern Time before serializing
+    const eastern = new Date(
+        kickoff.toLocaleString("en-US", { timeZone: "America/New_York" })
+    );
+    g.kickoffIso = eastern.toISOString();
+    });
 }
+
 
 // -----------------------------------------------------------------------------
 // League schedule builder (byWeek + byTeam)
@@ -847,36 +779,35 @@ function generateLeagueSchedule(seasonYear) {
     }
   }
 
-  // Insert explicit BYE weeks for each team so they have 18 entries.
-  for (const team of getAllTeamCodes()) {
-    const arr = byTeam[team] || [];
-    const weeksWithGame = new Set(arr.map((g) => g.seasonWeek));
-
-    for (let week = 1; week <= REGULAR_SEASON_WEEKS; week++) {
-      if (!weeksWithGame.has(week)) {
-        arr.push({
-          index: 0, // temp
-          seasonWeek: week,
-          teamCode: team,
-          opponentCode: "BYE",
-          isHome: false,
-          type: "bye",
-          kickoffIso: null,
-          status: "scheduled",
-          teamScore: null,
-          opponentScore: null
+    // --- FIXED BYE-WEEK INSERTION LOGIC ---
+    for (const team of getAllTeamCodes()) {
+        const arr = byTeam[team] || [];
+        const assignedBye = teamByeWeek[team];
+    
+        // Remove any accidental duplicates
+        const filtered = arr.filter((g) => g.opponentCode !== "BYE");
+    
+        // Add exactly one bye in the correct week
+        filtered.push({
+        index: 0,
+        seasonWeek: assignedBye,
+        teamCode: team,
+        opponentCode: "BYE",
+        isHome: false,
+        type: "bye",
+        kickoffIso: null,
+        status: "scheduled",
+        teamScore: null,
+        opponentScore: null
         });
-      }
+    
+        // Sort and re-index
+        filtered.sort((a, b) => a.seasonWeek - b.seasonWeek);
+        filtered.forEach((g, idx) => (g.index = idx));
+    
+        byTeam[team] = filtered;
     }
-
-    // Sort by week and fix indices so index = seasonWeek - 1
-    arr.sort((a, b) => a.seasonWeek - b.seasonWeek);
-    arr.forEach((g, idx) => {
-      g.index = idx;
-    });
-
-    byTeam[team] = arr;
-  }
+    
 
   return {
     seasonYear,
