@@ -339,12 +339,14 @@
     }
 
     .primary-actions-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 10px;
-      margin-top: 6px;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-start;
+        align-items: center;
+        gap: 10px;
+        margin-top: 6px;
     }
+
 
     .inline-hint {
       font-size: 0.78rem;
@@ -628,11 +630,17 @@
                   <button type="button" class="btn btn-primary" id="btn-gameday-sim">
                     Simulate Week
                   </button>
+                  <button type="button" class="btn-ghost" id="btn-gameday-pause" disabled>
+                    Pause
+                  </button>
+                  <button type="button" class="btn-ghost" id="btn-gameday-skip" disabled>
+                    Skip to End
+                  </button>
                 </div>
                 <div class="inline-hint">
-                  Choose simulation mode and speed.
+                  Choose simulation mode and speed. Pause or skip during play-by-play.
                 </div>
-              </div>              
+              </div>                            
             </div>
           </article>
 

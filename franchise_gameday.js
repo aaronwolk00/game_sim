@@ -718,51 +718,100 @@ function setSimSpeedFromControl(value) {
 
 async function runPlayByPlayGame(save, opponentCode, isHome, weekIndex0) {
     await ensureLeagueLoaded();
-    const payload = await runFranchiseEngineGame(save, opponentCode, isHome, weekIndex0, Date.now());
+  
+    const payload = await runFranchiseEngineGame(
+      save,
+      opponentCode,
+      isHome,
+      weekIndex0,
+      Date.now()
+    );
+  
     const plays = getPlayLogFromResult(payload.result);
     const logEl = getEl("gameday-play-log");
     const summaryEl = getEl("gameday-summary-line");
+    const pauseBtn = getEl("btn-gameday-pause");
+    const skipBtn = getEl("btn-gameday-skip");
   
     if (!plays.length) {
-      summaryEl.textContent = "No play-by-play log available.";
+      if (summaryEl) summaryEl.textContent = "No play-by-play log available.";
       return payload;
     }
   
     logEl.innerHTML = "";
-    summaryEl.textContent = "Playing live simulation…";
+    if (summaryEl) summaryEl.textContent = `Playing live simulation (${plays.length} plays)…`;
+  
+    // Initialize controls
+    playByPlayControl.isPlaying = true;
+    playByPlayControl.isPaused = false;
+    playByPlayControl.shouldSkip = false;
+  
+    pauseBtn.disabled = false;
+    skipBtn.disabled = false;
+  
+    const speedSel = getEl("sim-speed-select");
+    const speed = speedSel?.value || "normal";
+    const speedMap = { slow: 800, normal: 400, fast: 150 };
+    const delayMs = speedMap[speed] || 400;
   
     for (let i = 0; i < plays.length; i++) {
+      if (playByPlayControl.shouldSkip) {
+        for (let j = i; j < plays.length; j++) {
+          const div = document.createElement("div");
+          div.className = "gameday-log-line";
+          div.textContent = plays[j].text || plays[j].description || "[play]";
+          logEl.appendChild(div);
+        }
+        break;
+      }
+  
+      while (playByPlayControl.isPaused && !playByPlayControl.shouldSkip) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+  
       const p = plays[i];
       const div = document.createElement("div");
       div.className = "gameday-log-line new-play";
   
-      const clockStr = p.clock ?? p.gameClock ?? "";
-      const qtr = p.quarter ?? p.qtr ?? "";
-      const prefix = [qtr ? `Q${qtr}` : "", clockStr].filter(Boolean).join(" • ");
+      const q = p.quarter ?? p.qtr ?? "";
+      const clock = p.clock ?? p.gameClock ?? "";
+      const prefix = [q ? `Q${q}` : "", clock].filter(Boolean).join(" • ");
   
-      const text = p.text || p.description || "[play]";
-      div.textContent = prefix ? `${prefix} — ${text}` : text;
+      div.textContent = prefix ? `${prefix} — ${p.text || p.description}` : p.text || p.description || "[play]";
   
       const tags = (p.tags || []).map((t) => t.toUpperCase());
-      const isScoring = p.isScoring || tags.includes("TD") || tags.includes("FG");
-      if (isScoring) div.classList.add("scoring");
+      if (p.isScoring || tags.includes("TD") || tags.includes("FG")) {
+        div.classList.add("scoring");
+      }
   
       logEl.appendChild(div);
       logEl.scrollTo({ top: logEl.scrollHeight, behavior: "smooth" });
   
-      await new Promise((r) => setTimeout(r, simSpeed));
+      await new Promise((r) => setTimeout(r, delayMs));
     }
   
-    summaryEl.textContent = "Play-by-play complete.";
-    
-    const simBtn = getEl("btn-gameday-sim");
-    if (simBtn) {
-    simBtn.textContent = "Week Simulated";
-    simBtn.disabled = true;
-    }
-
+    playByPlayControl.isPlaying = false;
+    playByPlayControl.isPaused = false;
+    playByPlayControl.shouldSkip = false;
+  
+    pauseBtn.disabled = true;
+    skipBtn.disabled = true;
+  
+    if (summaryEl) summaryEl.textContent = "Play-by-play complete.";
     return payload;
   }
+  
+
+  // -----------------------------------------------------------------------------
+  // Play-by-play control state
+  // -----------------------------------------------------------------------------
+
+  const playByPlayControl = {
+    isPlaying: false,
+    isPaused: false,
+    shouldSkip: false
+  };
+  
   
 
 
@@ -1345,6 +1394,24 @@ async function initGameDay() {
 
   const simBtn = getEl("btn-gameday-sim");
   const backBtn = getEl("btn-gameday-back");
+  const pauseBtn = getEl("btn-gameday-pause");
+  const skipBtn = getEl("btn-gameday-skip");
+
+  if (pauseBtn) {
+    pauseBtn.addEventListener("click", () => {
+      if (!playByPlayControl.isPlaying) return;
+      playByPlayControl.isPaused = !playByPlayControl.isPaused;
+      pauseBtn.textContent = playByPlayControl.isPaused ? "Resume" : "Pause";
+    });
+  }
+
+  if (skipBtn) {
+    skipBtn.addEventListener("click", () => {
+      if (!playByPlayControl.isPlaying) return;
+      playByPlayControl.shouldSkip = true;
+    });
+  }
+
 
   if (backBtn) {
     backBtn.addEventListener("click", () => {
@@ -1372,8 +1439,8 @@ async function initGameDay() {
       gLeagueState.schedule.byTeam &&
       gLeagueState.schedule.byTeam[save.teamCode];
 
-    simBtn.disabled = false;
-    simBtn.textContent = hasSchedule ? "Simulate Week" : "Sim Game";
+    simBtn.textContent = hasSchedule ? "Week Simulated" : "Game Simulated";
+    simBtn.disabled = true;      
 
     simBtn.addEventListener("click", async () => {
         if (simBtn.disabled) return;
