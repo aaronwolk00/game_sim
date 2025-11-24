@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Franchise GM – Standings & Playoff Picture</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #020617;
+      --panel: #020617;
+      --card: #020617;
+      --card-border: #1e293b;
+      --card-border-strong: #4b5563;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --accent: #22c55e;
+      --accent-soft: rgba(34,197,94,0.18);
+      --accent-alt: #38bdf8;
+      --danger: #f97373;
+      --danger-soft: rgba(248,113,113,0.18);
+      --warn: #fbbf24;
+      --warn-soft: rgba(251,191,36,0.18);
+      --radius-lg: 18px;
+      --radius-md: 12px;
+      --radius-pill: 999px;
+      --shadow-soft: 0 22px 45px rgba(0,0,0,0.65);
+      --shadow-sm: 0 10px 24px rgba(0,0,0,0.55);
+      --font: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
+              "Segoe UI", Roboto, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      font-family: var(--font);
+      background: radial-gradient(circle at 0% 0%, #0b1120 0, #020617 48%, #000 100%);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    .page {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 24px 40px 28px;
+      max-width: 1280px;
+      margin: 0 auto;
+      position: relative;
+    }
+
+    .page::before {
+      content: "";
+      position: fixed;
+      inset: -40%;
+      background:
+        radial-gradient(circle at 0% 0%, rgba(56,189,248,0.14), transparent 55%),
+        radial-gradient(circle at 100% 100%, rgba(34,197,94,0.12), transparent 60%);
+      opacity: 0.85;
+      mix-blend-mode: screen;
+      pointer-events: none;
+      z-index: -2;
+      animation: ambientShift 26s ease-in-out infinite alternate;
+    }
+
+    @keyframes ambientShift {
+      0% { transform: translate3d(0,0,0) scale(1); }
+      100% { transform: translate3d(-3%, -2%, 0) scale(1.04); }
+    }
+
+    header.standings-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .header-left {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    #standings-header-name {
+      font-size: 1.2rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    #standings-header-subline {
+      font-size: 0.86rem;
+      color: var(--muted);
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .pill-record {
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(34,197,94,0.8);
+      padding: 6px 14px;
+      font-size: 0.84rem;
+      background: linear-gradient(135deg, rgba(22,163,74,0.18), rgba(15,23,42,0.96));
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 10px 22px rgba(22,163,74,0.35);
+    }
+
+    .pill-record-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--accent);
+      box-shadow: 0 0 0 4px rgba(34,197,94,0.18);
+    }
+
+    .pill-record-label {
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      font-size: 0.7rem;
+      color: rgba(209,250,229,0.88);
+    }
+
+    .pill-record-value {
+      font-weight: 600;
+    }
+
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    /* Layout */
+    .layout-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 2.1fr) minmax(0, 1.2fr);
+      gap: 14px;
+      align-items: flex-start;
+    }
+
+    .card {
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--card-border);
+      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.75), rgba(15,23,42,0.98));
+      box-shadow: var(--shadow-soft);
+      padding: 14px 16px 12px;
+      position: relative;
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .card-title {
+      font-size: 0.88rem;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      color: var(--muted);
+    }
+
+    .card-title strong {
+      color: var(--text);
+    }
+
+    .card-subtitle {
+      font-size: 0.74rem;
+      color: var(--muted);
+    }
+
+    .card-body {
+      font-size: 0.84rem;
+    }
+
+    /* Division standings */
+    .division-standings-container {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .standings-conferences {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .standings-conf {
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(31,41,55,0.95);
+      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.9), rgba(15,23,42,0.98));
+      padding: 8px 10px 10px;
+    }
+
+    .standings-conf-title {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: rgba(148,163,184,0.95);
+      margin-bottom: 6px;
+    }
+
+    .division-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .division-card {
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(31,41,55,0.95);
+      background: rgba(15,23,42,0.96);
+      padding: 7px 8px 6px;
+    }
+
+    .division-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 4px;
+      margin-bottom: 4px;
+    }
+
+    .division-name {
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: rgba(148,163,184,0.95);
+    }
+
+    .division-meta {
+      font-size: 0.7rem;
+      color: var(--muted);
+    }
+
+    .standings-header-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1.8fr) 0.9fr 0.8fr 0.9fr 0.9fr 0.9fr 0.8fr;
+      gap: 6px;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: rgba(148,163,184,0.9);
+      margin-bottom: 2px;
+    }
+
+    .standings-rows {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .standings-row {
+      padding: 4px 6px 4px;
+      border-radius: 10px;
+      cursor: pointer;
+      transition:
+        background-color 120ms ease-out,
+        box-shadow 120ms ease-out,
+        transform 120ms ease-out,
+        border-color 120ms ease-out;
+    }
+
+    .standings-row:hover {
+      background: rgba(31,41,55,0.98);
+      box-shadow: 0 6px 16px rgba(0,0,0,0.55);
+    }
+
+    .standings-row-top {
+      display: grid;
+      grid-template-columns: minmax(0, 1.8fr) 0.9fr 0.8fr 0.9fr 0.9fr 0.9fr 0.8fr;
+      gap: 6px;
+      align-items: baseline;
+      font-size: 0.78rem;
+    }
+
+    .standings-team-name {
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .standings-row-top span {
+      text-align: right;
+    }
+
+    .standings-row-top span:first-child {
+      text-align: left;
+    }
+
+    .standings-row-bottom {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 2px;
+      font-size: 0.7rem;
+      color: var(--muted);
+    }
+
+    .standings-row-bottom span {
+      white-space: nowrap;
+    }
+
+    .standings-row--user {
+      border: 1px solid rgba(34,197,94,0.9);
+      background: radial-gradient(circle at 0% 0%, rgba(34,197,94,0.22), rgba(15,23,42,0.98));
+      box-shadow: 0 12px 28px rgba(22,163,74,0.6);
+    }
+
+    .standings-row--user:hover {
+      transform: translateY(-0.5px);
+    }
+
+    /* Playoff picture */
+
+    .playoff-picture-container {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .playoff-conferences {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .playoff-conf {
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(31,41,55,0.95);
+      background: radial-gradient(circle at 100% 0%, rgba(37,99,235,0.18), rgba(15,23,42,0.98));
+      padding: 8px 9px 7px;
+    }
+
+    .playoff-conf-title {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: rgba(148,163,184,0.96);
+      margin-bottom: 4px;
+    }
+
+    .playoff-seeds-label,
+    .playoff-hunt-label {
+      font-size: 0.74rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: var(--muted);
+      margin: 4px 0 2px;
+    }
+
+    .playoff-seeds {
+      border-radius: 10px;
+      border: 1px solid rgba(31,41,55,0.95);
+      background: rgba(15,23,42,0.98);
+      padding: 6px 7px 5px;
+      margin-bottom: 4px;
+    }
+
+    .playoff-hunt {
+      border-radius: 10px;
+      border: 1px solid rgba(31,41,55,0.95);
+      background: rgba(15,23,42,0.96);
+      padding: 6px 7px 5px;
+    }
+
+    .playoff-header-row {
+      display: grid;
+      grid-template-columns: 0.6fr minmax(0, 1.8fr) 0.9fr 0.8fr 0.9fr 0.9fr;
+      gap: 6px;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: rgba(148,163,184,0.9);
+      margin-bottom: 2px;
+    }
+
+    .playoff-row {
+      padding: 4px 5px;
+      border-radius: 9px;
+      cursor: pointer;
+      transition:
+        background-color 120ms ease-out,
+        box-shadow 120ms ease-out,
+        transform 120ms ease-out,
+        border-color 120ms ease-out;
+    }
+
+    .playoff-row:hover {
+      background: rgba(31,41,55,0.98);
+      box-shadow: 0 6px 16px rgba(0,0,0,0.55);
+    }
+
+    .playoff-row-top {
+      display: grid;
+      grid-template-columns: 0.6fr minmax(0, 1.8fr) 0.9fr 0.8fr 0.9fr 0.9fr;
+      gap: 6px;
+      align-items: baseline;
+      font-size: 0.78rem;
+    }
+
+    .playoff-row-top span {
+      text-align: right;
+    }
+
+    .playoff-row-top span:nth-child(2) {
+      text-align: left;
+    }
+
+    .playoff-row-bottom {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 2px;
+      font-size: 0.7rem;
+      color: var(--muted);
+    }
+
+    .playoff-row-bottom span {
+      white-space: nowrap;
+    }
+
+    .playoff-row--user {
+      border: 1px solid rgba(34,197,94,0.9);
+      background: rgba(22,163,74,0.2);
+      box-shadow: 0 12px 28px rgba(22,163,74,0.6);
+    }
+
+    .playoff-row--seed {
+      border-left: 2px solid rgba(234,179,8,0.9);
+    }
+
+    .through-week-tag {
+      font-size: 0.72rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+    }
+
+    .standings-hint {
+      margin-top: 4px;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+
+    /* Buttons */
+    .btn {
+      border-radius: var(--radius-pill);
+      border: none;
+      padding: 8px 18px;
+      font-size: 0.86rem;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      cursor: pointer;
+      transition:
+        background-color 140ms ease-out,
+        transform 140ms ease-out,
+        box-shadow 140ms ease-out,
+        border-color 140ms ease-out,
+        color 140ms ease-out;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #22c55e, #16a34a);
+      color: #020617;
+      border: 1px solid rgba(22,163,74,0.9);
+      box-shadow: 0 10px 24px rgba(22,163,74,0.45);
+    }
+
+    .btn-primary:hover:enabled {
+      transform: translateY(-1px);
+      box-shadow: 0 16px 32px rgba(22,163,74,0.6);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+
+    .btn-ghost {
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(148,163,184,0.4);
+      background: rgba(15,23,42,0.95);
+      color: var(--text);
+      font-size: 0.8rem;
+      padding: 6px 12px;
+    }
+
+    .btn-ghost:hover {
+      background: rgba(31,41,55,0.98);
+      border-color: rgba(148,163,184,0.8);
+    }
+
+    button:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 3px;
+    }
+
+    /* No-franchise state */
+    .no-franchise-state {
+      margin-top: 40px;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--card-border-strong);
+      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.7), rgba(15,23,42,0.98));
+      padding: 20px 20px 18px;
+      text-align: left;
+      max-width: 520px;
+      box-shadow: var(--shadow-soft);
+    }
+
+    .no-franchise-title {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    .no-franchise-text {
+      font-size: 0.86rem;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    .no-franchise-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    footer {
+      margin-top: 10px;
+      font-size: 0.78rem;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    @media (max-width: 1024px) {
+      .page {
+        padding: 20px 18px 24px;
+      }
+
+      .layout-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .standings-conferences {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .division-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
+    @media (max-width: 640px) {
+      header.standings-header {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .header-right {
+        align-self: stretch;
+        justify-content: flex-start;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page" id="standings-page-root">
+    <header class="standings-header">
+      <div class="header-left">
+        <div id="standings-header-name">Franchise Team</div>
+        <div id="standings-header-subline">Season — • Standings & Playoff Picture</div>
+      </div>
+      <div class="header-right">
+        <div class="pill-record" id="standings-record-pill">
+          <span class="pill-record-dot" aria-hidden="true"></span>
+          <span class="pill-record-label">Record</span>
+          <span class="pill-record-value" id="standings-record-value">0–0</span>
+        </div>
+        <button type="button" class="btn-ghost" id="btn-back-hub">
+          Back to hub
+        </button>
+      </div>
+    </header>
+
+    <main id="standings-main">
+      <div class="layout-grid">
+        <!-- Left: Division & conference standings -->
+        <section class="card" id="card-division-standings" aria-labelledby="card-division-standings-title">
+          <div class="card-header">
+            <div>
+              <div class="card-title" id="card-division-standings-title">
+                <strong>Standings</strong>
+              </div>
+              <div class="card-subtitle" id="card-division-standings-subtitle">
+                Division and conference overview.
+              </div>
+            </div>
+            <div class="through-week-tag" id="standings-through-week-tag">
+              <!-- Filled by JS -->
+            </div>
+          </div>
+          <div class="card-body">
+            <div id="division-standings-container" class="division-standings-container">
+              <!-- Populated by JS -->
+            </div>
+            <div id="standings-hint" class="standings-hint"></div>
+          </div>
+        </section>
+
+        <!-- Right: Playoff picture -->
+        <section class="card" id="card-playoff-picture" aria-labelledby="card-playoff-picture-title">
+          <div class="card-header">
+            <div>
+              <div class="card-title" id="card-playoff-picture-title">
+                <strong>Playoff picture</strong>
+              </div>
+              <div class="card-subtitle">
+                Seeds and in-the-hunt teams by conference.
+              </div>
+            </div>
+            <div class="through-week-tag" id="playoff-through-week-tag">
+              <!-- Filled by JS -->
+            </div>
+          </div>
+          <div class="card-body">
+            <div id="playoff-picture-container" class="playoff-picture-container">
+              <!-- Populated by JS -->
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <!-- No franchise state -->
+    <section id="no-franchise" class="no-franchise-state" hidden>
+      <div class="no-franchise-title">No active franchise found</div>
+      <div class="no-franchise-text">
+        There’s no active franchise in this slot. Return to the main menu to start a new franchise or continue an existing one.
+      </div>
+      <div class="no-franchise-actions">
+        <button type="button" class="btn-primary" id="btn-go-main-menu">
+          Back to main menu
+        </button>
+      </div>
+    </section>
+
+    <footer>
+      <span>Franchise GM • Standings & Playoff Picture</span>
+      <span>Standings update as games are completed</span>
+    </footer>
+  </div>
+
+  <script type="module" src="standings.js"></script>
+</body>
+</html>
