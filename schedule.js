@@ -1,741 +1,905 @@
-// === Required headless engine loader (no fallbacks) ===
-(function loadHeadlessEngine(){
-    // tell engine.js to run headless if it respects this flag
-    window.HEADLESS_MODE = true;
-  
-    const s = document.createElement('script');
-    s.src = 'engine.js';
-    s.onload = () => {
-      console.log('engine.js loaded, headless sim ready (runGameHeadless required).');
-    };
-    s.onerror = (err) => {
-      console.error('engine.js failed to load; sims cannot run.', err);
-      alert('engine.js failed to load. Simulation is disabled. Check console for details.');
-    };
-    document.head.appendChild(s);
-  })();
-  
-  /* ===== Params & link forwarding ===== */
-  const PARAMS = new URLSearchParams(location.search);
-  const RAW_PLAYERS_PARAM  = (PARAMS.get('players')  || '').replace('/refs/heads/','/');
-  const RAW_SCHEDULE_PARAM = (PARAMS.get('schedule') || '').replace('/refs/heads/','/');
-  
-  /* default NFL season to show (2020 = 2020–21 season) */
-  const DEFAULT_SEASON = 2020;
-  const seasonParamRaw = PARAMS.get('season');
-  let SEASON_FILTER = DEFAULT_SEASON;
-  if (seasonParamRaw) {
-    if (seasonParamRaw.toLowerCase() === 'all') {
-      SEASON_FILTER = null;         // no filtering if ?season=all
-    } else {
-      const sn = parseInt(seasonParamRaw, 10);
-      if (Number.isFinite(sn)) SEASON_FILTER = sn;
-    }
-  }
-  
-  (function wireLinks(){
-    const p = RAW_PLAYERS_PARAM  ? `?players=${encodeURIComponent(RAW_PLAYERS_PARAM)}` : '';
-    const s = RAW_SCHEDULE_PARAM ? (p?`&schedule=${encodeURIComponent(RAW_SCHEDULE_PARAM)}`:`?schedule=${encodeURIComponent(RAW_SCHEDULE_PARAM)}`) : '';
-    const toStandings = document.getElementById('toStandings');
-    if (toStandings) toStandings.href = `standings.html${p}${s}`;
-  
-    const resetBtn = document.getElementById('resetSeasonBtn');
-    if (resetBtn){
-      resetBtn.addEventListener('click', () => {
-        if (confirm('Reset all simulated game results for this season?')){
-          resetSeasonResults();
-        }
-      });
-    }
-  
-    const simNextWeekBtn = document.getElementById('simNextWeekBtn');
-    if (simNextWeekBtn){
-      simNextWeekBtn.addEventListener('click', async () => {
-        // figure out which week is the next one with any unplayed games
-        const week = getNextUnplayedWeek();
-        if (!week){
-          alert('All weeks are fully simulated for this season.');
-          return;
-        }
-  
-        const originalText = simNextWeekBtn.textContent;
-        simNextWeekBtn.disabled = true;
-        simNextWeekBtn.textContent = `Sim Week ${week}…`;
-  
-        await simWeek(week);
-  
-        simNextWeekBtn.disabled = false;
-        simNextWeekBtn.textContent = originalText;
-      });
-    }
-  })();
-  
-  /* ===== Sources ===== */
-  const SCHEDULE_URLS = RAW_SCHEDULE_PARAM
-    ? [RAW_SCHEDULE_PARAM, new URL('schedule.csv', location.href).href]
-    : [new URL('schedule.csv', location.href).href];
-  
-  /* ===== DOM ===== */
-  const csvPill    = document.getElementById('csvPill');
-  const gamesPill  = document.getElementById('gamesPill');
-  const teamsPill  = document.getElementById('teamsPill');
-  const seasonPill = document.getElementById('seasonPill');
-  const root       = document.getElementById('scheduleRoot');
-  
-  /* ===== Shared results / live channel ===== */
-  const SEASON_KEY = (SEASON_FILTER == null ? 'all' : SEASON_FILTER);
-  const LOCAL_RESULTS_KEY  = `headlessResults:${SEASON_KEY}`;
-  const LIVE_STANDINGS_KEY = `simSeason:${SEASON_KEY}:standings`;
-  const liveChan = (typeof BroadcastChannel !== 'undefined')
-    ? new BroadcastChannel('nfl-sim-2020')
-    : null;
-  
-  // long team names discovered from schedule.csv
-  let TEAMS_LONG = [];
-  
-  
-  function loadLocalResults(){
-    try{
-      return JSON.parse(localStorage.getItem(LOCAL_RESULTS_KEY) || '{}');
-    }catch(e){
-      return {};
-    }
-  }
-  
-  function storeGameResult(home, away, homePts, awayPts, week){
-    const key = `${home}|${away}`;
-    const data = loadLocalResults();
-    data[key] = { home, away, homePts, awayPts, week };
-    try{
-      localStorage.setItem(LOCAL_RESULTS_KEY, JSON.stringify(data));
-    }catch(e){
-      console.warn('Could not store game result', e);
-    }
-    if (liveChan){
-      try{
-        liveChan.postMessage({
-          type: 'headlessResultsUpdated',
-          results: data
-        });
-      }catch(e){}
-    }
-  }
-  
-  /* apply existing stored results so scores persist in the UI */
-  function applyExistingResults(){
-    const results = loadLocalResults();
-    const rows = root.querySelectorAll('tr.game-row');
-    rows.forEach(row=>{
-      const home = row.dataset.home;
-      const away = row.dataset.away;
-      const key = `${home}|${away}`;
-      const g = results[key];
-      if (!g) return;
-  
-      const simCell = row.querySelector('.sim-cell');
-      if (!simCell) return;
-  
-      const hp = g.homePts;
-      const ap = g.awayPts;
-      if (hp == null || ap == null) return;
-  
-      simCell.textContent = `${ap}–${hp}`;
-      simCell.innerHTML = `<span class="small">${ap}–${hp}</span>`;
-    });
-  }
-  
-  function resetSeasonResults(){
-    try{
-      // 1) Clear per-game results (no headless games yet)
-      localStorage.setItem(LOCAL_RESULTS_KEY, JSON.stringify({}));
-  
-      // 2) Choose long team names:
-      const teams = (TEAMS_LONG && TEAMS_LONG.length)
-        ? TEAMS_LONG
-        : [
-            'Arizona Cardinals',
-            'Atlanta Falcons',
-            'Baltimore Ravens',
-            'Buffalo Bills',
-            'Carolina Panthers',
-            'Chicago Bears',
-            'Cincinnati Bengals',
-            'Cleveland Browns',
-            'Dallas Cowboys',
-            'Denver Broncos',
-            'Detroit Lions',
-            'Green Bay Packers',
-            'Houston Texans',
-            'Indianapolis Colts',
-            'Jacksonville Jaguars',
-            'Kansas City Chiefs',
-            'Las Vegas Raiders',
-            'Los Angeles Chargers',
-            'Los Angeles Rams',
-            'Miami Dolphins',
-            'Minnesota Vikings',
-            'New England Patriots',
-            'New Orleans Saints',
-            'New York Giants',
-            'New York Jets',
-            'Philadelphia Eagles',
-            'Pittsburgh Steelers',
-            'San Francisco 49ers',
-            'Seattle Seahawks',
-            'Tampa Bay Buccaneers',
-            'Tennessee Titans',
-            'Washington Commanders'
-          ];
-  
-      // 3) Build a baseline standings object: all long names, all 0–0 with 0 PF/PA
-      const baseline = {};
-      teams.forEach(name => {
-        baseline[name] = {
-          team:   name,
-          wins:   0,
-          losses: 0,
-          pf:     0,
-          pa:     0
-        };
-      });
-  
-      // 4) Store it under the same key standings.html reads
-      localStorage.setItem(LIVE_STANDINGS_KEY, JSON.stringify(baseline));
-    }catch(e){
-      console.warn('Could not reset season standings', e);
-    }
-  
-    // 5) Notify any open standings.html tab so it can immediately repaint
-    if (liveChan){
-      try{
-        const baseline = JSON.parse(localStorage.getItem(LIVE_STANDINGS_KEY) || '{}');
-        liveChan.postMessage({
-          type:      'standings',
-          standings: baseline,
-          progress:  { done: 0, total: 0 }
-        });
-      }catch(e){}
-    }
-  
-    // 6) Reload this page so Sim buttons + UI are in a clean state
-    location.reload();
-  }
-  
-  /* ===== Headless sim helpers ===== */
-  
-  /* simple fallback if engine.js hasn't exposed window.runGameHeadless */
+// schedule.js
+//
+// Franchise GM – Season Schedule / Calendar
+//
+// Responsibilities:
+// - Load the current FranchiseSave summary from localStorage.
+// - Load or create a LeagueState object for this franchise.
+// - Ensure an NFL-style schedule exists (per-team schedule, by season).
+// - Render:
+//   * Header (team name + season line).
+//   * Left side: week-by-week list for the user's team.
+//   * Right side: details for the selected week.
+//   * Scope toggle: My Team / League (league view is stubbed for now).
+//
+// Notes:
+// - Schedule generation uses an NFL-style 16-game rotation:
+//     * 6 division games (home/away vs 3 rivals)
+//     * 4 games vs one same-conference division (rotating 3-year cycle)
+//     * 4 games vs one opposite-conference division (rotating 4-year cycle)
+//     * 2 same-conference “extra” games vs teams from the remaining divisions
+//   This mirrors the classic NFL structure; the modern 17th game is a TODO.
+// - Weeks are treated as game index (Week 1..16) for now. Real bye logic
+//   can be layered on later.
+//
+// Assumes schedule.html has (key IDs):
+//   - Header:
+//       #team-name-heading
+//       #season-phase-line
+//   - Scope toggle:
+//       #btn-scope-my-team
+//       #btn-scope-league
+//   - Week list card:
+//       #week-list
+//   - Week detail card:
+//       #week-detail-title
+//       #week-detail-opponent
+//       #week-detail-meta
+//       #week-detail-result
+//       #week-detail-record-line
+//       #btn-week-gameday
+//       #btn-week-boxscore
+//   - View mode hint:
+//       #schedule-view-mode-label
+//   - Back to hub:
+//       #btn-back-hub
+//
+// If something is missing, the code fails gracefully.
 
-  async function runSingleGame(home, away, rowEl){
-    const simCell = rowEl.querySelector('.sim-cell');
-    if (!simCell) return;
-    const original = simCell.innerHTML;
-    simCell.textContent = 'Sim…';
-  
-    try{
-      const PLAYERS_URL = RAW_PLAYERS_PARAM || 'players.csv';
-      let result;
-      result = await window.runGameHeadless(home, away, PLAYERS_URL);
-      const homePts = result.homePts ?? result.homeScore ?? result.home;
-      const awayPts = result.awayPts ?? result.awayScore ?? result.away;
-      if (homePts == null || awayPts == null){
-        simCell.textContent = 'Err';
-      } else {
-        simCell.textContent = `${awayPts}–${homePts}`;
-        const week = parseInt(rowEl.dataset.week || '0', 10) || null;
-        storeGameResult(home, away, homePts, awayPts, week);
-      }
-    }catch(err){
-      console.error('Headless sim failed', err);
-      simCell.textContent = 'Err';
-    }
+// ---------------------------------------------------------------------------
+// Shared types (documentation only)
+// ---------------------------------------------------------------------------
+
+/**
+ * @typedef {Object} FranchiseSave
+ * @property {number} version
+ * @property {string} franchiseId
+ * @property {string} franchiseName
+ * @property {string} [teamName]
+ * @property {string} teamCode
+ * @property {number} seasonYear
+ * @property {number} weekIndex
+ * @property {string} phase
+ * @property {string} record
+ * @property {string} lastPlayedISO
+ *
+ * @property {Object} accolades
+ * @property {Object} gmJob
+ * @property {Object} leagueSummary
+ * @property {Object} realismOptions
+ * @property {Object} ownerExpectation
+ * @property {number} gmCredibility
+ */
+
+/**
+ * @typedef {Object} TeamGame
+ * @property {number} index           // 0-based index in schedule
+ * @property {number} seasonWeek      // 1-based user facing week label
+ * @property {string} teamCode        // our team
+ * @property {string} opponentCode
+ * @property {boolean} isHome
+ * @property {"division"|"conference"|"nonconference"|"extra"} type
+ * @property {string|null} kickoffIso
+ * @property {"scheduled"|"final"} status
+ * @property {number|null} teamScore
+ * @property {number|null} opponentScore
+ */
+
+/**
+ * @typedef {Object} LeagueSchedule
+ * @property {number} seasonYear
+ * @property {Object.<string, TeamGame[]>} byTeam
+ */
+
+/**
+ * @typedef {Object} LeagueState
+ * @property {string} franchiseId
+ * @property {number} seasonYear
+ * @property {Object} [timeline]
+ * @property {Object} [alerts]
+ * @property {Object} [statsSummary]
+ * @property {Array<Object>} [ownerNotes]
+ * @property {Object} [debug]
+ * @property {LeagueSchedule} [schedule]
+ */
+
+// ---------------------------------------------------------------------------
+// Storage keys & helpers
+// ---------------------------------------------------------------------------
+
+const SAVE_KEY_LAST_FRANCHISE = "franchiseGM_lastFranchise";
+const LEAGUE_STATE_KEY_PREFIX = "franchiseGM_leagueState_";
+
+function getLeagueStateKey(franchiseId) {
+  return `${LEAGUE_STATE_KEY_PREFIX}${franchiseId}`;
+}
+
+function storageAvailable() {
+  try {
+    const testKey = "__franchise_gm_storage_test__";
+    window.localStorage.setItem(testKey, "1");
+    window.localStorage.removeItem(testKey);
+    return true;
+  } catch {
+    return false;
   }
-  
-  /* bind sim buttons after each render */
-  function attachSimHandlers(){
-    const buttons = root.querySelectorAll('.sim-btn');
-    buttons.forEach(btn=>{
-      btn.addEventListener('click', async (e)=>{
-        e.stopPropagation();
-        const row = btn.closest('tr');
-        if (!row) return;
-        const home = row.dataset.home;
-        const away = row.dataset.away;
-        if (!home || !away) return;
-        await runSingleGame(home, away, row);
-      });
-    });
-  }
-  
-  async function simWeek(week){
-    const existing = loadLocalResults();
-    const rows = root.querySelectorAll(`tr.game-row[data-week="${week}"]`);
-  
-    for (const row of rows){
-      const home = row.dataset.home;
-      const away = row.dataset.away;
-      if (!home || !away) continue;
-  
-      const key = `${home}|${away}`;
-      if (existing[key]) {
-        continue;
-      }
-  
-      await runSingleGame(home, away, row);
-    }
-  }
-  
-  function getNextUnplayedWeek(){
-    if (!SCHEDULE || !SCHEDULE.length) return null;
-  
-    const results = loadLocalResults();
-    const weeksSet = new Set();
-  
-    SCHEDULE.forEach(g => {
-      if (g.week != null) weeksSet.add(g.week);
-    });
-  
-    const weeks = Array.from(weeksSet).sort((a,b)=>a-b);
-  
-    for (const w of weeks){
-      const gamesInWeek = SCHEDULE.filter(g => g.week === w);
-      const hasUnplayed = gamesInWeek.some(g => {
-        const key = `${g.home}|${g.away}`;
-        return !results[key];
-      });
-  
-      if (hasUnplayed) return w;
-    }
-  
+}
+
+function loadLastFranchise() {
+  if (!storageAvailable()) return null;
+  const raw = window.localStorage.getItem(SAVE_KEY_LAST_FRANCHISE);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch {
     return null;
   }
-  
-  function attachWeekSimHandlers(){
-    const buttons = root.querySelectorAll('.sim-week-btn');
-    buttons.forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const week = parseInt(btn.dataset.week || '0', 10);
-        if (!week) return;
-  
-        const originalText = btn.textContent;
-        btn.disabled = true;
-        btn.textContent = 'Sim Week…';
-  
-        await simWeek(week);
-  
-        btn.disabled = false;
-        btn.textContent = originalText;
-      });
+}
+
+function loadLeagueState(franchiseId) {
+  if (!storageAvailable() || !franchiseId) return null;
+  const raw = window.localStorage.getItem(getLeagueStateKey(franchiseId));
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function saveLeagueState(state) {
+  if (!storageAvailable() || !state || !state.franchiseId) return;
+  try {
+    window.localStorage.setItem(
+      getLeagueStateKey(state.franchiseId),
+      JSON.stringify(state)
+    );
+  } catch (err) {
+    console.warn("[Franchise GM] Failed to save league state:", err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Team metadata (conference / division / city / name)
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal team metadata needed for schedule generation.
+ */
+const TEAM_META = [
+  // AFC East
+  { teamCode: "BUF", city: "Buffalo", name: "Bills", conference: "AFC", division: "East" },
+  { teamCode: "MIA", city: "Miami", name: "Dolphins", conference: "AFC", division: "East" },
+  { teamCode: "NE",  city: "New England", name: "Patriots", conference: "AFC", division: "East" },
+  { teamCode: "NYJ", city: "New York", name: "Jets", conference: "AFC", division: "East" },
+
+  // AFC North
+  { teamCode: "BAL", city: "Baltimore", name: "Ravens", conference: "AFC", division: "North" },
+  { teamCode: "CIN", city: "Cincinnati", name: "Bengals", conference: "AFC", division: "North" },
+  { teamCode: "CLE", city: "Cleveland", name: "Browns", conference: "AFC", division: "North" },
+  { teamCode: "PIT", city: "Pittsburgh", name: "Steelers", conference: "AFC", division: "North" },
+
+  // AFC South
+  { teamCode: "HOU", city: "Houston", name: "Texans", conference: "AFC", division: "South" },
+  { teamCode: "IND", city: "Indianapolis", name: "Colts", conference: "AFC", division: "South" },
+  { teamCode: "JAX", city: "Jacksonville", name: "Jaguars", conference: "AFC", division: "South" },
+  { teamCode: "TEN", city: "Tennessee", name: "Titans", conference: "AFC", division: "South" },
+
+  // AFC West
+  { teamCode: "DEN", city: "Denver", name: "Broncos", conference: "AFC", division: "West" },
+  { teamCode: "KC",  city: "Kansas City", name: "Chiefs", conference: "AFC", division: "West" },
+  { teamCode: "LV",  city: "Las Vegas", name: "Raiders", conference: "AFC", division: "West" },
+  { teamCode: "LAC", city: "Los Angeles", name: "Chargers", conference: "AFC", division: "West" },
+
+  // NFC East
+  { teamCode: "DAL", city: "Dallas", name: "Cowboys", conference: "NFC", division: "East" },
+  { teamCode: "NYG", city: "New York", name: "Giants", conference: "NFC", division: "East" },
+  { teamCode: "PHI", city: "Philadelphia", name: "Eagles", conference: "NFC", division: "East" },
+  { teamCode: "WAS", city: "Washington", name: "Commanders", conference: "NFC", division: "East" },
+
+  // NFC North
+  { teamCode: "CHI", city: "Chicago", name: "Bears", conference: "NFC", division: "North" },
+  { teamCode: "DET", city: "Detroit", name: "Lions", conference: "NFC", division: "North" },
+  { teamCode: "GB",  city: "Green Bay", name: "Packers", conference: "NFC", division: "North" },
+  { teamCode: "MIN", city: "Minnesota", name: "Vikings", conference: "NFC", division: "North" },
+
+  // NFC South
+  { teamCode: "ATL", city: "Atlanta", name: "Falcons", conference: "NFC", division: "South" },
+  { teamCode: "CAR", city: "Carolina", name: "Panthers", conference: "NFC", division: "South" },
+  { teamCode: "NO",  city: "New Orleans", name: "Saints", conference: "NFC", division: "South" },
+  { teamCode: "TB",  city: "Tampa Bay", name: "Buccaneers", conference: "NFC", division: "South" },
+
+  // NFC West
+  { teamCode: "ARI", city: "Arizona", name: "Cardinals", conference: "NFC", division: "West" },
+  { teamCode: "LAR", city: "Los Angeles", name: "Rams", conference: "NFC", division: "West" },
+  { teamCode: "SF",  city: "San Francisco", name: "49ers", conference: "NFC", division: "West" },
+  { teamCode: "SEA", city: "Seattle", name: "Seahawks", conference: "NFC", division: "West" }
+];
+
+const DIVISION_NAMES = ["East", "North", "South", "West"];
+
+function getTeamMeta(teamCode) {
+  return TEAM_META.find((t) => t.teamCode === teamCode) || null;
+}
+
+function getDivisionTeams(conference, division) {
+  return TEAM_META
+    .filter(
+      (t) =>
+        t.conference === conference &&
+        t.division === division
+    )
+    .map((t) => t.teamCode);
+}
+
+function getTeamDisplayName(teamCode) {
+  const meta = getTeamMeta(teamCode);
+  if (!meta) return teamCode || "Unknown Team";
+  return `${meta.city} ${meta.name}`;
+}
+
+// ---------------------------------------------------------------------------
+// NFL-style rotation helpers (16-game era style)
+// ---------------------------------------------------------------------------
+
+// 3-year intra-conference division rotation for each conference.
+// Example (yearIdx = 0 is an arbitrary anchor):
+//   - Year 0: East vs West, North vs South
+//   - Year 1: East vs North, South vs West
+//   - Year 2: East vs South, North vs West
+const SAME_CONF_ROTATION = {
+  AFC: [
+    { East: "West", West: "East", North: "South", South: "North" },
+    { East: "North", North: "East", South: "West", West: "South" },
+    { East: "South", South: "East", North: "West", West: "North" }
+  ],
+  NFC: [
+    { East: "West", West: "East", North: "South", South: "North" },
+    { East: "North", North: "East", South: "West", West: "South" },
+    { East: "South", South: "East", North: "West", West: "North" }
+  ]
+};
+
+// 4-year cross-conference rotation. We compute this algorithmically:
+// treat divisions as indices 0..3 and rotate.
+function getCrossConferenceDivision(conference, division, seasonYear) {
+  const baseYear = 2022; // arbitrary anchor
+  const offsetRaw = (seasonYear - baseYear) % 4;
+  const offset = offsetRaw < 0 ? offsetRaw + 4 : offsetRaw;
+
+  const divIndex = DIVISION_NAMES.indexOf(division);
+  if (divIndex < 0) return "East";
+
+  const oppIndex = (divIndex + offset) % 4;
+  return DIVISION_NAMES[oppIndex];
+}
+
+function getSameConferenceOppDivision(conference, division, seasonYear) {
+  const rotations = SAME_CONF_ROTATION[conference];
+  if (!rotations) return "East";
+  const baseYear = 2023;
+  const rawIdx = (seasonYear - baseYear) % rotations.length;
+  const idx = rawIdx < 0 ? rawIdx + rotations.length : rawIdx;
+  const config = rotations[idx];
+  return config[division] || division;
+}
+
+// ---------------------------------------------------------------------------
+// Schedule generation (per team, 16 games)
+// ---------------------------------------------------------------------------
+
+/**
+ * Generate a 16-game NFL-style schedule for a single team.
+ * This does NOT currently coordinate opponents across the entire league;
+ * it's deterministic for the given teamCode + seasonYear and structurally
+ * realistic enough for front-office use.
+ *
+ * @param {string} teamCode
+ * @param {number} seasonYear
+ * @returns {TeamGame[]}
+ */
+function generateTeamSchedule(teamCode, seasonYear) {
+  const meta = getTeamMeta(teamCode);
+  if (!meta) {
+    console.warn("[Franchise GM] generateTeamSchedule: unknown team", teamCode);
+    return [];
+  }
+
+  const conference = meta.conference;
+  const division = meta.division;
+
+  const divTeams = getDivisionTeams(conference, division);
+  const selfIndex = divTeams.indexOf(teamCode);
+
+  if (selfIndex < 0) {
+    console.warn("[Franchise GM] generateTeamSchedule: team not found in division", teamCode);
+    return [];
+  }
+
+  /** @type {TeamGame[]} */
+  const games = [];
+
+  // --- 1) Division games (home & away vs each rival) – 6 games
+  divTeams.forEach((opCode, idx) => {
+    if (opCode === teamCode) return;
+    const homeFirst = selfIndex <= idx;
+
+    games.push({
+      index: -1,
+      seasonWeek: 0,
+      teamCode,
+      opponentCode: opCode,
+      isHome: homeFirst,
+      type: "division",
+      kickoffIso: null,
+      status: "scheduled",
+      teamScore: null,
+      opponentScore: null
     });
-  }
-  
-  /* ===== Helpers: fetch + CSV ===== */
-  async function fetchCsvFrom(urls){
-    let lastErr = null;
-    for (const url of urls){
-      try{
-        const res = await fetch(url, { cache:'no-store', mode:'cors' });
-        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-        return { text: await res.text(), url };
-      }catch(e){ lastErr = e; }
-    }
-    throw lastErr || new Error('CSV not reachable');
-  }
-  function splitLines(t){
-    return String(t||'').replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n');
-  }
-  function sniffDelimiter(line){
-    const cands=[',','\t',';','|']; let best=',', n=0;
-    for (const d of cands){
-      const k = line.split(d).length;
-      if (k>n){ best=d; n=k; }
-    }
-    return best;
-  }
-  function splitRow(row, d){
-    const out=[]; let f='', q=false;
-    for (let i=0;i<row.length;i++){
-      const c=row[i];
-      if (q){
-        if (c==='"'){
-          if (row[i+1]==='"'){ f+='"'; i++; }
-          else q=false;
-        } else f+=c;
-      } else {
-        if (c==='"') q=true;
-        else if (c===d){ out.push(f); f=''; }
-        else f+=c;
-      }
-    }
-    out.push(f);
-    return out;
-  }
-  function parseSmart(text){
-    const lines = splitLines(text).filter(l=>l.trim()!=='');
-    if (!lines.length) return [];
-    const d = sniffDelimiter(lines[0]);
-    return lines.map(line => splitRow(line, d));
-  }
-  const norm = s => String(s||'').trim().toLowerCase();
-  function findHeaderIndex(rows){
-    const wants = [
-      ['home','away'], ['home team','away team'], ['home_team','away_team'],
-      ['team_home','team_away'], ['home_team_abbr','away_team_abbr'],
-      ['team','opp']
-    ];
-    for (let i=0;i<Math.min(20, rows.length);i++){
-      const r = rows[i].map(norm);
-      for (const w of wants){
-        if (w.every(x => r.includes(x))) return i;
-      }
-    }
-    return 0;
-  }
-  function rowsToObjects(rows, headerIdx){
-    const header = rows[headerIdx].map(h=>String(h||'').trim());
-    return rows.slice(headerIdx+1).map(r=>{
-      const o={};
-      header.forEach((h,j)=>{ o[h] = (r[j]===undefined ? '' : r[j]); });
-      return o;
-    });
-  }
-  function toWeek(x){
-    const n = parseInt(String(x||'').replace(/[^\d]/g,''),10);
-    return Number.isFinite(n) ? n : 1;
-  }
-  
-  /* --- season helpers --- */
-  function inferSeasonFromDateStr(ds){
-    ds = String(ds||'').trim();
-    if (!ds) return null;
-    let y=null, m=null;
-    if (/^\d{4}[-/]/.test(ds)){
-      const parts = ds.split(/[/-]/);
-      y = parseInt(parts[0],10);
-      m = parseInt(parts[1]||'9',10);
-    } else {
-      const parts = ds.split(/[/-]/);
-      if (parts.length>=3){
-        m = parseInt(parts[0],10);
-        y = parseInt(parts[2],10);
-      }
-    }
-    if (!Number.isFinite(y)) return null;
-    if (!Number.isFinite(m)) m = 9;
-    return m>=9 ? y : (y-1);
-  }
-  function seasonFromRow(r, fallbackDate){
-    const raw = r && (r.season || r.Season || r.SEASON || r.year || r.Year);
-    const n = parseInt(raw,10);
-    if (Number.isFinite(n)) return n;
-    return inferSeasonFromDateStr(fallbackDate || r.date || r.Date || '');
-  }
-  
-  /* ===== Schedule builders ===== */
-  // 1) Direct home/away rows
-  function mapDirectRow(r){
-    const home = r.Home || r.home || r['Home Team'] || r['home_team'] ||
-                 r['team_home'] || r['home_team_abbr'] || '';
-    const away = r.Away || r.away || r['Away Team'] || r['away_team'] ||
-                 r['team_away'] || r['away_team_abbr'] || '';
-    const wk   = r.Week || r.week || r.Wk || '';
-    const date = r.Date || r.date || r.gameday || r.game_date || '';
-    const time = r.Time || r.time || r.game_time_eastern || '';
-    const venue= r.Venue || r.venue || r.Stadium || r.site || '';
-    const season = seasonFromRow(r, date);
-  
-    return {
-      season,
-      week: toWeek(wk),
-      home: String(home).trim(),
-      away: String(away).trim(),
-      date: String(date).trim(),
-      time: String(time).trim(),
-      venue: String(venue).trim()
-    };
-  }
-  
-  // 2) team/opp rows (nflfastR style) -> pair by game_id
-  function buildFromTeamOpp(objs){
-    const getHA = r => {
-      const s = String(r.home_away || r.homeaway || r.ha || r.site || '').trim().toUpperCase();
-      if (s==='H' || s==='HOME' || s==='1' || s==='TRUE') return 'H';
-      if (s==='A' || s==='AWAY' || s==='@' || s==='0' || s==='FALSE') return 'A';
-      return '';
-    };
-    const keyFor = r => {
-      const rid = String(r.row_id || r.rowid || '').trim();
-      const gid = String(r.game_id || r.gameid || r.GAME_ID || '').trim() ||
-                  (rid.includes(':') ? rid.split(':')[0] : '');
-      if (gid) return gid;
-      const season = r.season || r.Season || '';
-      const wk = r.week || r.Week || '';
-      const date = r.date || r.Date || '';
-      const t = (r.team || r.Team || '').trim();
-      const o = (r.opp  || r.Opp  || '').trim();
-      return `${season}|${wk}|${date}|${[t,o].sort().join('@')}`;
-    };
-  
-    const byKey = new Map();
-    for (const r of objs){
-      const team = String(r.team || r.Team || '').trim();
-      const opp  = String(r.opp  || r.Opp  || '').trim();
-      if (!team || !opp) continue;
-      const k = keyFor(r);
-      if (!byKey.has(k)) byKey.set(k, []);
-      byKey.get(k).push(r);
-    }
-  
-    const out = [];
-    for (const rows of byKey.values()){
-      const r0 = rows[0];
-      const week = toWeek(r0.week || r0.Week);
-      const date = String(r0.date || r0.Date || '').trim();
-      const time = String(r0.game_time_eastern || r0.time || '').trim();
-      const venue= String(r0.venue || r0.site || r0.Stadium || '').trim();
-      const season = seasonFromRow(r0, date);
-  
-      let home='', away='';
-      const homeRow = rows.find(rr => getHA(rr)==='H');
-      const awayRow = rows.find(rr => getHA(rr)==='A');
-  
-      if (homeRow){
-        home = String(homeRow.team).trim();
-        away = String(homeRow.opp).trim();
-      } else if (rows.length===1){
-        const rr = r0;
-        const ha = getHA(rr);
-        if (ha==='H'){
-          home = String(rr.team).trim();
-          away = String(rr.opp).trim();
-        } else {
-          home = String(rr.opp).trim();
-          away = String(rr.team).trim();
-        }
-      } else {
-        const a = rows[0], b = rows[1];
-        if (String(a.team).trim() === String(b.opp).trim() &&
-            String(b.team).trim() === String(a.opp).trim()){
-          home = String(a.team).trim();
-          away = String(a.opp).trim();
-        } else {
-          home = String(a.team).trim();
-          away = String(a.opp || b.team).trim();
-        }
-      }
-  
-      if (home && away){
-        out.push({ season, week, home, away, date, time, venue });
-      }
-    }
-    return out;
-  }
-  
-  /* ===== Game link helper (same pattern as index.html) ===== */
-  function gameLink(home, away){
-    const params = new URLSearchParams(location.search);
-    params.set('home', home);
-    params.set('away', away);
-    return `game.html?${params.toString()}`;
-  }
-  
-  /* ===== Render helpers ===== */
-  function gameRowHTML(g){
-    const meta = [g.date, g.time, g.venue].filter(Boolean).join(' • ');
-    const href = gameLink(g.home, g.away);
-    const onClick = `location.href='${href}'`;
-    return `<tr class="game-row" data-home="${g.home}" data-away="${g.away}" data-week="${g.week}" onclick="${onClick}" style="cursor:pointer">
-      <td class="right nowrap">W${g.week}</td>
-      <td><span class="team away">${g.away}</span> @ <span class="team home">${g.home}</span></td>
-      <td class="small">${meta}</td>
-      <td class="small sim-cell"><button type="button" class="btn ghost sim-btn">Sim</button></td>
-    </tr>`;
-  }
-  
-  function weekTable(weekNum, games){
-    return `
-      <div class="section" data-week="${weekNum}">
-        <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:4px">
-          <h3 style="margin:0">Week ${weekNum}</h3>
-          <button type="button" class="btn ghost sim-week-btn" data-week="${weekNum}">
-            ▶ Sim Week
-          </button>
-        </div>
-        <table class="table">
-          <thead class="stickyhead">
-            <tr><th class="right">Wk</th><th>Matchup</th><th>Details</th><th>Sim</th></tr>
-          </thead>
-          <tbody>${games.map(gameRowHTML).join('')}</tbody>
-        </table>
-      </div>`;
-  }
-  
-  function teamTable(team, list){
-    return `
-      <div class="section">
-        <h3>${team}</h3>
-        <table class="table">
-          <thead class="stickyhead">
-            <tr><th class="right">Wk</th><th>Opponent</th><th>Details</th><th>Sim</th></tr>
-          </thead>
-          <tbody>
-            ${list.map(g=>{
-              const isHome = g.home===team;
-              const opp = isHome ? g.away : g.home;
-              const meta = [g.date, g.time, g.venue].filter(Boolean).join(' • ');
-              const href = gameLink(g.home, g.away);
-              const onClick = `location.href='${href}'`;
-              return `<tr class="game-row" data-home="${g.home}" data-away="${g.away}" data-week="${g.week}" onclick="${onClick}" style="cursor:pointer">
-                <td class="right nowrap">W${g.week}</td>
-                <td>${isHome ? 'vs' : '@'} <span class="team ${isHome?'home':'away'}">${opp}</span></td>
-                <td class="small">${meta}</td>
-                <td class="small sim-cell"><button type="button" class="btn ghost sim-btn">Sim</button></td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table>
-      </div>`;
-  }
-  
-  /* ===== State & View ===== */
-  let SCHEDULE = [];
-  let VIEW = 'week';
-  const tabs = Array.from(document.querySelectorAll('.viewtab'));
-  tabs.forEach(b=>{
-    b.addEventListener('click', ()=>{
-      tabs.forEach(x=>x.classList.remove('active'));
-      b.classList.add('active');
-      VIEW = b.dataset.mode;
-      render();
+    games.push({
+      index: -1,
+      seasonWeek: 0,
+      teamCode,
+      opponentCode: opCode,
+      isHome: !homeFirst,
+      type: "division",
+      kickoffIso: null,
+      status: "scheduled",
+      teamScore: null,
+      opponentScore: null
     });
   });
-  
-  function render(){
-    if (!SCHEDULE.length){
-      root.innerHTML = '<div class="small">No games found.</div>';
-      gamesPill.textContent = '0 games';
-      teamsPill.textContent = '0 teams';
-      return;
-    }
-    if (VIEW==='team'){
-      const byTeam = new Map();
-      SCHEDULE.forEach(g=>{
-        if (!byTeam.has(g.home)) byTeam.set(g.home, []);
-        if (!byTeam.has(g.away)) byTeam.set(g.away, []);
-        byTeam.get(g.home).push(g);
-        byTeam.get(g.away).push(g);
-      });
-      const teams = Array.from(byTeam.keys()).sort((a,b)=>a.localeCompare(b));
-      root.innerHTML = teams.map(t=>{
-        const list = byTeam.get(t).slice().sort((a,b)=>
-          a.week - b.week || (a.home+a.away).localeCompare(b.home+b.away)
-        );
-        return teamTable(t, list);
-      }).join('');
-    } else {
-      const byWeek = new Map();
-      SCHEDULE.forEach(g=>{
-        if (!byWeek.has(g.week)) byWeek.set(g.week, []);
-        byWeek.get(g.week).push(g);
-      });
-      const weeks = Array.from(byWeek.keys()).sort((a,b)=>a-b);
-      root.innerHTML = weeks.map(w=>{
-        const games = byWeek.get(w).slice().sort((a,b)=>
-          (a.away+a.home).localeCompare(b.away+b.home)
-        );
-        return weekTable(w, games);
-      }).join('');
-    }
-  
-    attachSimHandlers();
-    attachWeekSimHandlers();
-    applyExistingResults();
+
+  // --- 2) Same-conference rotation division – 4 games
+  const sameConfDivision = getSameConferenceOppDivision(
+    conference,
+    division,
+    seasonYear
+  );
+  const sameConfTeams = getDivisionTeams(conference, sameConfDivision);
+
+  sameConfTeams.forEach((opCode, idx) => {
+    const isHome = ((seasonYear + selfIndex + idx) & 1) === 0;
+    games.push({
+      index: -1,
+      seasonWeek: 0,
+      teamCode,
+      opponentCode: opCode,
+      isHome,
+      type: "conference",
+      kickoffIso: null,
+      status: "scheduled",
+      teamScore: null,
+      opponentScore: null
+    });
+  });
+
+  // --- 3) Cross-conference rotation division – 4 games
+  const otherConference = conference === "AFC" ? "NFC" : "AFC";
+  const crossDivision = getCrossConferenceDivision(
+    conference,
+    division,
+    seasonYear
+  );
+  const crossTeams = getDivisionTeams(otherConference, crossDivision);
+
+  crossTeams.forEach((opCode, idx) => {
+    const isHome = ((seasonYear + idx) & 1) === 0;
+    games.push({
+      index: -1,
+      seasonWeek: 0,
+      teamCode,
+      opponentCode: opCode,
+      isHome,
+      type: "nonconference",
+      kickoffIso: null,
+      status: "scheduled",
+      teamScore: null,
+      opponentScore: null
+    });
+  });
+
+  // --- 4) Extra same-conference games vs the remaining two divisions – 2 games
+  const remainingDivisions = DIVISION_NAMES.filter(
+    (d) => d !== division && d !== sameConfDivision
+  );
+  remainingDivisions.forEach((otherDiv, idx) => {
+    const otherDivTeams = getDivisionTeams(conference, otherDiv);
+    if (!otherDivTeams.length) return;
+    const opIdx = selfIndex % otherDivTeams.length;
+    const opCode = otherDivTeams[opIdx];
+    const isHome = ((seasonYear + idx + selfIndex) & 1) === 0;
+
+    games.push({
+      index: -1,
+      seasonWeek: 0,
+      teamCode,
+      opponentCode: opCode,
+      isHome,
+      type: "extra",
+      kickoffIso: null,
+      status: "scheduled",
+      teamScore: null,
+      opponentScore: null
+    });
+  });
+
+  // Should have 16 total games
+  if (games.length !== 16) {
+    console.warn(
+      "[Franchise GM] Unexpected game count for schedule",
+      teamCode,
+      "season",
+      seasonYear,
+      "count=",
+      games.length
+    );
   }
-  
-  /* ===== Boot ===== */
-  (async function init(){
-    try{
-      const { text, url } = await fetchCsvFrom(SCHEDULE_URLS);
-      csvPill.textContent = `CSV: ${url.includes('githubusercontent') ? 'remote' : 'local'}`;
-  
-      const rows = parseSmart(text);
-      if (!rows.length) throw new Error('Empty schedule.csv');
-      const hi = findHeaderIndex(rows);
-      const headerLower = rows[hi].map(h=>String(h||'').trim().toLowerCase());
-      const objs = rowsToObjects(rows, hi);
-  
-      const hasTeamOpp = headerLower.includes('team') && headerLower.includes('opp');
-      const hasHomeAwayCols =
-        (headerLower.includes('home') && headerLower.includes('away')) ||
-        (headerLower.includes('home_team') && headerLower.includes('away_team')) ||
-        (headerLower.includes('team_home') && headerLower.includes('team_away')) ||
-        (headerLower.includes('home_team_abbr') && headerLower.includes('away_team_abbr'));
-  
-      if (hasTeamOpp){
-        SCHEDULE = buildFromTeamOpp(objs);
-      } else if (hasHomeAwayCols){
-        SCHEDULE = objs.map(mapDirectRow).filter(g => g.home && g.away);
-      } else {
-        SCHEDULE = [];
-      }
-  
-      if (!SCHEDULE.length){
-        const hdrHtml = rows[hi].map(h=>`<li><kbd>${h}</kbd></li>`).join('');
-        root.innerHTML = `
-          <div class="section warn">
-            <h3>Couldn’t build games from schedule.csv</h3>
-            <div>Detected header:</div>
-            <ul style="columns:3; margin:6px 0">${hdrHtml}</ul>
-            <div class="small">
-              Expected either <kbd>Home</kbd>/<kbd>Away</kbd> or
-              <kbd>team</kbd>/<kbd>opp</kbd> (+ <kbd>home_away</kbd> or <kbd>game_id</kbd>).
-            </div>
-          </div>`;
-        gamesPill.textContent = '0 games';
-        teamsPill.textContent = '0 teams';
-        seasonPill.textContent = 'Season: —';
+
+  // --- Order games into a plausible weekly flow, then assign weeks & dates ---
+
+  const divisionGames = games.filter((g) => g.type === "division");
+  const confGames = games.filter((g) => g.type === "conference");
+  const nonConfGames = games.filter((g) => g.type === "nonconference");
+  const extraGames = games.filter((g) => g.type === "extra");
+
+  /** @type {TeamGame[]} */
+  const ordered = [];
+
+  // Basic pattern:
+  //   Weeks 1–4: mix non-conf + conference
+  //   Weeks 5–8: division-heavy
+  //   Weeks 9–12: mix all types
+  //   Weeks 13–16: division & conference
+  function pull(list) {
+    return list.length ? list.shift() : null;
+  }
+
+  // We keep things deterministic by sorting each bucket by opponentCode.
+  divisionGames.sort((a, b) => a.opponentCode.localeCompare(b.opponentCode));
+  confGames.sort((a, b) => a.opponentCode.localeCompare(b.opponentCode));
+  nonConfGames.sort((a, b) => a.opponentCode.localeCompare(b.opponentCode));
+  extraGames.sort((a, b) => a.opponentCode.localeCompare(b.opponentCode));
+
+  // Weeks 1–4
+  for (let i = 0; i < 4; i++) {
+    let g = pull(nonConfGames) || pull(confGames) || pull(extraGames) || pull(divisionGames);
+    if (g) ordered.push(g);
+  }
+  // Weeks 5–8
+  for (let i = 0; i < 4; i++) {
+    let g = pull(divisionGames) || pull(confGames) || pull(nonConfGames) || pull(extraGames);
+    if (g) ordered.push(g);
+  }
+  // Weeks 9–12
+  for (let i = 0; i < 4; i++) {
+    let g =
+      pull(confGames) ||
+      pull(nonConfGames) ||
+      pull(divisionGames) ||
+      pull(extraGames);
+    if (g) ordered.push(g);
+  }
+  // Weeks 13–16
+  while (divisionGames.length || confGames.length || nonConfGames.length || extraGames.length) {
+    let g = pull(divisionGames) || pull(confGames) || pull(nonConfGames) || pull(extraGames);
+    if (g) ordered.push(g);
+  }
+
+  // Assign week indices and simple kickoff times:
+  // Approx: Week 1 is second Sunday of September at 1:00 PM.
+  const baseDate = new Date(seasonYear, 8, 10, 13, 0, 0, 0); // Sept ~10 at 1 PM
+
+  ordered.forEach((g, idx) => {
+    g.index = idx;
+    g.seasonWeek = idx + 1;
+
+    const d = new Date(baseDate.getTime());
+    d.setDate(baseDate.getDate() + idx * 7);
+    g.kickoffIso = d.toISOString();
+  });
+
+  return ordered;
+}
+
+// ---------------------------------------------------------------------------
+// LeagueState schedule integration
+// ---------------------------------------------------------------------------
+
+/**
+ * Ensure that leagueState.schedule exists and matches the current season.
+ * Returns an updated schedule object (mutates leagueState in place).
+ *
+ * @param {LeagueState} leagueState
+ * @param {FranchiseSave} save
+ * @returns {LeagueSchedule}
+ */
+function ensureLeagueSchedule(leagueState, save) {
+  const year = save.seasonYear;
+  if (!leagueState.schedule || leagueState.schedule.seasonYear !== year) {
+    leagueState.schedule = {
+      seasonYear: year,
+      byTeam: {}
+    };
+  } else if (!leagueState.schedule.byTeam) {
+    leagueState.schedule.byTeam = {};
+  }
+  return leagueState.schedule;
+}
+
+/**
+ * Ensure we have a schedule for the user's team in leagueState.schedule.byTeam.
+ *
+ * @param {LeagueState} leagueState
+ * @param {FranchiseSave} save
+ * @returns {TeamGame[]}
+ */
+function ensureTeamSchedule(leagueState, save) {
+  const schedule = ensureLeagueSchedule(leagueState, save);
+  const teamCode = save.teamCode;
+  if (!schedule.byTeam[teamCode]) {
+    schedule.byTeam[teamCode] = generateTeamSchedule(teamCode, schedule.seasonYear);
+    saveLeagueState(leagueState);
+  }
+  return schedule.byTeam[teamCode];
+}
+
+// ---------------------------------------------------------------------------
+// UI helpers
+// ---------------------------------------------------------------------------
+
+function getEl(id) {
+  return document.getElementById(id);
+}
+
+function formatIsoToNice(iso) {
+  if (!iso) return "Date TBA";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "Date TBA";
+  const dayPart = date.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric"
+  });
+  const timePart = date.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit"
+  });
+  return `${dayPart} • ${timePart}`;
+}
+
+function parseRecord(recordStr) {
+  if (!recordStr || typeof recordStr !== "string") {
+    return { wins: 0, losses: 0 };
+  }
+  const m = recordStr.trim().match(/^(\d+)\s*-\s*(\d+)$/);
+  if (!m) return { wins: 0, losses: 0 };
+  return { wins: Number(m[1]) || 0, losses: Number(m[2]) || 0 };
+}
+
+function getTeamNameFromSave(save) {
+  if (save.teamName) return save.teamName;
+  if (save.franchiseName) return save.franchiseName;
+  return getTeamDisplayName(save.teamCode || "");
+}
+
+function formatSeasonSubline(save) {
+  const year = save.seasonYear || "";
+  const phase = save.phase || "Regular Season";
+  return `${year} • ${phase} • Schedule`;
+}
+
+// ---------------------------------------------------------------------------
+// Page state (for this view)
+// ---------------------------------------------------------------------------
+
+/** @type {FranchiseSave|null} */
+let currentFranchiseSave = null;
+/** @type {LeagueState|null} */
+let currentLeagueState = null;
+/** @type {TeamGame[]} */
+let currentTeamSchedule = [];
+/** @type {"team"|"league"} */
+let currentScope = "team";
+/** @type {number} */
+let selectedWeekIndex = 0;
+
+// ---------------------------------------------------------------------------
+// Rendering – header, week list, detail
+// ---------------------------------------------------------------------------
+
+function renderHeader(save) {
+  const teamNameEl = getEl("team-name-heading");
+  const sublineEl = getEl("season-phase-line");
+
+  if (teamNameEl) {
+    teamNameEl.textContent = getTeamNameFromSave(save);
+  }
+  if (sublineEl) {
+    sublineEl.textContent = formatSeasonSubline(save);
+  }
+}
+
+function renderScopeToggle() {
+  const myBtn = getEl("btn-scope-my-team");
+  const leagueBtn = getEl("btn-scope-league");
+  const labelEl = getEl("schedule-view-mode-label");
+
+  if (myBtn) {
+    myBtn.setAttribute("aria-pressed", currentScope === "team" ? "true" : "false");
+  }
+  if (leagueBtn) {
+    leagueBtn.setAttribute("aria-pressed", currentScope === "league" ? "true" : "false");
+  }
+  if (labelEl) {
+    labelEl.textContent =
+      currentScope === "team" ? "Viewing: Your team schedule" : "Viewing: League (stubbed)";
+  }
+}
+
+/**
+ * Render left-hand week list based on currentScope.
+ * For now, league scope is a stub: we keep showing the team schedule but indicate the mode.
+ */
+function renderWeekList() {
+  const listEl = getEl("week-list");
+  if (!listEl) return;
+
+  listEl.innerHTML = "";
+
+  if (currentScope === "league") {
+    // Stub: reuse team schedule but label as league view.
+    const infoRow = document.createElement("div");
+    infoRow.className = "week-list-info-row";
+    infoRow.textContent = "League-wide schedule view is not implemented yet. Showing your team instead.";
+    listEl.appendChild(infoRow);
+  }
+
+  currentTeamSchedule.forEach((game) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "week-row";
+    row.dataset.weekIndex = String(game.index);
+
+    if (game.index === selectedWeekIndex) {
+      row.classList.add("week-row--selected");
+    }
+
+    const topLine = document.createElement("div");
+    topLine.className = "week-row-top";
+    topLine.textContent = `Week ${game.seasonWeek} • ${
+      game.isHome ? "vs" : "at"
+    } ${getTeamDisplayName(game.opponentCode)}`;
+
+    const bottomLine = document.createElement("div");
+    bottomLine.className = "week-row-bottom";
+
+    const timeText = formatIsoToNice(game.kickoffIso);
+    const typeText =
+      game.type === "division"
+        ? "Division"
+        : game.type === "conference"
+        ? "Conference"
+        : game.type === "nonconference"
+        ? "Interconference"
+        : "Conference (extra)";
+
+    if (game.status === "final" && game.teamScore != null && game.opponentScore != null) {
+      const isWin = game.teamScore > game.opponentScore;
+      const resLetter = isWin ? "W" : "L";
+      bottomLine.textContent = `${timeText} • ${resLetter} ${game.teamScore}–${game.opponentScore} • ${typeText}`;
+    } else {
+      bottomLine.textContent = `${timeText} • Scheduled • ${typeText}`;
+    }
+
+    row.appendChild(topLine);
+    row.appendChild(bottomLine);
+
+    row.addEventListener("click", () => {
+      selectedWeekIndex = game.index;
+      renderWeekList();
+      renderWeekDetail();
+    });
+
+    listEl.appendChild(row);
+  });
+}
+
+function renderWeekDetail() {
+  const titleEl = getEl("week-detail-title");
+  const oppEl = getEl("week-detail-opponent");
+  const metaEl = getEl("week-detail-meta");
+  const resultEl = getEl("week-detail-result");
+  const recordLineEl = getEl("week-detail-record-line");
+  const gameDayBtn = getEl("btn-week-gameday");
+  const boxBtn = getEl("btn-week-boxscore");
+
+  const game = currentTeamSchedule.find((g) => g.index === selectedWeekIndex);
+  if (!game) {
+    if (titleEl) titleEl.textContent = "No week selected";
+    if (oppEl) oppEl.textContent = "";
+    if (metaEl) metaEl.textContent = "";
+    if (resultEl) resultEl.textContent = "";
+    if (recordLineEl) recordLineEl.textContent = "";
+    if (gameDayBtn) gameDayBtn.disabled = true;
+    if (boxBtn) boxBtn.disabled = true;
+    return;
+  }
+
+  const oppName = getTeamDisplayName(game.opponentCode);
+  if (titleEl) {
+    titleEl.textContent = `Week ${game.seasonWeek}`;
+  }
+  if (oppEl) {
+    oppEl.textContent = game.isHome ? `Home vs ${oppName}` : `Road at ${oppName}`;
+  }
+
+  const kickoffText = formatIsoToNice(game.kickoffIso);
+  const typeText =
+    game.type === "division"
+      ? "Division matchup"
+      : game.type === "conference"
+      ? "Conference game"
+      : game.type === "nonconference"
+      ? "Interconference game"
+      : "Conference matchup";
+  if (metaEl) {
+    metaEl.textContent = `${kickoffText} • ${typeText}`;
+  }
+
+  // Result line
+  if (resultEl) {
+    if (game.status === "final" && game.teamScore != null && game.opponentScore != null) {
+      const isWin = game.teamScore > game.opponentScore;
+      const resLetter = isWin ? "W" : "L";
+      resultEl.textContent = `${resLetter} ${game.teamScore}–${game.opponentScore}`;
+    } else {
+      resultEl.textContent = "Game not yet played.";
+    }
+  }
+
+  // Record line – uses current franchise record from save.
+  if (recordLineEl && currentFranchiseSave) {
+    const { wins, losses } = parseRecord(currentFranchiseSave.record || "0-0");
+    recordLineEl.textContent = `Current record: ${wins}-${losses}`;
+  }
+
+  if (gameDayBtn) {
+    gameDayBtn.disabled = false;
+    gameDayBtn.onclick = function () {
+      // For now, send back to hub or game-day page placeholder.
+      window.location.href = "franchise.html";
+    };
+  }
+
+  if (boxBtn) {
+    const isFinal = game.status === "final";
+    boxBtn.disabled = !isFinal;
+    boxBtn.onclick = function () {
+      if (!isFinal) {
+        window.alert("Box score will be available after this game is played.");
         return;
       }
-  
-      /* de-dupe */
-      const keySet = new Set();
-      const unique = [];
-      for (const g of SCHEDULE){
-        const k = `${g.season}|${g.week}|${g.home}|${g.away}|${g.date}`;
-        if (!keySet.has(k)){
-          keySet.add(k);
-          unique.push(g);
-        }
-      }
-      SCHEDULE = unique;
-  
-      /* season filter */
-      if (SEASON_FILTER != null){
-        SCHEDULE = SCHEDULE.filter(g=>{
-          const n = parseInt(g.season,10);
-          if (Number.isFinite(n)) return n === SEASON_FILTER;
-          const inf = inferSeasonFromDateStr(g.date);
-          return inf === SEASON_FILTER;
-        });
-        seasonPill.textContent = `Season: ${SEASON_FILTER}`;
-      } else {
-        seasonPill.textContent = 'Season: all';
-      }
-  
-      const teams = Array.from(new Set(SCHEDULE.flatMap(g=>[g.home,g.away]))).sort();
-      TEAMS_LONG = teams;
-      gamesPill.textContent = `${SCHEDULE.length} games`;
-      teamsPill.textContent = `${teams.length} teams`;
-  
-      render();
-    }catch(e){
-      console.error(e);
-      csvPill.textContent = 'CSV: error';
-      root.innerHTML = `<div class="small warn">
-        Could not load <code>schedule.csv</code>.
-        Place it next to this file or pass <code>?schedule=&lt;raw csv url&gt;</code>.
-      </div>`;
-      seasonPill.textContent = 'Season: —';
-    }
-  })();
-  
+      // Future: navigate to a dedicated game results / box score page,
+      // e.g. `game_result.html?season=YEAR&week=X&team=...`
+      window.alert("Box score view not implemented yet.");
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Event binding
+// ---------------------------------------------------------------------------
+
+function bindScopeToggle() {
+  const myBtn = getEl("btn-scope-my-team");
+  const leagueBtn = getEl("btn-scope-league");
+
+  if (myBtn) {
+    myBtn.addEventListener("click", () => {
+      if (currentScope === "team") return;
+      currentScope = "team";
+      renderScopeToggle();
+      renderWeekList();
+      renderWeekDetail();
+    });
+  }
+
+  if (leagueBtn) {
+    leagueBtn.addEventListener("click", () => {
+      if (currentScope === "league") return;
+      currentScope = "league";
+      renderScopeToggle();
+      renderWeekList();
+      renderWeekDetail();
+    });
+  }
+}
+
+function bindBackButton() {
+  const backBtn = getEl("btn-back-hub");
+  if (backBtn) {
+    backBtn.addEventListener("click", () => {
+      window.location.href = "franchise.html";
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// No-franchise fallback
+// ---------------------------------------------------------------------------
+
+function renderNoFranchiseScheduleState() {
+  // If schedule.html already has a no-franchise section we could toggle it.
+  // For now, we hard-replace the body with a simple message.
+  document.body.innerHTML = `
+    <div class="no-franchise-state">
+      <div class="no-franchise-title">No active franchise found</div>
+      <div class="no-franchise-text">
+        There’s no active franchise in this slot. Return to the main menu to start a new franchise or continue an existing one.
+      </div>
+      <div class="no-franchise-actions">
+        <button type="button" class="btn-primary" id="btn-go-main-menu">Back to main menu</button>
+      </div>
+    </div>
+  `;
+
+  const mainBtn = document.getElementById("btn-go-main-menu");
+  if (mainBtn) {
+    mainBtn.addEventListener("click", () => {
+      window.location.href = "main_page.html";
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Init
+// ---------------------------------------------------------------------------
+
+function initSchedulePage() {
+  const save = loadLastFranchise();
+  if (!save) {
+    renderNoFranchiseScheduleState();
+    return;
+  }
+
+  let leagueState = loadLeagueState(save.franchiseId);
+  if (!leagueState) {
+    leagueState = {
+      franchiseId: save.franchiseId,
+      seasonYear: save.seasonYear
+    };
+  }
+
+  // Ensure schedule exists and we have this team's schedule.
+  const teamSchedule = ensureTeamSchedule(leagueState, save);
+
+  currentFranchiseSave = save;
+  currentLeagueState = leagueState;
+  currentTeamSchedule = teamSchedule.slice(); // shallow copy
+
+  // Select current week if within range; otherwise week 1.
+  const rawWeekIndex = typeof save.weekIndex === "number" ? save.weekIndex : 0;
+  if (rawWeekIndex >= 0 && rawWeekIndex < currentTeamSchedule.length) {
+    selectedWeekIndex = rawWeekIndex;
+  } else {
+    selectedWeekIndex = 0;
+  }
+
+  renderHeader(save);
+  renderScopeToggle();
+  renderWeekList();
+  renderWeekDetail();
+  bindScopeToggle();
+  bindBackButton();
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initSchedulePage);
+} else {
+  initSchedulePage();
+}

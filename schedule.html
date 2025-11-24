@@ -1,121 +1,1177 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>NFL Sim — Schedule</title>
-<style>
-:root{
-  --bg:#0b1220;--panel:#121a2a;--card:#0e1630;--text:#eef2ff;--muted:#93a0b1;
-  --accent:#5eead4;--home:#4ade80;--away:#60a5fa;
-}
-*{box-sizing:border-box}
-html,body{height:100%}
-body{
-  margin:0;background:var(--bg);color:var(--text);
-  font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-  display:grid;place-items:center;
-}
-main{width:min(980px,94vw);display:grid;gap:16px}
-h1{margin:0 0 6px;font-size:22px;letter-spacing:.2px}
-.panel{
-  background:var(--panel);border-radius:14px;padding:12px;
-  border:1px solid #1c2440;box-shadow:0 6px 24px rgba(0,0,0,.25);
-}
-.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-.btn{
-  display:inline-flex;align-items:center;justify-content:center;
-  padding:10px 12px;border-radius:10px;background:var(--accent);color:#0a0f17;
-  font-weight:700;font-size:14px;border:none;box-shadow:0 2px 0 rgba(0,0,0,.25);
-  text-decoration:none;cursor:pointer;
-}
-.btn.ghost{
-  background:var(--card);color:#dbe3ef;border:1px solid #2a355a;box-shadow:none;
-}
-.small{font-size:12px;color:var(--muted)}
-hr{height:1px;background:#1c2440;border:0;margin:6px 0;border-radius:2px}
+  <meta charset="UTF-8" />
+  <title>Franchise GM – Season Schedule</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #020617;
+      --panel: #020617;
+      --card: #020617;
+      --card-border: #1e293b;
+      --card-border-strong: #4b5563;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --accent: #22c55e;
+      --accent-soft: rgba(34,197,94,0.18);
+      --accent-alt: #38bdf8;
+      --danger: #f97373;
+      --danger-soft: rgba(248,113,113,0.18);
+      --warn: #fbbf24;
+      --warn-soft: rgba(251,191,36,0.18);
+      --radius-lg: 18px;
+      --radius-md: 12px;
+      --radius-pill: 999px;
+      --shadow-soft: 0 22px 45px rgba(0,0,0,0.65);
+      --shadow-sm: 0 10px 24px rgba(0,0,0,0.55);
+      --font: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
+              "Segoe UI", Roboto, sans-serif;
+    }
 
-.viewtabs{display:flex;gap:6px}
-.viewtab{
-  padding:6px 10px;border-radius:999px;border:1px solid #2a355a;
-  background:#0e1630;color:#cbd5e1;cursor:pointer;font-size:12px;
-}
-.viewtab.active{background:#1e293b;color:#e5e7eb}
+    * {
+      box-sizing: border-box;
+    }
 
-.table{width:100%;border-collapse:collapse;font-size:13px}
-.table th,.table td{border-bottom:1px solid #1f2740;padding:8px 8px;text-align:left}
-.table th{font-weight:700;color:#dbe3ef}
-.right{text-align:right}
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      font-family: var(--font);
+      background: radial-gradient(circle at 0% 0%, #0b1120 0, #020617 48%, #000 100%);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+    }
 
-/* small helpers for sim column */
-.sim-cell{text-align:right}
-.sim-btn{padding:4px 8px;font-size:11px}
+    body {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
 
-.section{
-  background:rgba(255,255,255,.02);border:1px solid #1c2440;
-  border-radius:12px;padding:8px;margin-top:8px;
-}
-.section h3{margin:0 0 6px;font-size:14px}
+    .page {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 24px 40px 28px;
+      max-width: 1280px;
+      margin: 0 auto;
+      position: relative;
+      overflow: hidden;
+    }
 
-.pill{
-  display:inline-block;padding:4px 8px;border-radius:999px;
-  background:var(--card);border:1px solid #233055;
-  font-size:12px;color:var(--muted);
-}
-.team{font-weight:700}
-.away{color:var(--away)}
-.home{color:var(--home)}
-.nowrap{white-space:nowrap}
-.stickyhead{
-  position:sticky;top:0;
-  background:linear-gradient(var(--panel),var(--panel));
-  z-index:2;border-bottom:1px solid #1f2740;
-}
-.warn{color:#fca5a5}
-kbd{
-  font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
-  background:#0e1630;border:1px solid #2a355a;border-radius:6px;
-  padding:1px 5px;font-size:12px;
-}
-</style>
+    .page::before {
+      content: "";
+      position: fixed;
+      inset: -40%;
+      background:
+        radial-gradient(circle at 0% 0%, rgba(56,189,248,0.16), transparent 55%),
+        radial-gradient(circle at 100% 100%, rgba(34,197,94,0.14), transparent 60%);
+      opacity: 0.85;
+      mix-blend-mode: screen;
+      pointer-events: none;
+      z-index: -2;
+      animation: ambientShift 28s ease-in-out infinite alternate;
+    }
+
+    @keyframes ambientShift {
+      0% {
+        transform: translate3d(0,0,0) scale(1);
+      }
+      100% {
+        transform: translate3d(-3%, -2%, 0) scale(1.04);
+      }
+    }
+
+    header.schedule-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .header-left {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    #schedule-team-heading {
+      font-size: 1.3rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    #schedule-season-line {
+      font-size: 0.86rem;
+      color: var(--muted);
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .record-pill {
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(34,197,94,0.8);
+      padding: 6px 14px;
+      font-size: 0.84rem;
+      background: linear-gradient(135deg, rgba(22,163,74,0.18), rgba(15,23,42,0.96));
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 10px 22px rgba(22,163,74,0.35);
+    }
+
+    .record-pill-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--accent);
+      box-shadow: 0 0 0 4px rgba(34,197,94,0.18);
+    }
+
+    .record-pill span.label {
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      font-size: 0.7rem;
+      color: rgba(209,250,229,0.88);
+    }
+
+    .record-pill span.value {
+      font-weight: 600;
+    }
+
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    /* View mode toggle row */
+
+    .toolbar-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+      flex-wrap: wrap;
+    }
+
+    .view-toggle {
+      display: inline-flex;
+      border-radius: var(--radius-pill);
+      padding: 2px;
+      border: 1px solid rgba(148,163,184,0.7);
+      background: rgba(15,23,42,0.96);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .view-toggle button {
+      border-radius: var(--radius-pill);
+      border: none;
+      padding: 6px 14px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      transition:
+        background-color 140ms ease-out,
+        color 140ms ease-out;
+    }
+
+    .view-toggle button[aria-pressed="true"] {
+      background: linear-gradient(135deg, #22c55e, #16a34a);
+      color: #020617;
+    }
+
+    .toolbar-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .toolbar-label {
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
+    .btn-ghost-sm {
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(148,163,184,0.7);
+      background: rgba(15,23,42,0.95);
+      color: var(--text);
+      font-size: 0.78rem;
+      padding: 4px 12px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition:
+        background-color 140ms ease-out,
+        border-color 140ms ease-out,
+        transform 140ms ease-out;
+    }
+
+    .btn-ghost-sm:hover {
+      background: rgba(31,41,55,0.98);
+      border-color: rgba(226,232,240,0.8);
+      transform: translateY(-1px);
+    }
+
+    /* Layout grid */
+
+    .layout-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 2fr);
+      gap: 14px;
+      align-items: flex-start;
+    }
+
+    .card {
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--card-border);
+      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.75), rgba(15,23,42,0.98));
+      box-shadow: var(--shadow-soft);
+      padding: 14px 16px 12px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .card-title {
+      font-size: 0.88rem;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      color: var(--muted);
+    }
+
+    .card-title strong {
+      color: var(--text);
+    }
+
+    .card-subtitle {
+      font-size: 0.74rem;
+      color: var(--muted);
+    }
+
+    .card-body {
+      font-size: 0.84rem;
+    }
+
+    /* Week list sidebar */
+
+    .week-list-card {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: calc(100vh - 190px);
+      overflow: hidden;
+    }
+
+    .week-list-header-line {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .week-list-subtitle {
+      font-size: 0.74rem;
+      color: var(--muted);
+    }
+
+    .week-list-scroll {
+      margin-top: 4px;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(31,41,55,0.9);
+      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.7), rgba(15,23,42,0.98));
+      max-height: 100%;
+      overflow-y: auto;
+    }
+
+    .week-list {
+      list-style: none;
+      margin: 0;
+      padding: 4px;
+    }
+
+    .week-list-item {
+      margin: 2px 0;
+    }
+
+    .week-button {
+      width: 100%;
+      border-radius: var(--radius-md);
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text);
+      padding: 6px 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      font-size: 0.8rem;
+      transition:
+        background-color 120ms ease-out,
+        border-color 120ms ease-out,
+        transform 80ms ease-out;
+    }
+
+    .week-button-main {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 1px;
+    }
+
+    .week-button-label {
+      font-weight: 500;
+      font-size: 0.82rem;
+    }
+
+    .week-button-subline {
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+
+    .week-button-meta {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 2px;
+      font-size: 0.72rem;
+    }
+
+    .week-result-chip {
+      border-radius: var(--radius-pill);
+      padding: 2px 8px;
+      font-size: 0.7rem;
+      border: 1px solid rgba(148,163,184,0.7);
+      color: var(--muted);
+    }
+
+    .week-result-chip--w {
+      border-color: rgba(34,197,94,0.9);
+      background: rgba(22,163,74,0.25);
+      color: #bbf7d0;
+    }
+
+    .week-result-chip--l {
+      border-color: rgba(248,113,113,0.9);
+      background: rgba(248,113,113,0.2);
+      color: #fecaca;
+    }
+
+    .week-result-chip--bye {
+      border-color: rgba(148,163,184,0.9);
+      background: rgba(15,23,42,0.9);
+    }
+
+    .week-status-pill {
+      border-radius: var(--radius-pill);
+      padding: 2px 8px;
+      font-size: 0.7rem;
+      border: 1px solid rgba(148,163,184,0.7);
+      color: var(--muted);
+    }
+
+    .week-status-pill--upcoming {
+      border-color: rgba(56,189,248,0.9);
+      background: rgba(37,99,235,0.25);
+      color: #bfdbfe;
+    }
+
+    .week-status-pill--current {
+      border-color: rgba(34,197,94,0.9);
+      background: rgba(22,163,74,0.25);
+      color: #bbf7d0;
+    }
+
+    .week-button:hover {
+      background: rgba(15,23,42,0.96);
+      border-color: rgba(148,163,184,0.7);
+      transform: translateY(-1px);
+    }
+
+    .week-button[aria-pressed="true"] {
+      background: linear-gradient(135deg, rgba(30,64,175,0.96), rgba(15,23,42,0.98));
+      border-color: rgba(129,140,248,0.9);
+      box-shadow: 0 12px 26px rgba(30,64,175,0.6);
+    }
+
+    /* Legend */
+
+    .legend-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 6px;
+      font-size: 0.74rem;
+    }
+
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      color: var(--muted);
+    }
+
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(148,163,184,0.6);
+      background: transparent;
+    }
+
+    .legend-dot--w {
+      border-color: rgba(34,197,94,0.9);
+      background: rgba(22,163,74,0.4);
+    }
+
+    .legend-dot--l {
+      border-color: rgba(248,113,113,0.9);
+      background: rgba(248,113,113,0.4);
+    }
+
+    .legend-dot--bye {
+      border-color: rgba(148,163,184,0.8);
+      background: rgba(15,23,42,0.9);
+    }
+
+    /* Week detail panel */
+
+    .week-detail-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .week-detail-main {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    #week-detail-label {
+      font-size: 0.96rem;
+      font-weight: 600;
+    }
+
+    #week-detail-date-line {
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
+    #week-detail-phase-line {
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+
+    .week-detail-status-pill {
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(148,163,184,0.7);
+      background: rgba(15,23,42,0.96);
+      padding: 4px 10px;
+      font-size: 0.74rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--muted);
+    }
+
+    .week-detail-status-pill--current {
+      border-color: rgba(34,197,94,0.9);
+      background: rgba(22,163,74,0.2);
+      color: #bbf7d0;
+    }
+
+    .week-detail-status-pill--upcoming {
+      border-color: rgba(56,189,248,0.9);
+      background: rgba(37,99,235,0.25);
+      color: #bfdbfe;
+    }
+
+    .week-detail-status-pill--past {
+      border-color: rgba(148,163,184,0.7);
+      background: rgba(15,23,42,0.96);
+      color: var(--muted);
+    }
+
+    /* My team game card */
+
+    .game-card {
+      margin-top: 8px;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(31,41,55,0.9);
+      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.8), rgba(15,23,42,0.98));
+      padding: 10px 12px;
+    }
+
+    .game-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+
+    .game-matchup-line {
+      font-size: 1rem;
+      font-weight: 600;
+    }
+
+    .game-meta-line {
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
+    .game-record-line {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    .game-result-line {
+      font-size: 0.84rem;
+      margin-top: 4px;
+    }
+
+    .game-result-line strong {
+      font-weight: 600;
+    }
+
+    .game-actions-row {
+      margin-top: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .btn-primary {
+      border-radius: var(--radius-pill);
+      border: none;
+      padding: 8px 18px;
+      font-size: 0.86rem;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      cursor: pointer;
+      background: linear-gradient(135deg, #22c55e, #16a34a);
+      color: #020617;
+      box-shadow: 0 10px 24px rgba(22,163,74,0.45);
+      transition:
+        background-color 140ms ease-out,
+        transform 140ms ease-out,
+        box-shadow 140ms ease-out;
+    }
+
+    .btn-primary:hover:enabled {
+      transform: translateY(-1px);
+      box-shadow: 0 16px 32px rgba(22,163,74,0.6);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+
+    .btn-secondary {
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(148,163,184,0.7);
+      background: rgba(15,23,42,0.95);
+      color: var(--text);
+      font-size: 0.84rem;
+      padding: 6px 16px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition:
+        background-color 140ms ease-out,
+        border-color 140ms ease-out,
+        transform 140ms ease-out;
+    }
+
+    .btn-secondary:hover {
+      background: rgba(31,41,55,0.98);
+      border-color: rgba(226,232,240,0.8);
+      transform: translateY(-1px);
+    }
+
+    .btn-link-inline {
+      border: none;
+      background: none;
+      padding: 0;
+      font-size: 0.8rem;
+      color: var(--accent-alt);
+      cursor: pointer;
+      text-decoration: none;
+    }
+
+    .btn-link-inline:hover {
+      text-decoration: underline;
+    }
+
+    /* Around the league */
+
+    .around-league-section {
+      margin-top: 12px;
+    }
+
+    .around-league-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+
+    .around-league-title {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: var(--muted);
+    }
+
+    .around-league-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      font-size: 0.8rem;
+    }
+
+    .around-league-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 6px;
+      padding: 4px 0;
+      border-bottom: 1px solid rgba(31,41,55,0.8);
+    }
+
+    .around-league-item:last-child {
+      border-bottom: none;
+    }
+
+    .around-league-matchup {
+      white-space: nowrap;
+    }
+
+    .around-league-meta {
+      font-size: 0.76rem;
+      color: var(--muted);
+      text-align: right;
+    }
+
+    /* League view table */
+
+    .league-view-card {
+      margin-top: 8px;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(31,41,55,0.9);
+      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.8), rgba(15,23,42,0.98));
+      padding: 10px 12px;
+    }
+
+    .league-view-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+
+    .league-view-title {
+      font-size: 0.86rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: var(--muted);
+    }
+
+    .league-view-meta {
+      font-size: 0.76rem;
+      color: var(--muted);
+    }
+
+    .league-table-wrapper {
+      margin-top: 4px;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(31,41,55,0.9);
+      background: rgba(15,23,42,0.98);
+      max-height: 280px;
+      overflow: auto;
+    }
+
+    table.league-week-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+    }
+
+    .league-week-table thead {
+      position: sticky;
+      top: 0;
+      background: rgba(15,23,42,0.98);
+      z-index: 1;
+    }
+
+    .league-week-table th,
+    .league-week-table td {
+      padding: 6px 8px;
+      border-bottom: 1px solid rgba(31,41,55,0.9);
+      text-align: left;
+      white-space: nowrap;
+    }
+
+    .league-week-table th {
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+    }
+
+    .league-week-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .league-week-table td.score-cell {
+      text-align: right;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+
+    .league-week-table td.time-cell {
+      color: var(--muted);
+    }
+
+    .league-week-table td.highlight-team {
+      font-weight: 600;
+    }
+
+    /* Rotation / context card */
+
+    .context-card {
+      margin-top: 12px;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(31,41,55,0.9);
+      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.65), rgba(15,23,42,0.98));
+      padding: 10px 12px;
+      font-size: 0.8rem;
+    }
+
+    .context-title {
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .context-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+
+    .context-list li {
+      padding: 2px 0;
+      color: var(--muted);
+    }
+
+    .context-list strong {
+      color: var(--text);
+    }
+
+    /* No franchise state */
+
+    #no-franchise-state {
+      margin-top: 40px;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--card-border-strong);
+      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.7), rgba(15,23,42,0.98));
+      padding: 20px 20px 18px;
+      text-align: left;
+      max-width: 520px;
+      box-shadow: var(--shadow-soft);
+    }
+
+    #no-franchise-title {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    #no-franchise-text {
+      font-size: 0.86rem;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    .no-franchise-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    /* Accessibility */
+
+    button:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 3px;
+    }
+
+    /* Responive tweaks */
+
+    @media (max-width: 1024px) {
+      .page {
+        padding: 20px 18px 24px;
+      }
+
+      .layout-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .week-list-card {
+        max-height: none;
+      }
+    }
+
+    @media (max-width: 640px) {
+      header.schedule-header {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .header-right {
+        align-self: stretch;
+        justify-content: flex-start;
+      }
+
+      .toolbar-row {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .toolbar-right {
+        width: 100%;
+        justify-content: space-between;
+      }
+    }
+  </style>
 </head>
 <body>
-<main>
-  <div class="row" style="justify-content:space-between;align-items:center">
-    <h1>Schedule</h1>
-    <div class="row">
-      <a id="toStandings" class="btn ghost">← Standings</a>
-      <button id="simNextWeekBtn" class="btn">▶ Sim Next Week</button>
-      <button id="resetSeasonBtn" class="btn ghost">⟲ Reset Season</button>
-    </div>
-  </div>
-
-  <div class="panel">
-    <div class="row" style="justify-content:space-between;align-items:center">
-      <div class="viewtabs">
-        <button class="viewtab active" data-mode="week">By Week</button>
-        <button class="viewtab" data-mode="team">By Team</button>
+  <div class="page" id="schedule-page-root">
+    <header class="schedule-header">
+      <div class="header-left">
+        <div id="schedule-team-heading">Franchise Team</div>
+        <div id="schedule-season-line">Season — Schedule</div>
       </div>
-      <div class="row">
-        <span class="pill" id="gamesPill">0 games</span>
-        <span class="pill" id="teamsPill">0 teams</span>
-        <span class="pill" id="seasonPill">Season: —</span>
-        <span class="pill" id="csvPill">CSV: loading…</span>
+      <div class="header-right">
+        <div class="record-pill" id="schedule-record-pill">
+          <span class="record-pill-dot" aria-hidden="true"></span>
+          <span class="label">Record</span>
+          <span class="value" id="schedule-record-value">0–0</span>
+        </div>
       </div>
-    </div>
-    <hr>
-    <div id="scheduleRoot"></div>
+    </header>
+
+    <main id="schedule-main">
+      <!-- Toolbar: view mode + controls -->
+      <div class="toolbar-row">
+        <div class="view-toggle" role="group" aria-label="Schedule view mode">
+          <button
+            type="button"
+            id="btn-view-my-team"
+            data-view-mode="my-team"
+            aria-pressed="true"
+          >
+            My Team
+          </button>
+          <button
+            type="button"
+            id="btn-view-league"
+            data-view-mode="league"
+            aria-pressed="false"
+          >
+            League
+          </button>
+        </div>
+        <div class="toolbar-right">
+          <span class="toolbar-label" id="schedule-toolbar-label">
+            Regular season • 18 weeks • No preseason/playoffs
+          </span>
+          <button type="button" class="btn-ghost-sm" id="btn-jump-current-week">
+            Jump to current week
+          </button>
+        </div>
+      </div>
+
+      <div class="layout-grid" aria-label="Season schedule layout">
+        <!-- Left column: week list -->
+        <section class="card week-list-card" aria-labelledby="week-list-title">
+          <div class="card-header">
+            <div>
+              <div class="card-title" id="week-list-title">
+                <strong>Season Weeks</strong>
+              </div>
+              <div class="week-list-subtitle" id="week-list-subtitle">
+                Select a week to view details for your team or the full league.
+              </div>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="week-list-header-line">
+              <div class="week-list-subtitle">
+                Week 1–18 • Regular season only
+              </div>
+            </div>
+            <div class="week-list-scroll">
+              <ul class="week-list" id="week-list" aria-label="Season weeks">
+                <!-- Populated by schedule.js -->
+              </ul>
+            </div>
+            <div class="legend-row" aria-label="Schedule legend">
+              <div class="legend-item">
+                <span class="legend-dot legend-dot--w"></span>
+                <span>Win</span>
+              </div>
+              <div class="legend-item">
+                <span class="legend-dot legend-dot--l"></span>
+                <span>Loss</span>
+              </div>
+              <div class="legend-item">
+                <span class="legend-dot legend-dot--bye"></span>
+                <span>Bye week</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Right column: week detail / main panel -->
+        <section class="card" aria-labelledby="week-detail-title">
+          <div class="card-header">
+            <div>
+              <div class="card-title" id="week-detail-title">
+                <strong>Week Detail</strong>
+              </div>
+              <div class="card-subtitle" id="week-detail-subtitle">
+                Select a week on the left to view schedule details.
+              </div>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="week-detail-header">
+              <div class="week-detail-main">
+                <div id="week-detail-label">No week selected</div>
+                <div id="week-detail-date-line">—</div>
+                <div id="week-detail-phase-line">—</div>
+              </div>
+              <div>
+                <div
+                  class="week-detail-status-pill"
+                  id="week-detail-status-pill"
+                >
+                  —
+                </div>
+              </div>
+            </div>
+
+            <!-- My Team view panel -->
+            <div id="panel-my-team" data-view-panel="my-team">
+              <div class="game-card" id="my-team-game-card" aria-label="My team's game this week">
+                <div class="game-card-header">
+                  <div>
+                    <div class="game-matchup-line" id="my-team-matchup-line">
+                      No matchup
+                    </div>
+                    <div class="game-meta-line" id="my-team-kickoff-line">
+                      Kickoff: —
+                    </div>
+                    <div class="game-record-line" id="my-team-record-line">
+                      Team record: — • Opponent record: —
+                    </div>
+                  </div>
+                  <div class="week-result-chip" id="my-team-result-chip">
+                    No result
+                  </div>
+                </div>
+                <div class="game-result-line" id="my-team-result-line">
+                  When this game is played, score and key notes will appear here.
+                </div>
+                <div class="game-actions-row">
+                  <button
+                    type="button"
+                    class="btn-primary"
+                    id="btn-week-gameplan"
+                    disabled
+                  >
+                    Gameplan / Prep
+                  </button>
+                  <button
+                    type="button"
+                    class="btn-secondary"
+                    id="btn-week-advance"
+                    disabled
+                  >
+                    Advance to game day
+                  </button>
+                  <button
+                    type="button"
+                    class="btn-secondary"
+                    id="btn-week-boxscore"
+                    disabled
+                  >
+                    View box score
+                  </button>
+                  <button
+                    type="button"
+                    class="btn-link-inline"
+                    id="btn-week-open-franchise"
+                  >
+                    Open franchise hub
+                  </button>
+                </div>
+              </div>
+
+              <section class="around-league-section" aria-label="Other games this week">
+                <div class="around-league-header">
+                  <div class="around-league-title">
+                    Around the league
+                  </div>
+                  <button
+                    type="button"
+                    class="btn-link-inline"
+                    id="btn-view-week-league"
+                  >
+                    View full league slate
+                  </button>
+                </div>
+                <ul class="around-league-list" id="around-league-list">
+                  <!-- Populated by schedule.js -->
+                </ul>
+              </section>
+
+              <section class="context-card" aria-label="Season context">
+                <div class="context-title">Season context</div>
+                <ul class="context-list" id="season-context-list">
+                  <li id="context-division-line">
+                    Division: <strong>—</strong>
+                  </li>
+                  <li id="context-rotation-conf-line">
+                    Same-conference rotation: <strong>—</strong>
+                  </li>
+                  <li id="context-rotation-cross-line">
+                    Cross-conference rotation: <strong>—</strong>
+                  </li>
+                  <li id="context-extra-game-line">
+                    17th game opponent: <strong>—</strong>
+                  </li>
+                </ul>
+              </section>
+            </div>
+
+            <!-- League view panel -->
+            <div
+              id="panel-league"
+              data-view-panel="league"
+              hidden
+            >
+              <div class="league-view-card">
+                <div class="league-view-header">
+                  <div class="league-view-title">
+                    League schedule – selected week
+                  </div>
+                  <div class="league-view-meta" id="league-view-meta">
+                    0 games scheduled
+                  </div>
+                </div>
+                <div class="league-table-wrapper">
+                  <table
+                    class="league-week-table"
+                    aria-label="League games for selected week"
+                  >
+                    <thead>
+                      <tr>
+                        <th scope="col">Away</th>
+                        <th scope="col">Home</th>
+                        <th scope="col">Time</th>
+                        <th scope="col">Result</th>
+                      </tr>
+                    </thead>
+                    <tbody id="league-week-games-body">
+                      <!-- Populated by schedule.js -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <section class="context-card" aria-label="Schedule overview">
+                <div class="context-title">Schedule overview</div>
+                <ul class="context-list" id="schedule-overview-list">
+                  <li id="overview-total-games-line">
+                    Total regular-season games: <strong>0</strong>
+                  </li>
+                  <li id="overview-bye-weeks-line">
+                    Bye weeks assigned: <strong>0</strong>
+                  </li>
+                  <li id="overview-rotation-summary-line">
+                    Rotation: <strong>—</strong>
+                  </li>
+                </ul>
+              </section>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- No franchise state (hidden by default, shown by JS if needed) -->
+      <section id="no-franchise-state" hidden>
+        <div id="no-franchise-title">No active franchise found</div>
+        <div id="no-franchise-text">
+          There’s no active franchise in this slot. Return to the main menu to start a new franchise or continue an existing one.
+        </div>
+        <div class="no-franchise-actions">
+          <button type="button" class="btn-primary" id="btn-schedule-go-main-menu">
+            Back to main menu
+          </button>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <span>Franchise GM • Season Schedule &amp; Calendar</span>
+      <span>Future: exact NFL-style rotations, flex scheduling &amp; TV slots</span>
+    </footer>
   </div>
 
-  <div class="small">
-    Works with either classic <kbd>Home</kbd>/<kbd>Away</kbd> columns or
-    team-centric nflfastR output (<kbd>team</kbd>, <kbd>opp</kbd>, <kbd>home_away</kbd>, <kbd>game_id</kbd>).
-    Use <code>?players=</code> and/or <code>?schedule=</code> to override files.
-    Add <code>&season=YYYY</code> (or <code>&season=all</code>) to control which season is shown.
-  </div>
-</main>
-
-<!-- Wire up behavior from external script -->
-<script src="schedule.js"></script>
+  <script src="schedule.js"></script>
 </body>
 </html>

@@ -7,7 +7,8 @@
 // - Loads or creates the LeagueState object tied to that franchise.
 // - Renders header + dashboard cards (Next Event, Alerts, Season Summary,
 //   Owner & Expectations, Developer Debug).
-// - Wires basic navigation and modal interactions.
+// - Wires basic navigation and modal interactions, including the Game Day
+//   / schedule.html link.
 //
 // Assumptions about HTML structure:
 // - Header fields:
@@ -232,7 +233,7 @@ function saveLeagueState(state) {
 }
 
 // ---------------------------------------------------------------------------
-// League state creation / defaults
+/** League state creation / defaults */
 // ---------------------------------------------------------------------------
 
 /**
@@ -309,9 +310,10 @@ function createDefaultLeagueStateFromSummary(save) {
     };
   }
 
-  const statsRecord = save.record && typeof save.record === "string" && save.record.trim()
-    ? save.record.trim()
-    : "0-0";
+  const statsRecord =
+    save.record && typeof save.record === "string" && save.record.trim()
+      ? save.record.trim()
+      : "0-0";
 
   /** @type {OwnerNote} */
   const initialNote = {
@@ -556,15 +558,28 @@ function renderNextEventCard(save, leagueState) {
         : "Kickoff time TBA";
     }
 
+    // --- Wire into schedule.html (Game Day) ---------------------------------
+    //
+    // We route to schedule.html and, if we know the week index, include
+    // query parameters so schedule.js can optionally jump to that week
+    // and stay in "My Team" scope.
     if (primaryBtn) {
+      let targetUrl = "schedule.html";
+      if (typeof nextEvent.weekIndex === "number") {
+        const params = new URLSearchParams();
+        params.set("view", "my-team"); // schedule.html can read this in future
+        params.set("week", String(nextEvent.weekIndex));
+        targetUrl = `schedule.html?${params.toString()}`;
+      }
       primaryBtn.textContent = "Game Day";
       primaryBtn.disabled = false;
       primaryBtn.onclick = function () {
-        window.location.href = "schedule.html";
+        window.location.href = targetUrl;
       };
     }
 
     if (secondaryLink) {
+      // Secondary link: go to full schedule, league or team view
       secondaryLink.textContent = "View full schedule";
       secondaryLink.href = "schedule.html";
     }
@@ -717,7 +732,9 @@ function renderSeasonSummaryCard(save, leagueState) {
           "summary-last5-chip summary-last5-chip-" +
           (result === "W" ? "win" : "loss");
         chip.textContent = result;
-        chip.title = `Game ${list.length - idx}: ${result === "W" ? "Win" : "Loss"}`;
+        chip.title = `Game ${list.length - idx}: ${
+          result === "W" ? "Win" : "Loss"
+        }`;
         last5Container.appendChild(chip);
       });
     }
@@ -1061,7 +1078,7 @@ function initFranchiseHub() {
   currentLeagueState = leagueState;
 
   renderHeader(save, leagueState);
-  renderNextEventCard(save, leagueState);
+  renderNextEventCard(save, leagueState);   // now routes Game Day into schedule.html
   renderAlertsCard(save, leagueState);
   renderSeasonSummaryCard(save, leagueState);
   renderOwnerCard(save, leagueState);
