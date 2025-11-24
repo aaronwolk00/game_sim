@@ -919,7 +919,7 @@ function bindShortcutButtons() {
 
   if (teamBtn) {
     teamBtn.onclick = function () {
-      window.location.href = "team.html";
+      window.location.href = "team_view.html";
     };
   }
   if (standingsBtn) {
