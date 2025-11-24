@@ -23,7 +23,9 @@
               "Segoe UI", Roboto, sans-serif;
     }
 
-    * { box-sizing: border-box; }
+    * {
+      box-sizing: border-box;
+    }
 
     html, body {
       margin: 0;
@@ -40,10 +42,20 @@
       flex-direction: column;
     }
 
+    /* Basic button reset without nuking styles from utility classes */
+    button {
+      font-family: inherit;
+    }
+
+    button:disabled {
+      opacity: 0.55;
+      cursor: default;
+    }
+
     .page {
-      max-width: 1400px;            /* a bit wider than before */
+      max-width: 1400px;
       margin: 0 auto;
-      padding: 24px 32px 32px;      /* slightly less side padding to use more width */
+      padding: 24px 32px 32px;
       display: flex;
       flex-direction: column;
       gap: 24px;
@@ -68,6 +80,7 @@
       font-weight: 700;
       letter-spacing: 0.12em;
       text-transform: uppercase;
+      margin: 0;
     }
 
     #season-phase-line {
@@ -86,7 +99,6 @@
     }
 
     .view-tab {
-      border: none;
       border-radius: var(--radius-pill);
       padding: 6px 14px;
       font-size: 0.78rem;
@@ -96,6 +108,7 @@
       background: transparent;
       cursor: pointer;
       transition: all 0.2s ease-in-out;
+      border: none;
     }
 
     .view-tab[data-active="true"] {
@@ -138,7 +151,9 @@
       color: rgba(209,250,229,0.9);
     }
 
-    .record-pill span.value { font-weight: 600; }
+    .record-pill span.value {
+      font-weight: 600;
+    }
 
     .btn-outline {
       border-radius: var(--radius-pill);
@@ -164,7 +179,7 @@
 
     .layout-grid {
       display: grid;
-      grid-template-columns: minmax(0, 1.5fr) minmax(0, 2fr); /* give week list more width */
+      grid-template-columns: minmax(0, 1.5fr) minmax(0, 2fr);
       gap: 24px;
       align-items: flex-start;
     }
@@ -192,16 +207,21 @@
       letter-spacing: 0.16em;
       text-transform: uppercase;
       color: var(--muted);
+      margin: 0;
     }
 
-    .card-title strong { color: var(--text); }
+    .card-title strong {
+      color: var(--text);
+    }
 
     .card-subtitle {
       font-size: 0.75rem;
       color: var(--muted);
     }
 
-    .card-body { flex: 1; }
+    .card-body {
+      flex: 1;
+    }
 
     /* ------------------------------------------------------------------ */
     /* Week list – My Team                                                */
@@ -221,9 +241,8 @@
       padding: 6px;
       max-height: none;
       overflow: visible;
-      margin-bottom: 4px; /* new */
+      margin-bottom: 4px;
     }
-
 
     .week-row {
       border-radius: 12px;
@@ -236,7 +255,7 @@
       transition: all 0.15s ease-in-out;
       border: 1px solid transparent;
       background: rgba(15,23,42,0.96);
-      color: var(--text);  /* explicit so buttons don't render with black text */
+      color: var(--text);
     }
 
     .week-row--home {
@@ -254,9 +273,7 @@
       background: rgba(15,23,42,0.96);
       color: var(--muted);
       font-style: italic;
-      /* still clickable, just visually softer */
     }
-
 
     .week-row:hover:not(.week-row--bye) {
       transform: translateY(-1px);
@@ -279,7 +296,6 @@
     }
 
     .week-row-opponent {
-      /* main text for opponent – make sure it pops */
       color: var(--text);
     }
 
@@ -298,6 +314,11 @@
       flex-wrap: wrap;
     }
 
+    .week-row:focus-visible {
+      outline: 2px solid rgba(96,165,250,0.9);
+      outline-offset: 2px;
+    }
+
     .week-list-footer {
       display: flex;
       justify-content: flex-start;
@@ -308,12 +329,6 @@
       color: var(--muted);
     }
 
-    .week-row:focus-visible {
-      outline: 2px solid rgba(96,165,250,0.9);
-      outline-offset: 2px;
-    }
-
-
     .legend-dot {
       width: 8px;
       height: 8px;
@@ -322,24 +337,32 @@
       display: inline-block;
     }
 
-    .legend-home { background: var(--accent-home); }
-    .legend-away { background: var(--accent-away); }
-    .legend-bye { background: var(--accent-bye); }
+    .legend-home {
+      background: var(--accent-home);
+    }
+
+    .legend-away {
+      background: var(--accent-away);
+    }
+
+    .legend-bye {
+      background: var(--accent-bye);
+    }
 
     .section-divider {
-      margin-top: 16px;
-      margin-bottom: 6px;
-      font-size: 0.75rem;
+      margin-top: 14px;
+      margin-bottom: 4px;
+      font-size: 0.78rem;
       text-transform: uppercase;
-      letter-spacing: 0.18em;
+      letter-spacing: 0.16em;
       color: var(--muted);
     }
 
     .context-lines {
       display: flex;
       flex-direction: column;
-      gap: 3px;
-      font-size: 0.78rem;
+      gap: 2px;
+      font-size: 0.8rem;
       color: var(--muted);
     }
 
@@ -347,8 +370,6 @@
       margin-top: 4px;
       align-self: flex-start;
     }
-
-
 
     /* ------------------------------------------------------------------ */
     /* Week detail (right card)                                           */
@@ -425,6 +446,7 @@
       font-size: 0.78rem;
       padding: 7px 14px;
       cursor: pointer;
+      transition: all 0.2s ease-in-out;
     }
 
     .btn-secondary:hover {
@@ -442,23 +464,8 @@
       text-decoration: none;
     }
 
-    .btn-text-link:hover { text-decoration: underline; }
-
-    .section-divider {
-      margin-top: 14px;
-      margin-bottom: 4px;
-      font-size: 0.78rem;
-      text-transform: uppercase;
-      letter-spacing: 0.16em;
-      color: var(--muted);
-    }
-
-    .context-lines {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-      font-size: 0.8rem;
-      color: var(--muted);
+    .btn-text-link:hover {
+      text-decoration: underline;
     }
 
     footer {
@@ -472,20 +479,29 @@
     }
 
     @media (max-width: 1024px) {
-      .layout-grid { grid-template-columns: 1fr; }
-      .page { padding: 20px; }
+      .layout-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .page {
+        padding: 20px;
+      }
+
+      header.schedule-header {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .header-right {
+        justify-content: flex-start;
+      }
     }
 
-    button {
-      font-family: inherit;
-      border: none;
-      background: none;
+    @media (max-width: 768px) {
+      .card {
+        padding: 14px;
+      }
     }
-    button:disabled {
-      opacity: 0.55;
-      cursor: default;
-    }
-
   </style>
 </head>
 <body>
@@ -494,9 +510,27 @@
       <div class="header-left">
         <h1 id="team-name-heading">Franchise Team</h1>
         <div id="season-phase-line">2025 • Regular Season • Schedule</div>
-        <div class="header-tabs">
-          <button type="button" class="view-tab" id="tab-my-team" data-active="true">My Team</button>
-          <button type="button" class="view-tab" id="tab-league" data-active="false">League</button>
+        <div class="header-tabs" role="tablist" aria-label="Schedule scope">
+          <button
+            type="button"
+            class="view-tab"
+            id="tab-my-team"
+            role="tab"
+            aria-selected="true"
+            data-active="true"
+          >
+            My Team
+          </button>
+          <button
+            type="button"
+            class="view-tab"
+            id="tab-league"
+            role="tab"
+            aria-selected="false"
+            data-active="false"
+          >
+            League
+          </button>
         </div>
       </div>
 
@@ -512,10 +546,10 @@
       </div>
     </header>
 
-    <main>
+    <main role="main">
       <div class="layout-grid">
         <!-- Left: My team season weeks -->
-        <section class="card" id="card-season-weeks">
+        <section class="card" id="card-season-weeks" aria-label="Season weeks">
           <div class="card-header">
             <div>
               <h2 class="card-title"><strong>Season Weeks</strong></h2>
@@ -527,8 +561,10 @@
           <div class="card-body">
             <div class="weeks-range-label">Weeks 1–18 • Regular season only</div>
             <div class="week-list-container">
-              <div id="week-list-empty"
-                   style="font-size:0.8rem;color:var(--muted);padding:6px 4px;">
+              <div
+                id="week-list-empty"
+                style="font-size:0.8rem;color:var(--muted);padding:6px 4px;"
+              >
                 No schedule generated yet.
               </div>
               <!-- Filled by schedule.js -->
@@ -543,9 +579,9 @@
         </section>
 
         <!-- Right: Week detail -->
-        <section class="card" id="card-week-detail">
+        <section class="card" id="card-week-detail" aria-label="Week detail">
           <div class="card-header">
-            <div class="card-title"><strong>Week Detail</strong></div>
+            <h2 class="card-title"><strong>Week Detail</strong></h2>
           </div>
           <div class="card-body">
             <div id="week-detail-title">No week selected</div>
