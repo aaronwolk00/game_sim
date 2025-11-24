@@ -250,9 +250,9 @@ export const TEAM_META = [
         slot = SLOTS.SUN_930;
       }
   
-      const kickoff = new Date(baseDate);
-      kickoff.setDate(baseDate.getDate() + (g.seasonWeek - 1) * 7 + slot.dayOffset);
-      kickoff.setHours(slot.hour, slot.minute, 0, 0);
+      const kickoff = new Date(Date.UTC(seasonYear, 8, 7, 0, 0, 0, 0)); // Sept 7 (Thursday UTC)
+      kickoff.setUTCDate(kickoff.getUTCDate() + (g.seasonWeek - 1) * 7 + slot.dayOffset);
+      kickoff.setUTCHours(slot.hour, slot.minute, 0, 0);
       g.kickoffIso = kickoff.toISOString();
     });
   

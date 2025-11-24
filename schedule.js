@@ -193,6 +193,30 @@ function formatSeasonSubline(save) {
   return `${year} • ${phase} • Schedule`;
 }
 
+function buildLeagueWideSchedule(leagueState) {
+  if (!leagueState.schedule || !leagueState.schedule.byTeam) return [];
+  const allGames = [];
+  const seenPairs = new Set();
+
+  for (const [team, games] of Object.entries(leagueState.schedule.byTeam)) {
+    for (const g of games) {
+      if (g.opponentCode === "BYE") continue;
+      const key = [team, g.opponentCode, g.kickoffIso].sort().join("-");
+      if (seenPairs.has(key)) continue;
+      seenPairs.add(key);
+      allGames.push({
+        ...g,
+        teamA: team,
+        teamB: g.opponentCode,
+      });
+    }
+  }
+
+  allGames.sort((a, b) => new Date(a.kickoffIso) - new Date(b.kickoffIso));
+  return allGames;
+}
+
+
 // ---------------------------------------------------------------------------
 // Page state (for this view)
 // ---------------------------------------------------------------------------
@@ -288,15 +312,28 @@ function renderWeekList() {
   }
 
   if (currentScope === "league") {
-    const infoRow = document.createElement("div");
-    infoRow.className = "week-list-info-row";
-    infoRow.style.fontSize = "0.78rem";
-    infoRow.style.color = "var(--muted)";
-    infoRow.style.padding = "4px 6px";
-    infoRow.textContent =
-      "League-wide schedule view is not implemented yet. Showing your team instead.";
-    listEl.appendChild(infoRow);
+    const leagueGames = buildLeagueWideSchedule(currentLeagueState);
+    if (leagueGames.length === 0) {
+      const msg = document.createElement("div");
+      msg.textContent = "No league schedule available.";
+      msg.style.color = "var(--muted)";
+      listEl.appendChild(msg);
+      return;
+    }
+  
+    leagueGames.forEach((g) => {
+      const row = document.createElement("div");
+      row.className = "week-row";
+      const week = g.seasonWeek || "?";
+      const teams = `${getTeamDisplayName(g.teamA)} vs ${getTeamDisplayName(g.teamB)}`;
+      const time = formatIsoToNice(g.kickoffIso);
+      row.innerHTML = `<div class="week-row-top">Week ${week} • ${teams}</div>
+                       <div class="week-row-bottom">${time}</div>`;
+      listEl.appendChild(row);
+    });
+    return; // Done rendering league view
   }
+  
 
   currentTeamSchedule.forEach((game) => {
     const row = document.createElement("button");

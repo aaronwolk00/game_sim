@@ -54,7 +54,7 @@
       display: flex;
       flex-direction: column;
       padding: 24px 40px 28px;
-      max-width: 1280px;
+      max-width: 1400px; /* a bit wider so it uses more of the screen */
       margin: 0 auto;
       position: relative;
     }
@@ -153,8 +153,8 @@
     /* Layout */
     .layout-grid {
       display: grid;
-      grid-template-columns: minmax(0, 2.1fr) minmax(0, 1.2fr);
-      gap: 14px;
+      grid-template-columns: minmax(0, 1.9fr) minmax(0, 1.1fr);
+      gap: 16px;
       align-items: flex-start;
     }
 
@@ -195,24 +195,33 @@
       font-size: 0.84rem;
     }
 
-    /* Division standings */
-    .division-standings-container {
+    .through-week-tag {
+      font-size: 0.72rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      white-space: nowrap;
+    }
+
+    /* Conference standings – simpler, one table per conference */
+
+    .standings-container {
       display: flex;
       flex-direction: column;
       gap: 10px;
     }
 
     .standings-conferences {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
     }
 
     .standings-conf {
       border-radius: var(--radius-md);
       border: 1px solid rgba(31,41,55,0.95);
       background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.9), rgba(15,23,42,0.98));
-      padding: 8px 10px 10px;
+      padding: 8px 10px 8px;
     }
 
     .standings-conf-title {
@@ -220,52 +229,25 @@
       text-transform: uppercase;
       letter-spacing: 0.18em;
       color: rgba(148,163,184,0.95);
-      margin-bottom: 6px;
-    }
-
-    .division-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px;
-    }
-
-    .division-card {
-      border-radius: var(--radius-md);
-      border: 1px solid rgba(31,41,55,0.95);
-      background: rgba(15,23,42,0.96);
-      padding: 7px 8px 6px;
-    }
-
-    .division-card-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      gap: 4px;
       margin-bottom: 4px;
-    }
-
-    .division-name {
-      font-size: 0.76rem;
-      text-transform: uppercase;
-      letter-spacing: 0.18em;
-      color: rgba(148,163,184,0.95);
-    }
-
-    .division-meta {
-      font-size: 0.7rem;
-      color: var(--muted);
     }
 
     .standings-header-row {
       display: grid;
-      grid-template-columns: minmax(0, 1.8fr) 0.9fr 0.8fr 0.9fr 0.9fr 0.9fr 0.8fr;
+      grid-template-columns: minmax(0, 2.3fr) 0.7fr 0.9fr 0.8fr 0.8fr;
       gap: 6px;
       font-size: 0.72rem;
       text-transform: uppercase;
       letter-spacing: 0.16em;
       color: rgba(148,163,184,0.9);
-      margin-bottom: 2px;
+      padding: 2px 4px;
+      border-radius: 999px;
+      background: rgba(15,23,42,0.96);
+      margin-bottom: 4px;
     }
+
+    .standings-header-row span:nth-child(1) { text-align: left; }
+    .standings-header-row span:nth-child(n+2) { text-align: right; }
 
     .standings-rows {
       display: flex;
@@ -274,7 +256,7 @@
     }
 
     .standings-row {
-      padding: 4px 6px 4px;
+      padding: 5px 6px 4px;
       border-radius: 10px;
       cursor: pointer;
       transition:
@@ -289,13 +271,22 @@
       box-shadow: 0 6px 16px rgba(0,0,0,0.55);
     }
 
+    .standings-row--user {
+      border: 1px solid rgba(34,197,94,0.9);
+      background: radial-gradient(circle at 0% 0%, rgba(34,197,94,0.22), rgba(15,23,42,0.98));
+      box-shadow: 0 12px 28px rgba(22,163,74,0.6);
+    }
+
     .standings-row-top {
       display: grid;
-      grid-template-columns: minmax(0, 1.8fr) 0.9fr 0.8fr 0.9fr 0.9fr 0.9fr 0.8fr;
+      grid-template-columns: minmax(0, 2.3fr) 0.7fr 0.9fr 0.8fr 0.8fr;
       gap: 6px;
       align-items: baseline;
       font-size: 0.78rem;
     }
+
+    .standings-row-top span:nth-child(1) { text-align: left; }
+    .standings-row-top span:nth-child(n+2) { text-align: right; }
 
     .standings-team-name {
       font-weight: 500;
@@ -304,12 +295,11 @@
       text-overflow: ellipsis;
     }
 
-    .standings-row-top span {
-      text-align: right;
-    }
-
-    .standings-row-top span:first-child {
-      text-align: left;
+    .standings-team-div {
+      font-size: 0.74rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
     }
 
     .standings-row-bottom {
@@ -325,17 +315,13 @@
       white-space: nowrap;
     }
 
-    .standings-row--user {
-      border: 1px solid rgba(34,197,94,0.9);
-      background: radial-gradient(circle at 0% 0%, rgba(34,197,94,0.22), rgba(15,23,42,0.98));
-      box-shadow: 0 12px 28px rgba(22,163,74,0.6);
+    .standings-hint {
+      margin-top: 4px;
+      font-size: 0.75rem;
+      color: var(--muted);
     }
 
-    .standings-row--user:hover {
-      transform: translateY(-0.5px);
-    }
-
-    /* Playoff picture */
+    /* Playoff picture – simpler */
 
     .playoff-picture-container {
       display: flex;
@@ -373,24 +359,21 @@
       margin: 4px 0 2px;
     }
 
-    .playoff-seeds {
+    .playoff-seeds,
+    .playoff-hunt {
       border-radius: 10px;
       border: 1px solid rgba(31,41,55,0.95);
       background: rgba(15,23,42,0.98);
       padding: 6px 7px 5px;
-      margin-bottom: 4px;
     }
 
     .playoff-hunt {
-      border-radius: 10px;
-      border: 1px solid rgba(31,41,55,0.95);
       background: rgba(15,23,42,0.96);
-      padding: 6px 7px 5px;
     }
 
     .playoff-header-row {
       display: grid;
-      grid-template-columns: 0.6fr minmax(0, 1.8fr) 0.9fr 0.8fr 0.9fr 0.9fr;
+      grid-template-columns: 0.7fr minmax(0, 2.5fr) 1fr 1fr;
       gap: 6px;
       font-size: 0.72rem;
       text-transform: uppercase;
@@ -398,6 +381,10 @@
       color: rgba(148,163,184,0.9);
       margin-bottom: 2px;
     }
+
+    .playoff-header-row span:nth-child(1) { text-align: left; }
+    .playoff-header-row span:nth-child(2) { text-align: left; }
+    .playoff-header-row span:nth-child(n+3) { text-align: right; }
 
     .playoff-row {
       padding: 4px 5px;
@@ -415,35 +402,6 @@
       box-shadow: 0 6px 16px rgba(0,0,0,0.55);
     }
 
-    .playoff-row-top {
-      display: grid;
-      grid-template-columns: 0.6fr minmax(0, 1.8fr) 0.9fr 0.8fr 0.9fr 0.9fr;
-      gap: 6px;
-      align-items: baseline;
-      font-size: 0.78rem;
-    }
-
-    .playoff-row-top span {
-      text-align: right;
-    }
-
-    .playoff-row-top span:nth-child(2) {
-      text-align: left;
-    }
-
-    .playoff-row-bottom {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 2px;
-      font-size: 0.7rem;
-      color: var(--muted);
-    }
-
-    .playoff-row-bottom span {
-      white-space: nowrap;
-    }
-
     .playoff-row--user {
       border: 1px solid rgba(34,197,94,0.9);
       background: rgba(22,163,74,0.2);
@@ -454,20 +412,26 @@
       border-left: 2px solid rgba(234,179,8,0.9);
     }
 
-    .through-week-tag {
-      font-size: 0.72rem;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: 0.14em;
+    .playoff-row-top {
+      display: grid;
+      grid-template-columns: 0.7fr minmax(0, 2.5fr) 1fr 1fr;
+      gap: 6px;
+      align-items: baseline;
+      font-size: 0.78rem;
     }
 
-    .standings-hint {
-      margin-top: 4px;
-      font-size: 0.75rem;
+    .playoff-row-top span:nth-child(1) { text-align: left; }
+    .playoff-row-top span:nth-child(2) { text-align: left; }
+    .playoff-row-top span:nth-child(n+3) { text-align: right; }
+
+    .playoff-empty {
+      font-size: 0.76rem;
       color: var(--muted);
+      padding: 2px 0;
     }
 
     /* Buttons */
+
     .btn {
       border-radius: var(--radius-pill);
       border: none;
@@ -527,6 +491,7 @@
     }
 
     /* No-franchise state */
+
     .no-franchise-state {
       margin-top: 40px;
       border-radius: var(--radius-lg);
@@ -574,14 +539,6 @@
       .layout-grid {
         grid-template-columns: minmax(0, 1fr);
       }
-
-      .standings-conferences {
-        grid-template-columns: minmax(0, 1fr);
-      }
-
-      .division-grid {
-        grid-template-columns: minmax(0, 1fr);
-      }
     }
 
     @media (max-width: 640px) {
@@ -618,15 +575,15 @@
 
     <main id="standings-main">
       <div class="layout-grid">
-        <!-- Left: Division & conference standings -->
-        <section class="card" id="card-division-standings" aria-labelledby="card-division-standings-title">
+        <!-- Left: Conference standings -->
+        <section class="card" id="card-standings" aria-labelledby="card-standings-title">
           <div class="card-header">
             <div>
-              <div class="card-title" id="card-division-standings-title">
+              <div class="card-title" id="card-standings-title">
                 <strong>Standings</strong>
               </div>
-              <div class="card-subtitle" id="card-division-standings-subtitle">
-                Division and conference overview.
+              <div class="card-subtitle" id="card-standings-subtitle">
+                Conference tables with division tags.
               </div>
             </div>
             <div class="through-week-tag" id="standings-through-week-tag">
@@ -634,7 +591,7 @@
             </div>
           </div>
           <div class="card-body">
-            <div id="division-standings-container" class="division-standings-container">
+            <div id="standings-container" class="standings-container">
               <!-- Populated by JS -->
             </div>
             <div id="standings-hint" class="standings-hint"></div>
