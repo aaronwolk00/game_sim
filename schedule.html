@@ -34,12 +34,13 @@
     }
 
     .page {
-      max-width: 1280px;
+      max-width: 1360px;          /* slightly wider to use more screen */
       margin: 0 auto;
-      padding: 24px 40px 28px;
+      padding: 24px 32px 28px;    /* a bit less padding so cards feel bigger */
       display: flex;
       flex-direction: column;
       gap: 24px;
+      min-height: 100vh;
     }
 
     header.schedule-header {
@@ -88,6 +89,7 @@
       background: transparent;
       cursor: pointer;
       transition: all 0.2s ease-in-out;
+      white-space: nowrap;
     }
 
     .view-tab[data-active="true"] {
@@ -142,6 +144,7 @@
       padding: 6px 14px;
       cursor: pointer;
       transition: all 0.2s ease-in-out;
+      white-space: nowrap;
     }
 
     .btn-outline:hover {
@@ -150,14 +153,15 @@
       transform: translateY(-1px);
     }
 
+    /* LAYOUT */
     .layout-grid {
       display: grid;
-      grid-template-columns: minmax(0, 1.4fr) minmax(0, 2fr);
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.8fr);
       gap: 20px;
       align-items: stretch;
     }
 
-    /* --- Card styling --- */
+    /* CARD */
     .card {
       background: var(--card);
       border: 1px solid var(--border);
@@ -166,6 +170,7 @@
       padding: 16px 18px;
       display: flex;
       flex-direction: column;
+      min-height: 320px;
     }
 
     .card-header {
@@ -189,15 +194,26 @@
       color: var(--muted);
     }
 
-    .card-body { flex: 1; }
+    .card-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
 
-    /* --- Week list --- */
+    /* WEEK LIST (left column) */
+    .weeks-range-label {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-bottom: 2px;
+    }
+
     .week-list-container {
       border-radius: var(--radius-md);
       border: 1px solid var(--border-strong);
       background: rgba(15,23,42,0.9);
       box-shadow: var(--shadow-soft);
-      max-height: 500px;
+      max-height: 540px;
       overflow-y: auto;
       padding: 4px;
     }
@@ -206,14 +222,40 @@
       border: 1px solid transparent;
       border-radius: 10px;
       padding: 8px 10px;
-      margin: 3px 0;
-      font-size: 0.8rem;
+      margin: 4px 0;
+      font-size: 0.82rem;
       display: flex;
       flex-direction: column;
       cursor: pointer;
       transition: all 0.15s ease-in-out;
     }
 
+    .week-row-topline {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+    }
+
+    .week-row-topline span.label {
+      white-space: nowrap;
+    }
+
+    .week-row-topline span.opponent {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .week-row-meta {
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    /* Home / away / bye states */
     .week-row--home {
       border-left: 3px solid var(--accent-home);
       background: rgba(34,197,94,0.08);
@@ -229,6 +271,8 @@
       background: rgba(100,116,139,0.08);
       color: var(--muted);
       cursor: default;
+      opacity: 0.75;
+      font-style: italic;
     }
 
     .week-row:hover:not(.week-row--bye) {
@@ -243,43 +287,11 @@
       box-shadow: 0 10px 24px rgba(37,99,235,0.55);
     }
 
-    /* Home / away / bye visual cues */
-    .week-row--home {
-      border-left: 3px solid var(--accent);
-    }
-
-    .week-row--away {
-      border-left: 3px solid var(--accent-alt);
-    }
-
-    .week-row--bye {
-      opacity: 0.55;
-      font-style: italic;
-    }
-
-    .week-row--bye:hover {
-      transform: none;
-      background: rgba(15,23,42,0.96);
-      border-color: transparent;
-    }
-
-
-    .week-row-topline {
-      display: flex;
-      justify-content: space-between;
-      font-weight: 600;
-    }
-
-    .week-row-meta {
-      font-size: 0.72rem;
-      color: var(--muted);
-    }
-
     .week-list-footer {
       display: flex;
       justify-content: flex-start;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
       margin-top: 8px;
       font-size: 0.7rem;
       color: var(--muted);
@@ -297,7 +309,7 @@
     .legend-away { background: var(--accent-away); }
     .legend-bye { background: var(--accent-bye); }
 
-    /* --- Week detail --- */
+    /* WEEK DETAIL (right column) */
     #week-detail-title {
       font-size: 1rem;
       font-weight: 600;
@@ -307,24 +319,31 @@
     #week-detail-subline {
       font-size: 0.82rem;
       color: var(--muted);
-      margin-bottom: 10px;
+      margin-bottom: 6px;
     }
 
     .matchup-block {
       border-radius: var(--radius-md);
       border: 1px solid var(--border-strong);
-      background: rgba(15,23,42,0.95);
+      background: radial-gradient(circle at 0 0, rgba(56,189,248,0.18), transparent 70%),
+                  rgba(15,23,42,0.96);
       padding: 10px 12px;
       box-shadow: var(--shadow-soft);
       font-size: 0.84rem;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
     }
 
-    .matchup-headline { font-weight: 600; margin-bottom: 4px; }
+    .matchup-headline { font-weight: 600; }
 
-    .matchup-meta-line { font-size: 0.78rem; color: var(--muted); }
+    .matchup-meta-line {
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
 
     .matchup-note {
-      margin-top: 6px;
+      margin-top: 4px;
       font-size: 0.78rem;
       color: var(--muted);
     }
@@ -348,6 +367,7 @@
       text-transform: uppercase;
       cursor: pointer;
       transition: all 0.2s ease-in-out;
+      white-space: nowrap;
     }
 
     .btn-primary:hover:enabled {
@@ -363,6 +383,7 @@
       font-size: 0.78rem;
       padding: 7px 14px;
       cursor: pointer;
+      white-space: nowrap;
     }
 
     .btn-secondary:hover {
@@ -378,9 +399,28 @@
       color: var(--accent-away);
       cursor: pointer;
       text-decoration: none;
+      align-self: flex-start;
     }
 
     .btn-text-link:hover { text-decoration: underline; }
+
+    .section-divider {
+      margin-top: 14px;
+      margin-bottom: 4px;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: var(--muted);
+    }
+
+    .context-lines {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      font-size: 0.78rem;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
 
     footer {
       font-size: 0.78rem;
@@ -395,6 +435,19 @@
     @media (max-width: 1024px) {
       .layout-grid { grid-template-columns: 1fr; }
       .page { padding: 20px; }
+      .week-list-container { max-height: 460px; }
+    }
+
+    @media (max-width: 640px) {
+      header.schedule-header {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .header-right {
+        align-self: stretch;
+        justify-content: space-between;
+      }
     }
   </style>
 </head>
@@ -422,6 +475,7 @@
 
     <main>
       <div class="layout-grid">
+        <!-- LEFT: week list -->
         <section class="card" id="card-season-weeks">
           <div class="card-header">
             <div>
@@ -432,7 +486,9 @@
           <div class="card-body">
             <div class="weeks-range-label">Weeks 1–18 • Regular season only</div>
             <div class="week-list-container">
-              <div id="week-list-empty" style="font-size:0.8rem;color:var(--muted);padding:6px 4px;">No schedule generated yet.</div>
+              <div id="week-list-empty" style="font-size:0.8rem;color:var(--muted);padding:6px 4px;">
+                No schedule generated yet.
+              </div>
               <div id="week-list" hidden></div>
             </div>
             <div class="week-list-footer">
@@ -443,18 +499,26 @@
           </div>
         </section>
 
+        <!-- RIGHT: selected week detail -->
         <section class="card" id="card-week-detail">
           <div class="card-header">
             <div class="card-title"><strong>Week Detail</strong></div>
           </div>
           <div class="card-body">
-            <div id="week-detail-title">No week selected</div>
-            <div id="week-detail-subline">—</div>
+            <div>
+              <div id="week-detail-title">No week selected</div>
+              <div id="week-detail-subline">—</div>
+            </div>
+
             <div class="matchup-block">
               <div class="matchup-headline" id="matchup-headline">No matchup</div>
               <div class="matchup-meta-line" id="matchup-kickoff-line">Kickoff —</div>
-              <div class="matchup-meta-line" id="matchup-record-line">Team record — • Opponent record —</div>
-              <div class="matchup-note" id="matchup-note">When this game is played, score and key notes will appear here.</div>
+              <div class="matchup-meta-line" id="matchup-record-line">
+                Team record — • Opponent record —
+              </div>
+              <div class="matchup-note" id="matchup-note">
+                When this game is played, score and key notes will appear here.
+              </div>
               <div class="matchup-actions">
                 <button type="button" class="btn-primary" id="btn-gameplan">Gameplan / Prep</button>
                 <button type="button" class="btn-secondary" id="btn-advance-week">Advance to game day</button>
@@ -462,15 +526,25 @@
                 <button type="button" class="btn-secondary" id="btn-back-hub">Open franchise hub</button>
               </div>
             </div>
-            <div class="section-divider">Around the league</div>
-            <div class="context-lines" id="league-context-lines"><span>No broader league context available yet.</span></div>
-            <button type="button" class="btn-text-link" id="btn-view-league-slate">View full league slate</button>
-            <div class="section-divider">Season context</div>
-            <div class="context-lines">
-              <span id="context-division-line">Division —</span>
-              <span id="context-same-conf-line">Same-conference rotation —</span>
-              <span id="context-cross-conf-line">Cross-conference rotation —</span>
-              <span id="context-extra-line">17th game opponent —</span>
+
+            <div>
+              <div class="section-divider">Around the league</div>
+              <div class="context-lines" id="league-context-lines">
+                <span>No broader league context available yet.</span>
+              </div>
+              <button type="button" class="btn-text-link" id="btn-view-league-slate">
+                View full league slate
+              </button>
+            </div>
+
+            <div>
+              <div class="section-divider">Season context</div>
+              <div class="context-lines">
+                <span id="context-division-line">Division —</span>
+                <span id="context-same-conf-line">Same-conference rotation —</span>
+                <span id="context-cross-conf-line">Cross-conference rotation —</span>
+                <span id="context-extra-line">17th game opponent —</span>
+              </div>
             </div>
           </div>
         </section>
