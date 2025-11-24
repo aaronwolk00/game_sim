@@ -132,54 +132,59 @@ export function getAllTeamCodes() {
 }
 
 // -----------------------------------------------------------------------------
-// Rotations
+// Rotations (Official NFL Mapping)
 // -----------------------------------------------------------------------------
-// 3-year same-conference division rotation per conference.
-// For each entry, keys are division → the division they play the 4-game set vs.
-const SAME_CONF_ROTATION = {
-  AFC: [
-    { East: "West", West: "East", North: "South", South: "North" },
-    { East: "North", North: "East", South: "West", West: "South" },
-    { East: "South", South: "East", North: "West", West: "North" }
-  ],
-  NFC: [
-    { East: "West", West: "East", North: "South", South: "North" },
-    { East: "North", North: "East", South: "West", West: "South" },
-    { East: "South", South: "East", North: "West", West: "North" }
-  ]
-};
+//
+// This implements the true 4-year cross-conference rotation and 3-year
+// intra-conference rotation patterns.  It repeats deterministically from 2022.
+//
 
-function getSameConfRotationIndex(seasonYear) {
-  const baseYear = 2023;
-  const rotationsLen = SAME_CONF_ROTATION.AFC.length;
-  const raw = (seasonYear - baseYear) % rotationsLen;
-  return raw < 0 ? raw + rotationsLen : raw;
-}
-
-export function getSameConferenceOppDivision(conference, division, seasonYear) {
-  const rotations = SAME_CONF_ROTATION[conference];
-  if (!rotations) return "East";
-  const idx = getSameConfRotationIndex(seasonYear);
-  const config = rotations[idx];
-  return config[division] || division;
-}
-
-// 4-year cross-conference rotation (AFC division ↔ NFC division).
-function getCrossConfOffset(seasonYear) {
-  const baseYear = 2022;
-  const raw = (seasonYear - baseYear) % 4;
-  return raw < 0 ? raw + 4 : raw;
-}
-
-export function getCrossConferenceDivision(conference, division, seasonYear) {
-  // This returns the *name* of the NFC division that the given division would face
-  // in a cross-conference 4-game set, using a simple offset pattern.
-  const offset = getCrossConfOffset(seasonYear);
-  const divIndex = DIVISION_NAMES.indexOf(division);
-  if (divIndex < 0) return "East";
-  const oppIndex = (divIndex + offset) % 4;
-  return DIVISION_NAMES[oppIndex];
-}
+const OFFICIAL_ROTATION = {
+    AFC: {
+      2022: { same: { East: "North", North: "West", South: "East", West: "South" },
+              cross: { East: "NFC North", North: "NFC East", South: "NFC West", West: "NFC South" } },
+      2023: { same: { East: "West", North: "South", South: "North", West: "East" },
+              cross: { East: "NFC West", North: "NFC South", South: "NFC East", West: "NFC North" } },
+      2024: { same: { East: "North", North: "West", South: "East", West: "South" },
+              cross: { East: "NFC South", North: "NFC West", South: "NFC North", West: "NFC East" } },
+      2025: { same: { East: "West", North: "South", South: "North", West: "East" },
+              cross: { East: "NFC North", North: "NFC East", South: "NFC West", West: "NFC South" } }
+    },
+    NFC: {
+      2022: { same: { East: "North", North: "West", South: "East", West: "South" },
+              cross: { East: "AFC North", North: "AFC East", South: "AFC West", West: "AFC South" } },
+      2023: { same: { East: "West", North: "South", South: "North", West: "East" },
+              cross: { East: "AFC West", North: "AFC South", South: "AFC East", West: "AFC North" } },
+      2024: { same: { East: "North", North: "West", South: "East", West: "South" },
+              cross: { East: "AFC South", North: "AFC West", South: "AFC North", West: "AFC East" } },
+      2025: { same: { East: "West", North: "South", South: "North", West: "East" },
+              cross: { East: "AFC North", North: "AFC East", South: "AFC West", West: "AFC South" } }
+    }
+  };
+  
+  function getRotationYear(mapping, seasonYear) {
+    const years = Object.keys(mapping).map(Number).sort();
+    const base = years[0];
+    const diff = (seasonYear - base) % years.length;
+    const yearKey = String(base + diff);
+    return mapping[yearKey] ? yearKey : String(base);
+  }
+  
+  export function getSameConferenceOppDivision(conference, division, seasonYear) {
+    const confMap = OFFICIAL_ROTATION[conference];
+    if (!confMap) return "East";
+    const yearKey = getRotationYear(confMap, seasonYear);
+    return confMap[yearKey].same[division] || "East";
+  }
+  
+  export function getCrossConferenceDivision(conference, division, seasonYear) {
+    const confMap = OFFICIAL_ROTATION[conference];
+    if (!confMap) return "East";
+    const yearKey = getRotationYear(confMap, seasonYear);
+    const crossStr = confMap[yearKey].cross[division] || "NFC East";
+    return crossStr.replace("AFC ", "").replace("NFC ", "");
+  }
+  
 
 // -----------------------------------------------------------------------------
 // Time helpers
@@ -513,11 +518,12 @@ function buildLeagueMatchups(seasonYear) {
 // -----------------------------------------------------------------------------
 
 const WEEK_PREFERENCES = {
-  nonconference: { min: 1, max: 14 },
-  conference:    { min: 2, max: 17 },
-  extra:         { min: 4, max: 15 },
-  division:      { min: 5, max: 18 }
+    nonconference: { min: 1, max: 10 }, // Weeks 1–10
+    conference:    { min: 2, max: 14 }, // Weeks 2–14
+    extra:         { min: 5, max: 13 }, // Midseason crossover
+    division:      { min: 5, max: 18 }  // Clustered late anyway
 };
+  
 
 const MAX_GAMES_PER_WEEK_SOFT = 16;
 
@@ -561,6 +567,13 @@ function assignWeeksToGames(games, teamByeWeek) {
     const home = game.homeTeam;
     const away = game.awayTeam;
     const pref = WEEK_PREFERENCES[game.type] || { min: 1, max: REGULAR_SEASON_WEEKS };
+      // --- Late-season division clustering tweak ---
+    // Push most division games (roughly 2/3) into Weeks 15–18.
+    if (game.type === "division" && Math.random() < 0.66) {
+        pref.min = 15;
+        pref.max = 18;
+    }
+
 
     let chosenWeek = 0;
 

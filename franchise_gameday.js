@@ -717,32 +717,53 @@ function setSimSpeedFromControl(value) {
 }
 
 async function runPlayByPlayGame(save, opponentCode, isHome, weekIndex0) {
-  await ensureLeagueLoaded();
-  const payload = await runFranchiseEngineGame(save, opponentCode, isHome, weekIndex0, Date.now());
-  const plays = getPlayLogFromResult(payload.result);
-  const logEl = getEl("gameday-play-log");
-  const summaryEl = getEl("gameday-summary-line");
+    await ensureLeagueLoaded();
+    const payload = await runFranchiseEngineGame(save, opponentCode, isHome, weekIndex0, Date.now());
+    const plays = getPlayLogFromResult(payload.result);
+    const logEl = getEl("gameday-play-log");
+    const summaryEl = getEl("gameday-summary-line");
+  
+    if (!plays.length) {
+      summaryEl.textContent = "No play-by-play log available.";
+      return payload;
+    }
+  
+    logEl.innerHTML = "";
+    summaryEl.textContent = "Playing live simulation…";
+  
+    for (let i = 0; i < plays.length; i++) {
+      const p = plays[i];
+      const div = document.createElement("div");
+      div.className = "gameday-log-line new-play";
+  
+      const clockStr = p.clock ?? p.gameClock ?? "";
+      const qtr = p.quarter ?? p.qtr ?? "";
+      const prefix = [qtr ? `Q${qtr}` : "", clockStr].filter(Boolean).join(" • ");
+  
+      const text = p.text || p.description || "[play]";
+      div.textContent = prefix ? `${prefix} — ${text}` : text;
+  
+      const tags = (p.tags || []).map((t) => t.toUpperCase());
+      const isScoring = p.isScoring || tags.includes("TD") || tags.includes("FG");
+      if (isScoring) div.classList.add("scoring");
+  
+      logEl.appendChild(div);
+      logEl.scrollTo({ top: logEl.scrollHeight, behavior: "smooth" });
+  
+      await new Promise((r) => setTimeout(r, simSpeed));
+    }
+  
+    summaryEl.textContent = "Play-by-play complete.";
+    
+    const simBtn = getEl("btn-gameday-sim");
+    if (simBtn) {
+    simBtn.textContent = "Week Simulated";
+    simBtn.disabled = true;
+    }
 
-  if (!plays.length) {
-    summaryEl.textContent = "No play-by-play log available.";
     return payload;
   }
-
-  logEl.innerHTML = "";
-  summaryEl.textContent = "Running play-by-play simulation…";
-
-  for (let i = 0; i < plays.length; i++) {
-    const p = plays[i];
-    const div = document.createElement("div");
-    div.textContent = p.text || p.description || "[play]";
-    if (p.tags && (p.tags.includes("TD") || p.tags.includes("FG"))) div.style.fontWeight = "600";
-    logEl.appendChild(div);
-    logEl.scrollTop = logEl.scrollHeight;
-    await new Promise((r) => setTimeout(r, simSpeed));
-  }
-
-  return payload;
-}
+  
 
 
 // -----------------------------------------------------------------------------
