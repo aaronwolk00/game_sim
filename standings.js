@@ -1,396 +1,1008 @@
-// ===== Season / query params =====
-const PARAMS = new URLSearchParams(location.search);
-const DEFAULT_SEASON = 2020;
-const seasonParamRaw = PARAMS.get('season');
-let SEASON_FILTER = DEFAULT_SEASON;
+// standings.js
+// -----------------------------------------------------------------------------
+// Franchise GM – Standings & Playoff Picture
+//
+// Read-only view that derives league standings and a simple playoff picture
+// from LeagueState.schedule and TEAM_META / divisions.
+// -----------------------------------------------------------------------------
 
-if (seasonParamRaw) {
-  if (seasonParamRaw.toLowerCase() === 'all') {
-    SEASON_FILTER = null; // show all seasons
-  } else {
-    const sn = parseInt(seasonParamRaw, 10);
-    if (Number.isFinite(sn)) SEASON_FILTER = sn;
+import {
+    TEAM_META,
+    DIVISION_NAMES,
+    getTeamMeta,
+    getTeamDisplayName,
+    ensureAllTeamSchedules,
+    recomputeRecordFromSchedule
+  } from "./league_schedule.js";
+  
+  // -----------------------------------------------------------------------------
+  // Types (JSDoc – documentation only)
+  // -----------------------------------------------------------------------------
+  
+  /**
+   * @typedef {Object} TeamGame
+   * @property {number} index
+   * @property {number} seasonWeek
+   * @property {string} teamCode
+   * @property {string} opponentCode
+   * @property {boolean} isHome
+   * @property {"division"|"conference"|"nonconference"|"extra"} type
+   * @property {string|null} kickoffIso
+   * @property {"scheduled"|"final"} status
+   * @property {number|null} teamScore
+   * @property {number|null} opponentScore
+   */
+  
+  /**
+   * @typedef {Object} LeagueSchedule
+   * @property {number} seasonYear
+   * @property {Object.<string, TeamGame[]>} byTeam
+   */
+  
+  /**
+   * @typedef {Object} LeagueState
+   * @property {string} franchiseId
+   * @property {number} seasonYear
+   * @property {Object} [statsSummary]
+   * @property {number} [statsSummary.currentWeekIndex]
+   * @property {LeagueSchedule} [schedule]
+   */
+  
+  /**
+   * @typedef {Object} StandingRow
+   * @property {string} teamCode
+   * @property {string} displayName
+   * @property {string} conference
+   * @property {string} division
+   * @property {number} wins
+   * @property {number} losses
+   * @property {number} ties
+   * @property {number} gamesPlayed
+   * @property {number} winPct
+   * @property {string} pctString
+   * @property {string} recordStr
+   * @property {number} pointsFor
+   * @property {number} pointsAgainst
+   * @property {number} pointDiff
+   * @property {number} divisionWins
+   * @property {number} divisionLosses
+   * @property {number} divisionTies
+   * @property {number} conferenceWins
+   * @property {number} conferenceLosses
+   * @property {number} conferenceTies
+   * @property {string[]} lastFiveArray
+   * @property {string} lastFiveString
+   * @property {string} streak
+   */
+  
+  /**
+   * @typedef {Object} PlayoffPicture
+   * @property {Array<StandingRow & { seed: number }>} seeds
+   * @property {StandingRow[]} inTheHunt
+   */
+  
+  // -----------------------------------------------------------------------------
+  // Storage keys & helpers
+  // -----------------------------------------------------------------------------
+  
+  const SAVE_KEY_LAST_FRANCHISE = "franchiseGM_lastFranchise";
+  const LEAGUE_STATE_KEY_PREFIX = "franchiseGM_leagueState_";
+  
+  function getLeagueStateKey(franchiseId) {
+    return `${LEAGUE_STATE_KEY_PREFIX}${franchiseId}`;
   }
-}
-
-/* ===== Keys & constants ===== */
-const SEASON_KEY = (SEASON_FILTER == null ? 'all' : SEASON_FILTER);
-const LIVE_KEY_STANDINGS = `simSeason:${SEASON_KEY}:standings`;
-const LOCAL_RESULTS_KEY  = `headlessResults:${SEASON_KEY}`;
-const TOTAL_WEEKS        = 17;
-
-// ===== Header links (preserve ?players / ?schedule) =====
-(function wireHeaderLinks(){
-  const params = new URLSearchParams(location.search);
-  const rawPlayers  = (params.get('players')  || '').replace('/refs/heads/','/');
-  const rawSchedule = (params.get('schedule') || '').replace('/refs/heads/','/');
-
-  const parts = [];
-  if (rawPlayers)  parts.push(`players=${encodeURIComponent(rawPlayers)}`);
-  if (rawSchedule) parts.push(`schedule=${encodeURIComponent(rawSchedule)}`);
-  const qs = parts.length ? `?${parts.join('&')}` : '';
-
-  const toSchedule = document.getElementById('toSchedule');
-  if (toSchedule) toSchedule.href = `schedule.html${qs}`;
-})();
-
-const TEAM_META = {
-  "Arizona Cardinals":      { conf:"NFC", division:"NFC West" },
-  "Atlanta Falcons":        { conf:"NFC", division:"NFC South" },
-  "Baltimore Ravens":       { conf:"AFC", division:"AFC North" },
-  "Buffalo Bills":          { conf:"AFC", division:"AFC East" },
-  "Carolina Panthers":      { conf:"NFC", division:"NFC South" },
-  "Chicago Bears":          { conf:"NFC", division:"NFC North" },
-  "Cincinnati Bengals":     { conf:"AFC", division:"AFC North" },
-  "Cleveland Browns":       { conf:"AFC", division:"AFC North" },
-  "Dallas Cowboys":         { conf:"NFC", division:"NFC East" },
-  "Denver Broncos":         { conf:"AFC", division:"AFC West" },
-  "Detroit Lions":          { conf:"NFC", division:"NFC North" },
-  "Green Bay Packers":      { conf:"NFC", division:"NFC North" },
-  "Houston Texans":         { conf:"AFC", division:"AFC South" },
-  "Indianapolis Colts":     { conf:"AFC", division:"AFC South" },
-  "Jacksonville Jaguars":   { conf:"AFC", division:"AFC South" },
-  "Kansas City Chiefs":     { conf:"AFC", division:"AFC West" },
-  "Las Vegas Raiders":      { conf:"AFC", division:"AFC West" },
-  "Los Angeles Chargers":   { conf:"AFC", division:"AFC West" },
-  "Los Angeles Rams":       { conf:"NFC", division:"NFC West" },
-  "Miami Dolphins":         { conf:"AFC", division:"AFC East" },
-  "Minnesota Vikings":      { conf:"NFC", division:"NFC North" },
-  "New England Patriots":   { conf:"AFC", division:"AFC East" },
-  "New Orleans Saints":     { conf:"NFC", division:"NFC South" },
-  "New York Giants":        { conf:"NFC", division:"NFC East" },
-  "New York Jets":          { conf:"AFC", division:"AFC East" },
-  "Philadelphia Eagles":    { conf:"NFC", division:"NFC East" },
-  "Pittsburgh Steelers":    { conf:"AFC", division:"AFC North" },
-  "San Francisco 49ers":    { conf:"NFC", division:"NFC West" },
-  "Seattle Seahawks":       { conf:"NFC", division:"NFC West" },
-  "Tampa Bay Buccaneers":   { conf:"NFC", division:"NFC South" },
-  "Tennessee Titans":       { conf:"AFC", division:"AFC South" },
-  "Washington Commanders":  { conf:"NFC", division:"NFC East" }
-};
-
-const DIV_ORDER  = [
-  "AFC East","AFC North","AFC South","AFC West",
-  "NFC East","NFC North","NFC South","NFC West"
-];
-const CONF_ORDER = ["AFC","NFC"];
-
-/* ===== DOM ===== */
-const elStandings = document.getElementById('standings');
-const teamCount   = document.getElementById('teamCount');
-const weekPill    = document.getElementById('weekPill');
-const resetBtn    = document.getElementById('resetSeasonBtn');
-const viewTabs    = Array.from(document.querySelectorAll('.viewtab'));
-
-/* ===== State ===== */
-let VIEW_MODE = 'league';
-let CURRENT_STANDINGS = {};
-let CURRENT_ROWS      = [];
-
-const chan = (typeof BroadcastChannel !== 'undefined')
-  ? new BroadcastChannel('nfl-sim-2020')
-  : null;
-
-/* ===== Storage helpers ===== */
-function loadLocalResults(){
-  try{
-    return JSON.parse(localStorage.getItem(LOCAL_RESULTS_KEY) || '{}');
-  }catch(e){
-    return {};
+  
+  function storageAvailable() {
+    try {
+      const testKey = "__franchise_standings_storage_test__";
+      window.localStorage.setItem(testKey, "1");
+      window.localStorage.removeItem(testKey);
+      return true;
+    } catch {
+      return false;
+    }
   }
-}
-
-function buildBaselineStandings(){
-  const base = {};
-  Object.keys(TEAM_META).forEach(name=>{
-    base[name] = { team:name, wins:0, losses:0, pf:0, pa:0 };
-  });
-  return base;
-}
-
-// Always recompute standings from scratch based on headlessResults.
-function applyHeadlessResults(){
-  const res = loadLocalResults();
-  const standings = buildBaselineStandings();  // fresh 0–0 for all teams
-
-  for (const k in res){
-    const g = res[k];
-    const home = g.home, away = g.away;
-    const hp = +g.homePts, ap = +g.awayPts;
-    if (!home || !away || !Number.isFinite(hp) || !Number.isFinite(ap)) continue;
-
-    if (!standings[home]) standings[home] = { team:home, wins:0, losses:0, pf:0, pa:0 };
-    if (!standings[away]) standings[away] = { team:away, wins:0, losses:0, pf:0, pa:0 };
-
-    standings[home].pf += hp;
-    standings[home].pa += ap;
-    standings[away].pf += ap;
-    standings[away].pa += hp;
-
-    if (hp > ap){ standings[home].wins++; standings[away].losses++; }
-    else        { standings[away].wins++; standings[home].losses++; }
+  
+  /**
+   * @returns {any|null}
+   */
+  function loadLastFranchise() {
+    if (!storageAvailable()) return null;
+    const raw = window.localStorage.getItem(SAVE_KEY_LAST_FRANCHISE);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch {
+      return null;
+    }
   }
-  return standings;
-}
-
-/* ===== Transform + sort ===== */
-function rowsFromStandingsObj(obj){
-  return Object.values(obj).map(r=>{
-    const meta = TEAM_META[r.team] || {};
-    const pf   = r.pf   ?? 0;
-    const pa   = r.pa   ?? 0;
-    const wins = r.wins ?? 0;
-    const losses = r.losses ?? 0;
-    return {
-      team: r.team,
-      wins,
-      losses,
-      pf,
-      pa,
-      diff: pf - pa,
-      conf: meta.conf || 'Unknown',
-      division: meta.division || meta.conf || 'Unknown'
+  
+  /**
+   * @param {any} save
+   */
+  function saveLastFranchise(save) {
+    if (!storageAvailable() || !save) return;
+    try {
+      window.localStorage.setItem(SAVE_KEY_LAST_FRANCHISE, JSON.stringify(save));
+    } catch (err) {
+      console.warn("[Standings] Failed to save franchise:", err);
+    }
+  }
+  
+  /**
+   * @param {string} franchiseId
+   * @returns {LeagueState|null}
+   */
+  function loadLeagueState(franchiseId) {
+    if (!storageAvailable() || !franchiseId) return /** @type {any} */ (null);
+    const raw = window.localStorage.getItem(getLeagueStateKey(franchiseId));
+    if (!raw) return /** @type {any} */ (null);
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch {
+      return /** @type {any} */ (null);
+    }
+  }
+  
+  /**
+   * @param {LeagueState} state
+   */
+  function saveLeagueState(state) {
+    if (!storageAvailable() || !state || !state.franchiseId) return;
+    try {
+      window.localStorage.setItem(
+        getLeagueStateKey(state.franchiseId),
+        JSON.stringify(state)
+      );
+    } catch (err) {
+      console.warn("[Standings] Failed to save league state:", err);
+    }
+  }
+  
+  // -----------------------------------------------------------------------------
+  // Utility helpers
+  // -----------------------------------------------------------------------------
+  
+  function safeNumber(v, fallback = 0) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : fallback;
+  }
+  
+  /**
+   * Format record as "W-L" or "W-L-T".
+   */
+  function formatRecord(wins, losses, ties) {
+    const w = safeNumber(wins, 0);
+    const l = safeNumber(losses, 0);
+    const t = safeNumber(ties, 0);
+    if (t > 0) return `${w}-${l}-${t}`;
+    return `${w}-${l}`;
+  }
+  
+  /**
+   * Given chronological results array of "W"/"L"/"T", compute lastFive + streak.
+   * @param {string[]} resultsChronological
+   */
+  function computeLastFiveAndStreak(resultsChronological) {
+    const len = resultsChronological.length;
+    const lastFiveArray =
+      len <= 5
+        ? resultsChronological.slice()
+        : resultsChronological.slice(len - 5);
+    const lastFiveString = lastFiveArray.join("");
+  
+    if (!len) {
+      return {
+        lastFiveArray,
+        lastFiveString,
+        streak: ""
+      };
+    }
+  
+    const last = resultsChronological[len - 1];
+    let count = 0;
+    for (let i = len - 1; i >= 0; i--) {
+      if (resultsChronological[i] === last) {
+        count++;
+      } else {
+        break;
+      }
+    }
+  
+    const streak = `${last}${count}`;
+    return { lastFiveArray, lastFiveString, streak };
+  }
+  
+  /**
+   * Sort comparator for standings and playoff seeding.
+   * Higher winPct, then pointDiff, then pointsFor, then teamCode.
+   * @param {StandingRow} a
+   * @param {StandingRow} b
+   */
+  function standingsComparator(a, b) {
+    if (b.winPct !== a.winPct) return b.winPct - a.winPct;
+    if (b.pointDiff !== a.pointDiff) return b.pointDiff - a.pointDiff;
+    if (b.pointsFor !== a.pointsFor) return b.pointsFor - a.pointsFor;
+    return a.teamCode.localeCompare(b.teamCode);
+  }
+  
+  /**
+   * Derive "Through Week X" label and whether any games are final.
+   * @param {LeagueState} leagueState
+   * @returns {{ weekIndex0: number|null, label: string, hasFinals: boolean }}
+   */
+  function deriveThroughWeek(leagueState) {
+    if (!leagueState || !leagueState.schedule || !leagueState.schedule.byTeam) {
+      return { weekIndex0: null, label: "Pre-Week 1", hasFinals: false };
+    }
+  
+    const stats = leagueState.statsSummary || {};
+    if (
+      typeof stats.currentWeekIndex === "number" &&
+      Number.isFinite(stats.currentWeekIndex)
+    ) {
+      const w = stats.currentWeekIndex + 1;
+      return {
+        weekIndex0: stats.currentWeekIndex,
+        label: `Through Week ${w}`,
+        hasFinals: true
+      };
+    }
+  
+    const byTeam = leagueState.schedule.byTeam;
+    let maxWeek = 0;
+  
+    for (const games of Object.values(byTeam)) {
+      if (!Array.isArray(games)) continue;
+      for (const g of games) {
+        if (g.status !== "final") continue;
+        const w =
+          typeof g.seasonWeek === "number"
+            ? g.seasonWeek
+            : typeof g.index === "number"
+            ? g.index + 1
+            : null;
+        if (!w) continue;
+        if (w > maxWeek) maxWeek = w;
+      }
+    }
+  
+    if (maxWeek > 0) {
+      return {
+        weekIndex0: maxWeek - 1,
+        label: `Through Week ${maxWeek}`,
+        hasFinals: true
+      };
+    }
+  
+    return { weekIndex0: null, label: "Pre-Week 1", hasFinals: false };
+  }
+  
+  // -----------------------------------------------------------------------------
+  // Standings computation
+  // -----------------------------------------------------------------------------
+  
+  /**
+   * Compute full standings map keyed by teamCode.
+   * @param {LeagueState} leagueState
+   * @returns {Record<string, StandingRow>}
+   */
+  function computeTeamStandings(leagueState) {
+    const standingsMap = /** @type {Record<string, StandingRow>} */ ({});
+  
+    if (!leagueState || !leagueState.schedule || !leagueState.schedule.byTeam) {
+      return standingsMap;
+    }
+  
+    const schedule = leagueState.schedule;
+    const byTeam = schedule.byTeam;
+  
+    /** @type {Record<string, { conference: string; division: string }>} */
+    const metaByCode = {};
+    for (const t of TEAM_META) {
+      metaByCode[t.teamCode] = {
+        conference: t.conference,
+        division: t.division
+      };
+    }
+  
+    for (const meta of TEAM_META) {
+      const teamCode = meta.teamCode;
+      const conference = meta.conference;
+      const division = meta.division;
+      const displayName = getTeamDisplayName(teamCode);
+  
+      /** @type {TeamGame[]} */
+      const games = Array.isArray(byTeam[teamCode]) ? byTeam[teamCode] : [];
+  
+      const finalGames = games
+        .filter((g) => g && g.status === "final")
+        .slice()
+        .sort((a, b) => {
+          const aIdx =
+            typeof a.index === "number"
+              ? a.index
+              : typeof a.seasonWeek === "number"
+              ? a.seasonWeek - 1
+              : 0;
+          const bIdx =
+            typeof b.index === "number"
+              ? b.index
+              : typeof b.seasonWeek === "number"
+              ? b.seasonWeek - 1
+              : 0;
+          return aIdx - bIdx;
+        });
+  
+      let wins = 0;
+      let losses = 0;
+      let ties = 0;
+      let pf = 0;
+      let pa = 0;
+  
+      let divW = 0;
+      let divL = 0;
+      let divT = 0;
+  
+      let confW = 0;
+      let confL = 0;
+      let confT = 0;
+  
+      /** @type {string[]} */
+      const resultsChronological = [];
+  
+      for (const g of finalGames) {
+        const us = safeNumber(g.teamScore, NaN);
+        const them = safeNumber(g.opponentScore, NaN);
+        if (!Number.isFinite(us) || !Number.isFinite(them)) continue;
+  
+        pf += us;
+        pa += them;
+  
+        let res = "T";
+        if (us > them) {
+          wins++;
+          res = "W";
+        } else if (them > us) {
+          losses++;
+          res = "L";
+        } else {
+          ties++;
+        }
+        resultsChronological.push(res);
+  
+        // Division record
+        if (g.type === "division") {
+          if (res === "W") divW++;
+          else if (res === "L") divL++;
+          else divT++;
+        }
+  
+        // Conference record
+        const oppMeta = metaByCode[g.opponentCode];
+        if (oppMeta && oppMeta.conference === conference) {
+          if (res === "W") confW++;
+          else if (res === "L") confL++;
+          else confT++;
+        }
+      }
+  
+      const gamesPlayed = finalGames.length;
+      const winPct =
+        gamesPlayed > 0 ? (wins + 0.5 * ties) / gamesPlayed : 0;
+  
+      const pctString = winPct.toFixed(3);
+      const recordStr = formatRecord(wins, losses, ties);
+      const pointDiff = pf - pa;
+  
+      const { lastFiveArray, lastFiveString, streak } =
+        computeLastFiveAndStreak(resultsChronological);
+  
+      standingsMap[teamCode] = {
+        teamCode,
+        displayName,
+        conference,
+        division,
+        wins,
+        losses,
+        ties,
+        gamesPlayed,
+        winPct,
+        pctString,
+        recordStr,
+        pointsFor: pf,
+        pointsAgainst: pa,
+        pointDiff,
+        divisionWins: divW,
+        divisionLosses: divL,
+        divisionTies: divT,
+        conferenceWins: confW,
+        conferenceLosses: confL,
+        conferenceTies: confT,
+        lastFiveArray,
+        lastFiveString,
+        streak
+      };
+    }
+  
+    return standingsMap;
+  }
+  
+  /**
+   * Group standings by conference and division.
+   * @param {Record<string, StandingRow>} standingsMap
+   * @returns {{ AFC: Record<string, StandingRow[]>, NFC: Record<string, StandingRow[]> }}
+   */
+  function groupStandingsByConferenceAndDivision(standingsMap) {
+    /** @type {{ AFC: Record<string, StandingRow[]>, NFC: Record<string, StandingRow[]> }} */
+    const grouped = {
+      AFC: {},
+      NFC: {}
     };
-  });
-}
-
-function sortRows(rows){
-  return rows.slice().sort((a,b)=>
-    (b.wins - a.wins) ||
-    ((b.diff) - (a.diff)) ||
-    (b.pf - a.pf) ||
-    a.team.localeCompare(b.team)
-  );
-}
-
-/* ===== Rendering ===== */
-function tableStandingsHTML(rows, startRank = 1){
-  return `
-    <table class="table">
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Team</th>
-          <th class="right">W</th>
-          <th class="right">L</th>
-          <th class="right">PF</th>
-          <th class="right">PA</th>
-          <th class="right">Diff</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rows.map((r,i)=>`
-          <tr>
-            <td class="right">${startRank + i}</td>
-            <td>${r.team}</td>
-            <td class="right">${r.wins}</td>
-            <td class="right">${r.losses}</td>
-            <td class="right">${r.pf}</td>
-            <td class="right">${r.pa}</td>
-            <td class="right">${r.diff}</td>
-          </tr>`).join('')}
-      </tbody>
-    </table>`;
-}
-
-function renderLeagueView(){
-  const ordered = sortRows(CURRENT_ROWS);
-  elStandings.innerHTML = tableStandingsHTML(ordered);
-}
-
-function renderConferenceView(allRows){
-  const byConf = { AFC: [], NFC: [] };
-
-  allRows.forEach(r => {
-    const meta = TEAM_META[r.team] || {};
-    const conf = meta.conf || 'Unknown';
-    if (!byConf[conf]) byConf[conf] = [];
-    byConf[conf].push(r);
-  });
-
-  const sortFn = (a,b) =>
-    (b.wins - a.wins) ||
-    ((b.pf - b.pa) - (a.pf - a.pa)) ||
-    (b.pf - a.pf) ||
-    a.team.localeCompare(b.team);
-
-  byConf.AFC.sort(sortFn);
-  byConf.NFC.sort(sortFn);
-
-  elStandings.innerHTML = `
-    <div class="standings-grid two-cols">
-      <section class="section">
-        <h3>AFC</h3>
-        ${tableStandingsHTML(byConf.AFC)}
-      </section>
-      <section class="section">
-        <h3>NFC</h3>
-        ${tableStandingsHTML(byConf.NFC)}
-      </section>
-    </div>
-  `;
-}
-
-function renderDivisionView(allRows){
-  const buckets = {
-    'AFC East': [], 'AFC North': [], 'AFC South': [], 'AFC West': [],
-    'NFC East': [], 'NFC North': [], 'NFC South': [], 'NFC West': []
-  };
-
-  allRows.forEach(r => {
-    const meta = TEAM_META[r.team];
-    if (!meta) return;
-    const key = meta.division;
-    if (buckets[key]) buckets[key].push(r);
-  });
-
-  const sortFn = (a,b) =>
-    (b.wins - a.wins) ||
-    ((b.pf - b.pa) - (a.pf - a.pa)) ||
-    (b.pf - a.pf) ||
-    a.team.localeCompare(b.team);
-
-  Object.keys(buckets).forEach(k => buckets[k].sort(sortFn));
-
-  const makeColumn = (labels) => `
-    <div>
-      ${labels.map(label => {
-        const rows = buckets[label];
-        if (!rows || !rows.length) return '';
-        return `
-          <section class="section">
-            <h3>${label}</h3>
-            ${tableStandingsHTML(rows)}
-          </section>
-        `;
-      }).join('')}
-    </div>
-  `;
-
-  elStandings.innerHTML = `
-    <div class="standings-grid two-cols">
-      ${makeColumn(['AFC East','AFC North','AFC South','AFC West'])}
-      ${makeColumn(['NFC East','NFC North','NFC South','NFC West'])}
-    </div>
-  `;
-}
-
-function renderCurrentView(){
-  if (!CURRENT_ROWS.length){
-    elStandings.innerHTML = '<div class="small">No teams found.</div>';
-    return;
-  }
-  if (VIEW_MODE === 'conference') {
-    renderConferenceView(CURRENT_ROWS);
-  } else if (VIEW_MODE === 'division') {
-    renderDivisionView(CURRENT_ROWS);
-  } else {
-    renderLeagueView();
-  }
-}
-
-/* ===== Week pill ===== */
-function updateWeekPill(){
-  if (!weekPill) return;
-  const res = loadLocalResults();
-  const weeksSet = new Set();
-  for (const k in res){
-    const w = parseInt(res[k].week,10);
-    if (Number.isFinite(w) && w > 0) weeksSet.add(w);
-  }
-  if (!weeksSet.size){
-    weekPill.textContent = `Week: 1 of ${TOTAL_WEEKS}`;
-    return;
-  }
-  const arr = Array.from(weeksSet).sort((a,b)=>a-b);
-  const maxW = arr[arr.length-1];
-  let next = null;
-  for (let w=1; w<=maxW; w++){
-    if (!weeksSet.has(w)){
-      next = w; break;
+  
+    for (const conf of ["AFC", "NFC"]) {
+      for (const div of DIVISION_NAMES) {
+        grouped[conf][div] = [];
+      }
     }
+  
+    for (const row of Object.values(standingsMap)) {
+      if (!row) continue;
+      const conf = row.conference;
+      const div = row.division;
+      if (!grouped[conf]) continue;
+      if (!grouped[conf][div]) {
+        grouped[conf][div] = [];
+      }
+      grouped[conf][div].push(row);
+    }
+  
+    for (const conf of ["AFC", "NFC"]) {
+      for (const div of DIVISION_NAMES) {
+        const arr = grouped[conf][div];
+        if (Array.isArray(arr)) {
+          arr.sort(standingsComparator);
+        }
+      }
+    }
+  
+    return grouped;
   }
-  if (next == null) next = maxW + 1;
-
-  if (next > TOTAL_WEEKS){
-    weekPill.textContent = 'Season complete';
-  }else{
-    weekPill.textContent = `Week: ${next} of ${TOTAL_WEEKS}`;
+  
+  /**
+   * Compute playoff picture for one conference.
+   * @param {"AFC"|"NFC"} conference
+   * @param {Record<string, StandingRow[]>} confDivs
+   * @returns {PlayoffPicture}
+   */
+  function computePlayoffPictureForConference(conference, confDivs) {
+    if (!confDivs) {
+      return { seeds: [], inTheHunt: [] };
+    }
+  
+    /** @type {StandingRow[]} */
+    const allTeams = [];
+    /** @type {StandingRow[]} */
+    const divisionWinners = [];
+  
+    for (const div of DIVISION_NAMES) {
+      const teams = (confDivs[div] || []).slice();
+      if (!teams.length) continue;
+      teams.sort(standingsComparator);
+      allTeams.push(...teams);
+      divisionWinners.push(teams[0]);
+    }
+  
+    // De-duplicate any strange overlaps, just in case.
+    const seenWin = new Set();
+    /** @type {StandingRow[]} */
+    const uniqueWinners = [];
+    for (const t of divisionWinners) {
+      if (!seenWin.has(t.teamCode)) {
+        seenWin.add(t.teamCode);
+        uniqueWinners.push(t);
+      }
+    }
+  
+    uniqueWinners.sort(standingsComparator);
+  
+    /** @type {Array<StandingRow & { seed: number }>} */
+    const seeds = [];
+    const winnerCodes = new Set(uniqueWinners.map((t) => t.teamCode));
+  
+    uniqueWinners.forEach((t, idx) => {
+      seeds.push({ ...t, seed: idx + 1 });
+    });
+  
+    const others = allTeams.filter((t) => !winnerCodes.has(t.teamCode));
+    others.sort(standingsComparator);
+  
+    const wildcardsToTake = Math.min(3, others.length);
+    for (let i = 0; i < wildcardsToTake; i++) {
+      const t = others[i];
+      seeds.push({ ...t, seed: uniqueWinners.length + i + 1 });
+    }
+  
+    const seededCodes = new Set(seeds.map((s) => s.teamCode));
+    const outside = allTeams.filter((t) => !seededCodes.has(t.teamCode));
+    outside.sort(standingsComparator);
+  
+    const inTheHunt = outside.slice(0, 4);
+  
+    return { seeds, inTheHunt };
   }
-}
-
-/* ===== Recalculate + render ===== */
-function recalcAndRender(){
-  CURRENT_ROWS = rowsFromStandingsObj(CURRENT_STANDINGS);
-  teamCount.textContent = `${CURRENT_ROWS.length} teams`;
-  renderCurrentView();
-  updateWeekPill();
-}
-
-/* ===== Reset from this page ===== */
-function resetSeasonStandings(){
-  try{
-    localStorage.setItem(LOCAL_RESULTS_KEY, JSON.stringify({}));
-    const base = buildBaselineStandings();
-    CURRENT_STANDINGS = base;
-    localStorage.setItem(LIVE_KEY_STANDINGS, JSON.stringify(base));
-  }catch(e){}
-  recalcAndRender();
-
-  if (chan){
-    try{
-      chan.postMessage({
-        type:'standings',
-        standings: CURRENT_STANDINGS,
-        progress:{done:0,total:0}
+  
+  // -----------------------------------------------------------------------------
+  // DOM helpers
+  // -----------------------------------------------------------------------------
+  
+  function getEl(id) {
+    return /** @type {HTMLElement | null} */ (document.getElementById(id));
+  }
+  
+  function setText(id, text) {
+    const el = getEl(id);
+    if (el) el.textContent = text;
+  }
+  
+  /**
+   * Attach click navigation from any child row with data-team-code to team_view.
+   * @param {HTMLElement|null} container
+   */
+  function attachTeamRowNavigation(container) {
+    if (!container) return;
+    container.addEventListener("click", (evt) => {
+      const target = /** @type {HTMLElement | null} */ (evt.target);
+      if (!target) return;
+      const row = target.closest("[data-team-code]");
+      if (!row) return;
+      const code = row.getAttribute("data-team-code");
+      if (!code) return;
+      const url = `team_view.html?team=${encodeURIComponent(code)}`;
+      window.location.href = url;
+    });
+  }
+  
+  // -----------------------------------------------------------------------------
+  // Rendering
+  // -----------------------------------------------------------------------------
+  
+  /**
+   * @param {any} save
+   * @param {LeagueState} leagueState
+   * @param {string} throughWeekLabel
+   */
+  function renderHeader(save, leagueState, throughWeekLabel) {
+    const userTeamCode = save.teamCode;
+    const userName =
+      save.teamName ||
+      save.franchiseName ||
+      getTeamDisplayName(userTeamCode || "");
+  
+    const seasonYear = save.seasonYear || leagueState.seasonYear || "";
+    const phase = save.phase || "Regular Season";
+  
+    const recordFromSchedule =
+      leagueState && leagueState.schedule
+        ? recomputeRecordFromSchedule(leagueState, userTeamCode)
+        : null;
+    const recordText = recordFromSchedule || save.record || "0-0";
+  
+    setText("standings-header-name", userName);
+    setText(
+      "standings-header-subline",
+      `${seasonYear || "Season —"} • ${phase} • ${throughWeekLabel}`
+    );
+    setText("standings-record-value", recordText);
+  }
+  
+  /**
+   * @param {{ AFC: Record<string, StandingRow[]>, NFC: Record<string, StandingRow[]> }} grouped
+   * @param {string} userTeamCode
+   */
+  function renderDivisionStandings(grouped, userTeamCode) {
+    const container = getEl("division-standings-container");
+    if (!container) return;
+    container.innerHTML = "";
+  
+    const confWrapper = document.createElement("div");
+    confWrapper.className = "standings-conferences";
+  
+    const conferences = ["AFC", "NFC"];
+  
+    conferences.forEach((conf) => {
+      const confBlock = document.createElement("section");
+      confBlock.className = "standings-conf";
+      confBlock.setAttribute("data-conf", conf);
+  
+      const confTitle = document.createElement("div");
+      confTitle.className = "standings-conf-title";
+      confTitle.textContent = `${conf} Standings`;
+      confBlock.appendChild(confTitle);
+  
+      const divGrid = document.createElement("div");
+      divGrid.className = "division-grid";
+  
+      DIVISION_NAMES.forEach((divName) => {
+        const teams = (grouped[conf] && grouped[conf][divName]) || [];
+        if (!teams.length) return;
+  
+        const divCard = document.createElement("div");
+        divCard.className = "division-card";
+  
+        const header = document.createElement("div");
+        header.className = "division-card-header";
+  
+        const nameEl = document.createElement("div");
+        nameEl.className = "division-name";
+        nameEl.textContent = `${conf} ${divName}`;
+        header.appendChild(nameEl);
+  
+        const metaEl = document.createElement("div");
+        metaEl.className = "division-meta";
+        metaEl.textContent = "Division";
+        header.appendChild(metaEl);
+  
+        divCard.appendChild(header);
+  
+        const headerRow = document.createElement("div");
+        headerRow.className = "standings-header-row";
+        [
+          "Team",
+          "Record",
+          "Pct",
+          "PF",
+          "PA",
+          "Diff",
+          "Strk"
+        ].forEach((label) => {
+          const span = document.createElement("span");
+          span.textContent = label;
+          headerRow.appendChild(span);
+        });
+        divCard.appendChild(headerRow);
+  
+        const rowsContainer = document.createElement("div");
+        rowsContainer.className = "standings-rows";
+  
+        teams.forEach((row) => {
+          const rowEl = createStandingsRow(row, userTeamCode);
+          rowsContainer.appendChild(rowEl);
+        });
+  
+        divCard.appendChild(rowsContainer);
+        divGrid.appendChild(divCard);
       });
-    }catch(e){}
+  
+      confBlock.appendChild(divGrid);
+      confWrapper.appendChild(confBlock);
+    });
+  
+    container.appendChild(confWrapper);
   }
-}
-
-/* ===== Wire UI ===== */
-viewTabs.forEach(btn=>{
-  btn.addEventListener('click', ()=>{
-    viewTabs.forEach(b=>b.classList.remove('active'));
-    btn.classList.add('active');
-    VIEW_MODE = btn.dataset.view || 'league';
-    renderCurrentView();
-  });
-});
-
-if (resetBtn){
-  resetBtn.addEventListener('click', ()=>{
-    if (confirm('Reset all simulated results and standings?')){
-      resetSeasonStandings();
+  
+  /**
+   * @param {StandingRow} row
+   * @param {string} userTeamCode
+   */
+  function createStandingsRow(row, userTeamCode) {
+    const rowEl = document.createElement("div");
+    rowEl.className = "standings-row";
+    rowEl.setAttribute("data-team-code", row.teamCode);
+  
+    if (row.teamCode === userTeamCode) {
+      rowEl.classList.add("standings-row--user");
     }
-  });
-}
-
-/* ===== Broadcast updates from schedule/engine ===== */
-if (chan){
-  chan.onmessage = (evt)=>{
-    const { type, standings } = evt.data || {};
-    if (type === 'standings' && standings){
-      CURRENT_STANDINGS = standings;
-      try{
-        localStorage.setItem(LIVE_KEY_STANDINGS, JSON.stringify(standings));
-      }catch(e){}
-      recalcAndRender();
-    }else if (type === 'headlessResultsUpdated'){
-      CURRENT_STANDINGS = applyHeadlessResults();
-      try{
-        localStorage.setItem(LIVE_KEY_STANDINGS, JSON.stringify(CURRENT_STANDINGS));
-      }catch(e){}
-      recalcAndRender();
+  
+    const top = document.createElement("div");
+    top.className = "standings-row-top";
+  
+    const teamSpan = document.createElement("span");
+    teamSpan.className = "standings-team-name";
+    teamSpan.textContent = row.displayName;
+    top.appendChild(teamSpan);
+  
+    const recordSpan = document.createElement("span");
+    recordSpan.textContent = row.recordStr;
+    top.appendChild(recordSpan);
+  
+    const pctSpan = document.createElement("span");
+    pctSpan.textContent = row.pctString;
+    top.appendChild(pctSpan);
+  
+    const pfSpan = document.createElement("span");
+    pfSpan.textContent = String(row.pointsFor);
+    top.appendChild(pfSpan);
+  
+    const paSpan = document.createElement("span");
+    paSpan.textContent = String(row.pointsAgainst);
+    top.appendChild(paSpan);
+  
+    const diffSpan = document.createElement("span");
+    const diff = row.pointDiff;
+    diffSpan.textContent = diff > 0 ? `+${diff}` : String(diff);
+    top.appendChild(diffSpan);
+  
+    const streakSpan = document.createElement("span");
+    streakSpan.textContent = row.streak || "—";
+    top.appendChild(streakSpan);
+  
+    const bottom = document.createElement("div");
+    bottom.className = "standings-row-bottom";
+  
+    const divConfSpan = document.createElement("span");
+    divConfSpan.textContent = `Div ${formatRecord(
+      row.divisionWins,
+      row.divisionLosses,
+      row.divisionTies
+    )} • Conf ${formatRecord(
+      row.conferenceWins,
+      row.conferenceLosses,
+      row.conferenceTies
+    )}`;
+    bottom.appendChild(divConfSpan);
+  
+    const lastFiveSpan = document.createElement("span");
+    lastFiveSpan.textContent = row.lastFiveString
+      ? `Last 5: ${row.lastFiveString}`
+      : "Last 5: —";
+    bottom.appendChild(lastFiveSpan);
+  
+    const streakDetailSpan = document.createElement("span");
+    streakDetailSpan.textContent = row.streak
+      ? `Streak: ${row.streak}`
+      : "Streak: —";
+    bottom.appendChild(streakDetailSpan);
+  
+    rowEl.appendChild(top);
+    rowEl.appendChild(bottom);
+  
+    return rowEl;
+  }
+  
+  /**
+   * @param {{ AFC: PlayoffPicture, NFC: PlayoffPicture }} playoffByConf
+   * @param {string} userTeamCode
+   * @param {string} throughWeekLabel
+   */
+  function renderPlayoffPicture(playoffByConf, userTeamCode, throughWeekLabel) {
+    const container = getEl("playoff-picture-container");
+    if (!container) return;
+    container.innerHTML = "";
+  
+    const wrapper = document.createElement("div");
+    wrapper.className = "playoff-conferences";
+  
+    ["AFC", "NFC"].forEach((conf) => {
+      const picture = playoffByConf[conf];
+      const confBlock = document.createElement("section");
+      confBlock.className = "playoff-conf";
+      confBlock.setAttribute("data-conf", conf);
+  
+      const title = document.createElement("div");
+      title.className = "playoff-conf-title";
+      title.textContent = `${conf} Seeds`;
+      confBlock.appendChild(title);
+  
+      const seedsLabel = document.createElement("div");
+      seedsLabel.className = "playoff-seeds-label";
+      seedsLabel.textContent = "Seeds 1–7";
+      confBlock.appendChild(seedsLabel);
+  
+      const seedsBox = document.createElement("div");
+      seedsBox.className = "playoff-seeds";
+  
+      const headerRow = document.createElement("div");
+      headerRow.className = "playoff-header-row";
+      ["Seed", "Team", "Record", "Pct", "Diff", "Strk"].forEach((label) => {
+        const span = document.createElement("span");
+        span.textContent = label;
+        headerRow.appendChild(span);
+      });
+      seedsBox.appendChild(headerRow);
+  
+      if (picture && picture.seeds && picture.seeds.length) {
+        picture.seeds.forEach((row) => {
+          const rowEl = createPlayoffRow(row, userTeamCode, true);
+          seedsBox.appendChild(rowEl);
+        });
+      } else {
+        const empty = document.createElement("div");
+        empty.className = "playoff-row-bottom";
+        empty.textContent = "No seeds available yet.";
+        seedsBox.appendChild(empty);
+      }
+  
+      confBlock.appendChild(seedsBox);
+  
+      const huntLabel = document.createElement("div");
+      huntLabel.className = "playoff-hunt-label";
+      huntLabel.textContent = "In the hunt";
+      confBlock.appendChild(huntLabel);
+  
+      const huntBox = document.createElement("div");
+      huntBox.className = "playoff-hunt";
+  
+      if (picture && picture.inTheHunt && picture.inTheHunt.length) {
+        picture.inTheHunt.forEach((row) => {
+          const rowEl = createPlayoffRow(row, userTeamCode, false);
+          huntBox.appendChild(rowEl);
+        });
+      } else {
+        const empty = document.createElement("div");
+        empty.className = "playoff-row-bottom";
+        empty.textContent = "No additional teams in the hunt yet.";
+        huntBox.appendChild(empty);
+      }
+  
+      confBlock.appendChild(huntBox);
+      wrapper.appendChild(confBlock);
+    });
+  
+    container.appendChild(wrapper);
+  
+    // Through-week label mirrored on right card
+    setText("playoff-through-week-tag", throughWeekLabel);
+  }
+  
+  /**
+   * @param {StandingRow & { seed?: number }} row
+   * @param {string} userTeamCode
+   * @param {boolean} isSeed
+   */
+  function createPlayoffRow(row, userTeamCode, isSeed) {
+    const rowEl = document.createElement("div");
+    rowEl.className = "playoff-row";
+    rowEl.setAttribute("data-team-code", row.teamCode);
+  
+    if (row.teamCode === userTeamCode) {
+      rowEl.classList.add("playoff-row--user");
     }
-  };
-}
-
-/* ===== Boot ===== */
-(function init(){
-  CURRENT_STANDINGS = applyHeadlessResults();   // recompute from headlessResults only
-  try{
-    localStorage.setItem(LIVE_KEY_STANDINGS, JSON.stringify(CURRENT_STANDINGS));
-  }catch(e){}
-  recalcAndRender();
-})();
+    if (isSeed) {
+      rowEl.classList.add("playoff-row--seed");
+    }
+  
+    const top = document.createElement("div");
+    top.className = "playoff-row-top";
+  
+    const seedSpan = document.createElement("span");
+    seedSpan.textContent =
+      typeof row.seed === "number" && row.seed > 0
+        ? String(row.seed)
+        : "—";
+    top.appendChild(seedSpan);
+  
+    const teamSpan = document.createElement("span");
+    teamSpan.textContent = row.displayName;
+    top.appendChild(teamSpan);
+  
+    const recordSpan = document.createElement("span");
+    recordSpan.textContent = row.recordStr;
+    top.appendChild(recordSpan);
+  
+    const pctSpan = document.createElement("span");
+    pctSpan.textContent = row.pctString;
+    top.appendChild(pctSpan);
+  
+    const diffSpan = document.createElement("span");
+    const diff = row.pointDiff;
+    diffSpan.textContent = diff > 0 ? `+${diff}` : String(diff);
+    top.appendChild(diffSpan);
+  
+    const streakSpan = document.createElement("span");
+    streakSpan.textContent = row.streak || "—";
+    top.appendChild(streakSpan);
+  
+    const bottom = document.createElement("div");
+    bottom.className = "playoff-row-bottom";
+  
+    const lastFiveSpan = document.createElement("span");
+    lastFiveSpan.textContent = row.lastFiveString
+      ? `Last 5: ${row.lastFiveString}`
+      : "Last 5: —";
+    bottom.appendChild(lastFiveSpan);
+  
+    const streakDetailSpan = document.createElement("span");
+    streakDetailSpan.textContent = row.streak
+      ? `Streak: ${row.streak}`
+      : "Streak: —";
+    bottom.appendChild(streakDetailSpan);
+  
+    rowEl.appendChild(top);
+    rowEl.appendChild(bottom);
+  
+    return rowEl;
+  }
+  
+  // -----------------------------------------------------------------------------
+  // Init
+  // -----------------------------------------------------------------------------
+  
+  function initStandings() {
+    const save = loadLastFranchise();
+    const mainEl = getEl("standings-main");
+    const noFranchiseEl = getEl("no-franchise");
+  
+    if (!save) {
+      if (mainEl) mainEl.style.display = "none";
+      if (noFranchiseEl) noFranchiseEl.hidden = false;
+  
+      const backMain = getEl("btn-go-main-menu");
+      if (backMain) {
+        backMain.addEventListener("click", () => {
+          window.location.href = "main_page.html";
+        });
+      }
+      return;
+    }
+  
+    let leagueState = loadLeagueState(save.franchiseId);
+    if (!leagueState) {
+      leagueState = {
+        franchiseId: save.franchiseId,
+        seasonYear: save.seasonYear
+      };
+    }
+  
+    // Ensure schedule exists for all teams.
+    ensureAllTeamSchedules(leagueState, save.seasonYear);
+    saveLeagueState(leagueState);
+  
+    const standingsMap = computeTeamStandings(leagueState);
+    const grouped = groupStandingsByConferenceAndDivision(standingsMap);
+  
+    const playoffByConf = {
+      AFC: computePlayoffPictureForConference("AFC", grouped.AFC),
+      NFC: computePlayoffPictureForConference("NFC", grouped.NFC)
+    };
+  
+    const throughWeek = deriveThroughWeek(leagueState);
+    const throughLabel = throughWeek.label;
+  
+    renderHeader(save, leagueState, throughLabel);
+    setText("standings-through-week-tag", throughLabel);
+    renderDivisionStandings(grouped, save.teamCode);
+    renderPlayoffPicture(playoffByConf, save.teamCode, throughLabel);
+  
+    // Hint if no final games yet.
+    const hintEl = getEl("standings-hint");
+    if (hintEl) {
+      hintEl.textContent = throughWeek.hasFinals
+        ? ""
+        : "No final scores yet. All records currently show 0–0; standings and playoff picture will update as games are completed.";
+    }
+  
+    const backBtn = getEl("btn-back-hub");
+    if (backBtn) {
+      backBtn.addEventListener("click", () => {
+        window.location.href = "franchise.html";
+      });
+    }
+  
+    const backMain = getEl("btn-go-main-menu");
+    if (backMain) {
+      backMain.addEventListener("click", () => {
+        window.location.href = "main_page.html";
+      });
+    }
+  
+    // Clickable rows → team_view.html?team=CODE
+    attachTeamRowNavigation(getEl("division-standings-container"));
+    attachTeamRowNavigation(getEl("playoff-picture-container"));
+  
+    // Save franchise back in case other code expects updated meta later.
+    saveLastFranchise(save);
+  }
+  
+  // -----------------------------------------------------------------------------
+  // Bootstrap
+  // -----------------------------------------------------------------------------
+  
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initStandings);
+  } else {
+    initStandings();
+  }
+  

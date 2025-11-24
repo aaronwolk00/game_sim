@@ -316,7 +316,7 @@ function renderWeekList() {
     weekLabelSpan.textContent = `Week ${game.seasonWeek}`;
 
     const oppSpan = document.createElement("span");
-    oppSpan.textContent = `${game.isHome ? "vs" : "at"} ${getTeamDisplayName(
+    oppSpan.textContent = `${game.isHome ? "vs" : "@"} ${getTeamDisplayName(
       game.opponentCode
     )}`;
 
@@ -351,7 +351,7 @@ function renderWeekList() {
       tag.textContent = `${resLetter} ${game.teamScore}–${game.opponentScore}`;
       rightMeta.appendChild(tag);
     } else {
-      rightMeta.textContent = `Scheduled • ${typeText}`;
+      rightMeta.textContent = formatIsoToNice(game.kickoffIso);
     }
 
     metaLine.appendChild(leftMeta);

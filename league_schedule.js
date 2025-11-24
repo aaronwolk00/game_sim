@@ -272,14 +272,73 @@ export const TEAM_META = [
       if (g) ordered.push(g);
     }
   
-    const baseDate = new Date(seasonYear, 8, 10, 13, 0, 0, 0); // Sept ~10 1PM
+    // Week 1 starts the second Thursday of September.
+    const baseDate = new Date(seasonYear, 8, 7); // around Sept 7 (Thursday)
+
+    // Define possible time slots (ET times)
+    const SLOTS = {
+    THU:  { dayOffset: 0,  hour: 20, minute: 20 }, // Thursday 8:20 PM
+    SUN_930: { dayOffset: 3, hour: 9, minute: 30 }, // Sunday morning (London)
+    SUN_1:   { dayOffset: 3, hour: 13, minute: 0 },
+    SUN_415: { dayOffset: 3, hour: 16, minute: 15 },
+    SUN_425: { dayOffset: 3, hour: 16, minute: 25 },
+    SUN_820: { dayOffset: 3, hour: 20, minute: 20 },
+    MON_700: { dayOffset: 4, hour: 19, minute: 0 },
+    MON_1000:{ dayOffset: 4, hour: 22, minute: 0 }
+    };
+
+    // Roughly determine timezone for West/Mountain teams (to prefer later slots)
+    const WEST_COAST = ["SEA", "SF", "LAR", "ARI", "LV", "LAC", "DEN"];
+    const MOUNTAIN = ["DEN", "ARI"];
+
+    // Allocate prime-time games (simple deterministic distribution)
+    let thursdayTeamUsed = new Set();
+    let mondayTeamUsed = new Set();
+    let sundayNightUsed = new Set();
+
     ordered.forEach((g, idx) => {
-      g.index = idx;
-      g.seasonWeek = idx + 1;
-      const d = new Date(baseDate.getTime());
-      d.setDate(baseDate.getDate() + idx * 7);
-      g.kickoffIso = d.toISOString();
+    g.index = idx;
+    g.seasonWeek = idx + 1;
+
+    // Default kickoff Sunday 1:00 PM
+    let slot = SLOTS.SUN_1;
+
+    // West/Mountain teams host ~75% of late games
+    const isLateTeam = WEST_COAST.includes(g.teamCode) || MOUNTAIN.includes(g.teamCode);
+    if (isLateTeam && Math.random() < 0.7) {
+        const lateSlots = [SLOTS.SUN_415, SLOTS.SUN_425, SLOTS.MON_1000];
+        slot = lateSlots[Math.floor(Math.random() * lateSlots.length)];
+    }
+
+    // One Thursday game per week (skip if one team already had TNF)
+    if (idx % 7 === 0 && !thursdayTeamUsed.has(g.teamCode)) {
+        slot = SLOTS.THU;
+        thursdayTeamUsed.add(g.teamCode);
+    }
+
+    // One Sunday night game per week
+    if (idx % 7 === 1 && !sundayNightUsed.has(g.teamCode)) {
+        slot = SLOTS.SUN_820;
+        sundayNightUsed.add(g.teamCode);
+    }
+
+    // One Monday game per week, avoiding if this team played Thursday
+    if (idx % 7 === 2 && !mondayTeamUsed.has(g.teamCode) && !thursdayTeamUsed.has(g.teamCode)) {
+        slot = Math.random() < 0.5 ? SLOTS.MON_700 : SLOTS.MON_1000;
+        mondayTeamUsed.add(g.teamCode);
+    }
+
+    // Occasionally insert a London game (Week 5 or 6)
+    if ((g.seasonWeek === 5 || g.seasonWeek === 6) && Math.random() < 0.15) {
+        slot = SLOTS.SUN_930;
+    }
+
+    const kickoff = new Date(baseDate);
+    kickoff.setDate(baseDate.getDate() + (g.seasonWeek - 1) * 7 + slot.dayOffset);
+    kickoff.setHours(slot.hour, slot.minute, 0, 0);
+    g.kickoffIso = kickoff.toISOString();
     });
+
   
     if (ordered.length !== 16) {
       console.warn("[Schedule] unexpected game count", teamCode, seasonYear, ordered.length);
