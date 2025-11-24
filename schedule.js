@@ -858,7 +858,7 @@ function renderNoFranchiseScheduleState() {
   const mainBtn = document.getElementById("btn-go-main-menu");
   if (mainBtn) {
     mainBtn.addEventListener("click", () => {
-      window.location.href = "main_page.html";
+      window.location.href = "index.html";
     });
   }
 }

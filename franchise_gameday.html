@@ -243,6 +243,17 @@
       letter-spacing: 0.16em;
     }
 
+    /* Highlight user’s team */
+    .score-team--user {
+      border-radius: var(--radius-md);
+      box-shadow: 0 0 26px rgba(34,197,94,0.32);
+    }
+
+    .score-team--user .score-team-name,
+    .score-team--user .score-team-value {
+      color: #bbf7d0;
+    }
+
     .score-center {
       text-align: center;
       border-radius: var(--radius-md);
@@ -358,16 +369,19 @@
       font-size: 0.8rem;
     }
 
-    .log-line {
+    .log-line,
+    .gameday-log-line {
       padding: 4px 10px;
       border-bottom: 1px solid rgba(31,41,55,0.85);
     }
 
-    .log-line:last-child {
+    .log-line:last-child,
+    .gameday-log-line:last-child {
       border-bottom: none;
     }
 
-    .log-line strong {
+    .log-line strong,
+    .gameday-log-line strong {
       font-weight: 600;
     }
 
@@ -546,13 +560,13 @@
                   <strong>Game Day</strong> — Live Score
                 </div>
                 <div class="card-subtitle">
-                  Engine-driven single game using your current franchise matchup.
+                  Simulates your game and auto-sims the rest of this week’s schedule.
                 </div>
               </div>
             </div>
             <div class="card-body">
               <div class="scoreboard" aria-label="Scoreboard">
-                <div class="score-team">
+                <div class="score-team" id="score-team-away">
                   <div class="score-team-label">Away</div>
                   <div class="score-team-name" id="gameday-away-name">Opponent</div>
                   <div class="score-team-value" id="gameday-away-score">0</div>
@@ -563,10 +577,10 @@
                     Pre-game • Waiting for simulation
                   </div>
                   <div class="score-additional">
-                    Franchise engine: full-game sim with Layer 3 rosters.
+                    Uses your existing game engine and Layer 3 rosters to sim the full week.
                   </div>
                 </div>
-                <div class="score-team" style="text-align:right;">
+                <div class="score-team score-team--user" id="score-team-home" style="text-align:right;">
                   <div class="score-team-label">Home</div>
                   <div class="score-team-name" id="gameday-home-name">Franchise Team</div>
                   <div class="score-team-value" id="gameday-home-score">0</div>
@@ -575,10 +589,10 @@
 
               <div class="primary-actions-row">
                 <button type="button" class="btn btn-primary" id="btn-gameday-sim">
-                  Simulate game
+                  Simulate week
                 </button>
                 <div class="inline-hint">
-                  Uses your existing game engine and Layer 3 rosters.
+                  Runs your matchup and simulates all other games this week.
                 </div>
               </div>
             </div>
@@ -601,7 +615,7 @@
                 Ready to simulate your current franchise matchup.
               </div>
               <div class="log-container" id="gameday-play-log" aria-label="Key plays">
-                <div class="log-line">
+                <div class="log-line gameday-log-line">
                   Pre-game — Simulation has not been run yet. When you simulate, key scoring
                   and impact plays will be summarized here in franchise context.
                 </div>
@@ -638,7 +652,9 @@
                     </tr>
                   </thead>
                   <tbody>
-                    <!-- Populated by JS later -->
+                    <tr data-placeholder="drive">
+                      <td colspan="6">Run a simulation to see drive summaries.</td>
+                    </tr>
                   </tbody>
                 </table>
               </div>
@@ -672,7 +688,9 @@
                     </tr>
                   </thead>
                   <tbody>
-                    <!-- Populated by JS later -->
+                    <tr data-placeholder="team">
+                      <td colspan="7">Run a simulation to see team stats.</td>
+                    </tr>
                   </tbody>
                 </table>
               </div>
@@ -721,7 +739,9 @@
                 </tr>
               </thead>
               <tbody>
-                <!-- Populated by JS later -->
+                <tr data-placeholder="players">
+                  <td colspan="17">Run a simulation to see the full player box score.</td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -733,8 +753,8 @@
     <section id="no-franchise" class="no-franchise-state" hidden>
       <div class="no-franchise-title">No active franchise found</div>
       <div class="no-franchise-text">
-        There’s no active franchise in this slot. Return to the main menu to start
-        a new franchise or continue an existing one.
+        There’s no active franchise in this slot. Game Day isn’t available until you
+        start or continue a franchise from the main menu.
       </div>
       <div class="no-franchise-actions">
         <button type="button" class="btn btn-primary" id="btn-go-main-menu">
