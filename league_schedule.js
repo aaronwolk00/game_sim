@@ -11,7 +11,7 @@
  * @property {string} teamCode
  * @property {string} opponentCode
  * @property {boolean} isHome
- * @property {"division"|"conference"|"nonconference"|"extra"} type
+ * @property {"division"|"conference"|"nonconference"|"extra"|"bye"} type
  * @property {string|null} kickoffIso
  * @property {"scheduled"|"final"} status
  * @property {number|null} teamScore
@@ -125,7 +125,7 @@ export const TEAM_META = [
   }
   
   // -----------------------------------------------------------------------------
-  // Single-team schedule
+  // Single-team schedule (17 games, 1 bye week between Weeks 5–10)
   // -----------------------------------------------------------------------------
   export function generateTeamSchedule(teamCode, seasonYear) {
     const meta = getTeamMeta(teamCode);
@@ -136,213 +136,125 @@ export const TEAM_META = [
   
     const conference = meta.conference;
     const division = meta.division;
-  
     const divTeams = getDivisionTeams(conference, division);
     const selfIndex = divTeams.indexOf(teamCode);
-    if (selfIndex < 0) {
-      console.warn("[Schedule] team not found in division", teamCode);
-      return [];
-    }
+    if (selfIndex < 0) return [];
   
     /** @type {TeamGame[]} */
     const games = [];
   
-    // 1) Division home/away
+    // 1) Division home/away (6)
     divTeams.forEach((opCode, idx) => {
       if (opCode === teamCode) return;
       const homeFirst = selfIndex <= idx;
       games.push({
-        index: -1,
-        seasonWeek: 0,
-        teamCode,
-        opponentCode: opCode,
-        isHome: homeFirst,
-        type: "division",
-        kickoffIso: null,
-        status: "scheduled",
-        teamScore: null,
-        opponentScore: null
+        index: -1, seasonWeek: 0, teamCode, opponentCode: opCode, isHome: homeFirst,
+        type: "division", kickoffIso: null, status: "scheduled", teamScore: null, opponentScore: null
       });
       games.push({
-        index: -1,
-        seasonWeek: 0,
-        teamCode,
-        opponentCode: opCode,
-        isHome: !homeFirst,
-        type: "division",
-        kickoffIso: null,
-        status: "scheduled",
-        teamScore: null,
-        opponentScore: null
+        index: -1, seasonWeek: 0, teamCode, opponentCode: opCode, isHome: !homeFirst,
+        type: "division", kickoffIso: null, status: "scheduled", teamScore: null, opponentScore: null
       });
     });
   
-    // 2) Same-conference rotation
+    // 2) Same-conference rotation (4)
     const sameConfDivision = getSameConferenceOppDivision(conference, division, seasonYear);
-    const sameConfTeams = getDivisionTeams(conference, sameConfDivision);
-    sameConfTeams.forEach((opCode, idx) => {
+    getDivisionTeams(conference, sameConfDivision).forEach((opCode, idx) => {
       const isHome = ((seasonYear + selfIndex + idx) & 1) === 0;
       games.push({
-        index: -1,
-        seasonWeek: 0,
-        teamCode,
-        opponentCode: opCode,
-        isHome,
-        type: "conference",
-        kickoffIso: null,
-        status: "scheduled",
-        teamScore: null,
-        opponentScore: null
+        index: -1, seasonWeek: 0, teamCode, opponentCode: opCode, isHome,
+        type: "conference", kickoffIso: null, status: "scheduled", teamScore: null, opponentScore: null
       });
     });
   
-    // 3) Cross-conference rotation
+    // 3) Cross-conference rotation (4)
     const otherConference = conference === "AFC" ? "NFC" : "AFC";
     const crossDivision = getCrossConferenceDivision(conference, division, seasonYear);
-    const crossTeams = getDivisionTeams(otherConference, crossDivision);
-    crossTeams.forEach((opCode, idx) => {
+    getDivisionTeams(otherConference, crossDivision).forEach((opCode, idx) => {
       const isHome = ((seasonYear + idx) & 1) === 0;
       games.push({
-        index: -1,
-        seasonWeek: 0,
-        teamCode,
-        opponentCode: opCode,
-        isHome,
-        type: "nonconference",
-        kickoffIso: null,
-        status: "scheduled",
-        teamScore: null,
-        opponentScore: null
+        index: -1, seasonWeek: 0, teamCode, opponentCode: opCode, isHome,
+        type: "nonconference", kickoffIso: null, status: "scheduled", teamScore: null, opponentScore: null
       });
     });
   
-    // 4) Extra same-conf vs remaining divisions
-    const remainingDivisions = DIVISION_NAMES.filter(
-      (d) => d !== division && d !== sameConfDivision
-    );
-    remainingDivisions.forEach((otherDiv, idx) => {
-      const otherDivTeams = getDivisionTeams(conference, otherDiv);
-      if (!otherDivTeams.length) return;
-      const opIdx = selfIndex % otherDivTeams.length;
-      const opCode = otherDivTeams[opIdx];
-      const isHome = ((seasonYear + idx + selfIndex) & 1) === 0;
-      games.push({
-        index: -1,
-        seasonWeek: 0,
-        teamCode,
-        opponentCode: opCode,
-        isHome,
-        type: "extra",
-        kickoffIso: null,
-        status: "scheduled",
-        teamScore: null,
-        opponentScore: null
-      });
+    // 4) Extra intra-conference game (1)
+    const remainingDivisions = DIVISION_NAMES.filter((d) => d !== division && d !== sameConfDivision);
+    const targetDiv = remainingDivisions[selfIndex % remainingDivisions.length];
+    const oppTeam = getDivisionTeams(conference, targetDiv)[selfIndex % 4];
+    games.push({
+      index: -1, seasonWeek: 0, teamCode, opponentCode: oppTeam, isHome: Math.random() < 0.5,
+      type: "extra", kickoffIso: null, status: "scheduled", teamScore: null, opponentScore: null
     });
   
-    // Bucket and order into weeks, then assign dates
-    const divisionGames = games.filter(g => g.type === "division");
-    const confGames     = games.filter(g => g.type === "conference");
-    const nonConfGames  = games.filter(g => g.type === "nonconference");
-    const extraGames    = games.filter(g => g.type === "extra");
-  
-    const pull = (list) => (list.length ? list.shift() : null);
-    divisionGames.sort((a, b) => a.opponentCode.localeCompare(b.opponentCode));
-    confGames.sort((a, b) => a.opponentCode.localeCompare(b.opponentCode));
-    nonConfGames.sort((a, b) => a.opponentCode.localeCompare(b.opponentCode));
-    extraGames.sort((a, b) => a.opponentCode.localeCompare(b.opponentCode));
-  
-    /** @type {TeamGame[]} */
-    const ordered = [];
-  
-    for (let i = 0; i < 4; i++) {
-      const g = pull(nonConfGames) || pull(confGames) || pull(extraGames) || pull(divisionGames);
-      if (g) ordered.push(g);
-    }
-    for (let i = 0; i < 4; i++) {
-      const g = pull(divisionGames) || pull(confGames) || pull(nonConfGames) || pull(extraGames);
-      if (g) ordered.push(g);
-    }
-    for (let i = 0; i < 4; i++) {
-      const g = pull(confGames) || pull(nonConfGames) || pull(divisionGames) || pull(extraGames);
-      if (g) ordered.push(g);
-    }
-    while (divisionGames.length || confGames.length || nonConfGames.length || extraGames.length) {
-      const g = pull(divisionGames) || pull(confGames) || pull(nonConfGames) || pull(extraGames);
-      if (g) ordered.push(g);
-    }
-  
-    // Week 1 starts the second Thursday of September.
-    const baseDate = new Date(seasonYear, 8, 7); // around Sept 7 (Thursday)
-
-    // Define possible time slots (ET times)
-    const SLOTS = {
-    THU:  { dayOffset: 0,  hour: 20, minute: 20 }, // Thursday 8:20 PM
-    SUN_930: { dayOffset: 3, hour: 9, minute: 30 }, // Sunday morning (London)
-    SUN_1:   { dayOffset: 3, hour: 13, minute: 0 },
-    SUN_415: { dayOffset: 3, hour: 16, minute: 15 },
-    SUN_425: { dayOffset: 3, hour: 16, minute: 25 },
-    SUN_820: { dayOffset: 3, hour: 20, minute: 20 },
-    MON_700: { dayOffset: 4, hour: 19, minute: 0 },
-    MON_1000:{ dayOffset: 4, hour: 22, minute: 0 }
+    // ========== 17 total games ==========
+    // Add 1 BYE WEEK between Weeks 5–10
+    const byeWeek = 5 + Math.floor(Math.random() * 6);
+    const byeGame = {
+      index: -1, seasonWeek: byeWeek, teamCode, opponentCode: "BYE", isHome: false,
+      type: "bye", kickoffIso: null, status: "scheduled", teamScore: null, opponentScore: null
     };
-
-    // Roughly determine timezone for West/Mountain teams (to prefer later slots)
+  
+    // Order and assign dates (18 total weeks)
+    const ordered = [...games];
+    ordered.sort((a, b) => a.opponentCode.localeCompare(b.opponentCode));
+    ordered.splice(byeWeek - 1, 0, byeGame);
+  
+    const baseDate = new Date(seasonYear, 8, 7); // ~Sept 7 (Thursday)
+    const SLOTS = {
+      THU: { dayOffset: 0, hour: 20, minute: 20 },
+      SUN_930: { dayOffset: 3, hour: 9, minute: 30 },
+      SUN_1: { dayOffset: 3, hour: 13, minute: 0 },
+      SUN_415: { dayOffset: 3, hour: 16, minute: 15 },
+      SUN_425: { dayOffset: 3, hour: 16, minute: 25 },
+      SUN_820: { dayOffset: 3, hour: 20, minute: 20 },
+      MON_700: { dayOffset: 4, hour: 19, minute: 0 },
+      MON_1000: { dayOffset: 4, hour: 22, minute: 0 }
+    };
+  
     const WEST_COAST = ["SEA", "SF", "LAR", "ARI", "LV", "LAC", "DEN"];
     const MOUNTAIN = ["DEN", "ARI"];
-
-    // Allocate prime-time games (simple deterministic distribution)
     let thursdayTeamUsed = new Set();
     let mondayTeamUsed = new Set();
     let sundayNightUsed = new Set();
-
+  
     ordered.forEach((g, idx) => {
-    g.index = idx;
-    g.seasonWeek = idx + 1;
-
-    // Default kickoff Sunday 1:00 PM
-    let slot = SLOTS.SUN_1;
-
-    // West/Mountain teams host ~75% of late games
-    const isLateTeam = WEST_COAST.includes(g.teamCode) || MOUNTAIN.includes(g.teamCode);
-    if (isLateTeam && Math.random() < 0.7) {
+      g.index = idx;
+      g.seasonWeek = idx + 1;
+  
+      if (g.type === "bye") {
+        g.kickoffIso = null;
+        return;
+      }
+  
+      let slot = SLOTS.SUN_1;
+      const isLateTeam = WEST_COAST.includes(g.teamCode) || MOUNTAIN.includes(g.teamCode);
+      if (isLateTeam && Math.random() < 0.7) {
         const lateSlots = [SLOTS.SUN_415, SLOTS.SUN_425, SLOTS.MON_1000];
         slot = lateSlots[Math.floor(Math.random() * lateSlots.length)];
-    }
-
-    // One Thursday game per week (skip if one team already had TNF)
-    if (idx % 7 === 0 && !thursdayTeamUsed.has(g.teamCode)) {
+      }
+  
+      if (idx % 7 === 0 && !thursdayTeamUsed.has(g.teamCode)) {
         slot = SLOTS.THU;
         thursdayTeamUsed.add(g.teamCode);
-    }
-
-    // One Sunday night game per week
-    if (idx % 7 === 1 && !sundayNightUsed.has(g.teamCode)) {
+      }
+      if (idx % 7 === 1 && !sundayNightUsed.has(g.teamCode)) {
         slot = SLOTS.SUN_820;
         sundayNightUsed.add(g.teamCode);
-    }
-
-    // One Monday game per week, avoiding if this team played Thursday
-    if (idx % 7 === 2 && !mondayTeamUsed.has(g.teamCode) && !thursdayTeamUsed.has(g.teamCode)) {
+      }
+      if (idx % 7 === 2 && !mondayTeamUsed.has(g.teamCode) && !thursdayTeamUsed.has(g.teamCode)) {
         slot = Math.random() < 0.5 ? SLOTS.MON_700 : SLOTS.MON_1000;
         mondayTeamUsed.add(g.teamCode);
-    }
-
-    // Occasionally insert a London game (Week 5 or 6)
-    if ((g.seasonWeek === 5 || g.seasonWeek === 6) && Math.random() < 0.15) {
+      }
+      if ((g.seasonWeek === 5 || g.seasonWeek === 6) && Math.random() < 0.15) {
         slot = SLOTS.SUN_930;
-    }
-
-    const kickoff = new Date(baseDate);
-    kickoff.setDate(baseDate.getDate() + (g.seasonWeek - 1) * 7 + slot.dayOffset);
-    kickoff.setHours(slot.hour, slot.minute, 0, 0);
-    g.kickoffIso = kickoff.toISOString();
-    });
-
+      }
   
-    if (ordered.length !== 16) {
-      console.warn("[Schedule] unexpected game count", teamCode, seasonYear, ordered.length);
-    }
+      const kickoff = new Date(baseDate);
+      kickoff.setDate(baseDate.getDate() + (g.seasonWeek - 1) * 7 + slot.dayOffset);
+      kickoff.setHours(slot.hour, slot.minute, 0, 0);
+      g.kickoffIso = kickoff.toISOString();
+    });
   
     return ordered;
   }
@@ -379,9 +291,7 @@ export const TEAM_META = [
   
   export function recomputeRecordFromSchedule(leagueState, teamCode) {
     const schedule = leagueState.schedule;
-    if (!schedule || !schedule.byTeam || !schedule.byTeam[teamCode]) {
-      return "0-0";
-    }
+    if (!schedule || !schedule.byTeam || !schedule.byTeam[teamCode]) return "0-0";
     const games = schedule.byTeam[teamCode];
     let wins = 0, losses = 0, ties = 0;
     for (const g of games) {
