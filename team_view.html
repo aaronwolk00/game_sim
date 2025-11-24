@@ -314,6 +314,7 @@
       gap: 2px;
       background: rgba(15,23,42,0.96);
       cursor: pointer;
+      color: var(--text); /* ensure text isn’t black when this is a button */
       transition:
         background-color 120ms ease-out,
         border-color 120ms ease-out,
@@ -425,14 +426,20 @@
       align-items: baseline;
       border-bottom: 1px solid rgba(31,41,55,0.9);
       cursor: default;
+      color: var(--text); /* global text color for names/roles */
     }
 
     .roster-row:last-child {
       border-bottom: none;
     }
 
+    .roster-row:hover {
+      background: rgba(31,41,55,0.85);
+    }
+
     .roster-row-name {
       font-weight: 500;
+      color: var(--text); /* explicit fix for black names */
     }
 
     .roster-row-pos {
@@ -458,6 +465,31 @@
       padding: 10px;
       font-size: 0.8rem;
       color: var(--muted);
+    }
+
+    /* Shared scrollbars for depth chart & roster list */
+    .roster-list,
+    .depth-chart-container {
+      scrollbar-width: thin;
+      scrollbar-color: rgba(148,163,184,0.9) rgba(15,23,42,1);
+    }
+
+    .roster-list::-webkit-scrollbar,
+    .depth-chart-container::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+
+    .roster-list::-webkit-scrollbar-track,
+    .depth-chart-container::-webkit-scrollbar-track {
+      background: rgba(15,23,42,1);
+      border-radius: 999px;
+    }
+
+    .roster-list::-webkit-scrollbar-thumb,
+    .depth-chart-container::-webkit-scrollbar-thumb {
+      background: linear-gradient(180deg, rgba(148,163,184,0.9), rgba(148,163,184,0.55));
+      border-radius: 999px;
     }
 
     /* Buttons */
