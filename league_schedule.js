@@ -672,78 +672,123 @@ export function generatePerfectLeagueSchedule(seasonYear) {
     };
   }
   
-  // -----------------------------------------------------------------------------
-  // Assign kickoff times (1 TNF / 1 SNF / 1 MNF per week)
-  // -----------------------------------------------------------------------------
-  function assignTimesToWeeks(weeks, seasonYear) {
+// -----------------------------------------------------------------------------
+// Assign kickoff times (1 TNF / 1 SNF / 1 MNF per week, plus occasional London)
+// -----------------------------------------------------------------------------
+function assignTimesToWeeks(weeks, seasonYear) {
     const baseDate = getSeasonStartDateLocal(seasonYear);
   
-    const weeklyPrimeTeams = {
-      THU: new Set(),
-      SUN: new Set(),
-      MON: new Set()
+    // Track which teams have already appeared in each PRIME slot type
+    const primeUsage = {
+      THU: new Set(), // Thursday night
+      SNF: new Set(), // Sunday night
+      MNF: new Set()  // Monday night
     };
+  
+    // Helper to actually stamp a game with a slot + Eastern time ISO
+    function scheduleGameAtSlot(game, weekIndex, slotDef, slotId) {
+      if (!game) return;
+  
+      const kickoff = new Date(baseDate);
+      kickoff.setDate(baseDate.getDate() + weekIndex * 7 + slotDef.dayOffset);
+      kickoff.setHours(slotDef.hour, slotDef.minute, 0, 0);
+  
+      // Force-display as Eastern, then serialize
+      const eastern = new Date(
+        kickoff.toLocaleString("en-US", { timeZone: "America/New_York" })
+      );
+  
+      game.kickoffIso = eastern.toISOString();
+      game.slotId = slotId;
+      if (!game.status) game.status = "scheduled";
+    }
+  
+    // Pick a prime-time game from pool, preferring teams that
+    // haven't already appeared in that prime slot type this season.
+    function pickPrimeGame(pool, usageSet) {
+      for (let i = 0; i < pool.length; i++) {
+        const g = pool[i];
+        if (!usageSet.has(g.homeTeam) && !usageSet.has(g.awayTeam)) {
+          pool.splice(i, 1);
+          usageSet.add(g.homeTeam);
+          usageSet.add(g.awayTeam);
+          return g;
+        }
+      }
+      // Fallback: if everyone is "used", just pop one
+      const g = pool.pop();
+      if (!g) return null;
+      usageSet.add(g.homeTeam);
+      usageSet.add(g.awayTeam);
+      return g;
+    }
   
     for (let week = 1; week <= weeks.length; week++) {
       const games = weeks[week - 1];
       if (!games.length) continue;
   
-      // Select prime-time games
-      const available = games.slice();
-      shuffleInPlace(available);
+      // Work on a shuffled copy so we don't bias any particular team
+      const pool = games.slice();
+      shuffleInPlace(pool);
   
-      const tnf = available.pop();
-      const snf = available.pop();
-      const mnf = available.pop();
+      // ---- Optional London / international game (Weeks 5–8) ----
+      let londonGame = null;
+      if (week >= 5 && week <= 8 && pool.length && Math.random() < 0.25) {
+        // Prefer a non–West-coast host so a 9:30 AM ET kick makes sense
+        let idx = -1;
+        for (let i = 0; i < pool.length; i++) {
+          const g = pool[i];
+          if (!LATE_HOSTS.has(g.homeTeam)) {
+            idx = i;
+            break;
+          }
+        }
+        if (idx === -1) idx = 0; // fallback to whatever is available
   
-      const slots = {
-        THU: SLOT_DEFS.THU,
-        SUN_820: SLOT_DEFS.SUN_820,
-        MON_700: SLOT_DEFS.MON_700
-      };
-  
-      for (const [slotId, slot] of Object.entries(slots)) {
-        const g =
-          slotId === "THU" ? tnf : slotId === "SUN_820" ? snf : mnf;
-        if (!g) continue;
-  
-        const kickoff = new Date(baseDate);
-        kickoff.setDate(baseDate.getDate() + (week - 1) * 7 + slot.dayOffset);
-        kickoff.setHours(slot.hour, slot.minute, 0, 0);
-  
-        const eastern = new Date(
-          kickoff.toLocaleString("en-US", { timeZone: "America/New_York" })
-        );
-        g.kickoffIso = eastern.toISOString();
-        g.slotId = slotId;
-        g.status = "scheduled";
+        londonGame = pool.splice(idx, 1)[0];
+        scheduleGameAtSlot(londonGame, week - 1, SLOT_DEFS.SUN_930, "SUN_930");
       }
   
-      // Assign remaining games to Sunday slots
-      const remaining = games.filter(
-        (x) => !x.kickoffIso || !x.slotId
-      );
-      remaining.forEach((g) => {
-        let slot;
-        const lateBias =
-          LATE_HOSTS.has(g.homeTeam) && Math.random() < 0.7;
-        if (lateBias) {
-          const late = [SLOT_DEFS.SUN_415, SLOT_DEFS.SUN_425];
-          slot = late[Math.floor(Math.random() * late.length)];
+      // ---- Prime-time selection: TNF, SNF, MNF ----
+      const tnf = pickPrimeGame(pool, primeUsage.THU); // Thursday
+      const snf = pickPrimeGame(pool, primeUsage.SNF); // Sunday night
+      const mnf = pickPrimeGame(pool, primeUsage.MNF); // Monday night
+  
+      // Thursday night – fixed slot
+      scheduleGameAtSlot(tnf, week - 1, SLOT_DEFS.THU, "THU");
+  
+      // Sunday night – fixed slot
+      scheduleGameAtSlot(snf, week - 1, SLOT_DEFS.SUN_820, "SUN_820");
+  
+      // Monday night – randomly early/late Monday window
+      if (mnf) {
+        const mondayDef =
+          Math.random() < 0.5 ? SLOT_DEFS.MON_700 : SLOT_DEFS.MON_1000;
+        const mondayId =
+          mondayDef === SLOT_DEFS.MON_700 ? "MON_700" : "MON_1000";
+        scheduleGameAtSlot(mnf, week - 1, mondayDef, mondayId);
+      }
+  
+      // ---- Remaining Sunday games (1:00 and late windows) ----
+      const remaining = games.filter((g) => !g.kickoffIso);
+  
+      for (const g of remaining) {
+        let slotDef;
+  
+        // West/Mountain hosts lean heavily toward the late window
+        const isLateHost = LATE_HOSTS.has(g.homeTeam) && Math.random() < 0.7;
+        if (isLateHost) {
+          const lateChoices = [SLOT_DEFS.SUN_415, SLOT_DEFS.SUN_425];
+          slotDef = lateChoices[Math.floor(Math.random() * lateChoices.length)];
         } else {
-          slot = SLOT_DEFS.SUN_1;
+          slotDef = SLOT_DEFS.SUN_1;
         }
   
-        const kickoff = new Date(baseDate);
-        kickoff.setDate(baseDate.getDate() + (week - 1) * 7 + slot.dayOffset);
-        kickoff.setHours(slot.hour, slot.minute, 0, 0);
-        const eastern = new Date(
-          kickoff.toLocaleString("en-US", { timeZone: "America/New_York" })
-        );
-        g.kickoffIso = eastern.toISOString();
-      });
+        scheduleGameAtSlot(g, week - 1, slotDef, "SUN_DAY");
+      }
     }
   }
+  
   
   // -----------------------------------------------------------------------------
   // ensureLeagueScheduleObject override to use perfect schedule
