@@ -219,10 +219,11 @@
       background: rgba(15,23,42,0.9);
       box-shadow: var(--shadow-soft);
       padding: 6px;
-      /* IMPORTANT: let the whole page scroll instead of an inner scroll */
       max-height: none;
       overflow: visible;
+      margin-bottom: 4px; /* new */
     }
+
 
     .week-row {
       border-radius: 12px;
@@ -253,8 +254,9 @@
       background: rgba(15,23,42,0.96);
       color: var(--muted);
       font-style: italic;
-      cursor: default;
+      /* still clickable, just visually softer */
     }
+
 
     .week-row:hover:not(.week-row--bye) {
       transform: translateY(-1px);
@@ -306,6 +308,12 @@
       color: var(--muted);
     }
 
+    .week-row:focus-visible {
+      outline: 2px solid rgba(96,165,250,0.9);
+      outline-offset: 2px;
+    }
+
+
     .legend-dot {
       width: 8px;
       height: 8px;
@@ -317,6 +325,30 @@
     .legend-home { background: var(--accent-home); }
     .legend-away { background: var(--accent-away); }
     .legend-bye { background: var(--accent-bye); }
+
+    .section-divider {
+      margin-top: 16px;
+      margin-bottom: 6px;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--muted);
+    }
+
+    .context-lines {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+
+    #btn-view-league-slate {
+      margin-top: 4px;
+      align-self: flex-start;
+    }
+
+
 
     /* ------------------------------------------------------------------ */
     /* Week detail (right card)                                           */
@@ -443,13 +475,24 @@
       .layout-grid { grid-template-columns: 1fr; }
       .page { padding: 20px; }
     }
+
+    button {
+      font-family: inherit;
+      border: none;
+      background: none;
+    }
+    button:disabled {
+      opacity: 0.55;
+      cursor: default;
+    }
+
   </style>
 </head>
 <body>
   <div class="page">
     <header class="schedule-header">
       <div class="header-left">
-        <div id="team-name-heading">Franchise Team</div>
+        <h1 id="team-name-heading">Franchise Team</h1>
         <div id="season-phase-line">2025 • Regular Season • Schedule</div>
         <div class="header-tabs">
           <button type="button" class="view-tab" id="tab-my-team" data-active="true">My Team</button>
@@ -475,7 +518,7 @@
         <section class="card" id="card-season-weeks">
           <div class="card-header">
             <div>
-              <div class="card-title"><strong>Season Weeks</strong></div>
+              <h2 class="card-title"><strong>Season Weeks</strong></h2>
               <div class="card-subtitle">
                 Select a week to view details for your team or league.
               </div>

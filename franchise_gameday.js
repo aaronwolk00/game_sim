@@ -748,6 +748,18 @@ async function runPlayByPlayGame(save, opponentCode, isHome, weekIndex0) {
   
     pauseBtn.disabled = false;
     skipBtn.disabled = false;
+
+    // --- Live score tracking setup ---
+    let homeScore = 0;
+    let awayScore = 0;
+
+    // Set initial scores visually
+    setText("gameday-home-score", String(homeScore));
+    setText("gameday-away-score", String(awayScore));
+
+    const homeTeamName = getEl("gameday-home-name")?.textContent || "Home";
+    const awayTeamName = getEl("gameday-away-name")?.textContent || "Away";
+
   
     const speedSel = getEl("sim-speed-select");
     const speed = speedSel?.value || "normal";
@@ -759,6 +771,44 @@ async function runPlayByPlayGame(save, opponentCode, isHome, weekIndex0) {
         for (let j = i; j < plays.length; j++) {
           const div = document.createElement("div");
           div.className = "gameday-log-line";
+            // --- Detect scoring plays and update scoreboard live ---
+            const desc = (p.text || p.description || "").toLowerCase();
+            const tags = (p.tags || []).map((t) => t.toUpperCase());
+
+            const scoringKeywords = ["touchdown", "td", "field goal", "fg", "safety"];
+            const isScore = scoringKeywords.some((kw) => desc.includes(kw)) || p.isScoring;
+
+            if (isScore) {
+            // Estimate point value based on description / tags
+            let pts = 0;
+            if (desc.includes("touchdown") || tags.includes("TD")) pts = 6;
+            else if (desc.includes("field goal") || tags.includes("FG")) pts = 3;
+            else if (desc.includes("safety")) pts = 2;
+
+            // Guess which team scored (basic text-based detection)
+            const textLower = desc.toLowerCase();
+            const franchiseName = homeTeamName.toLowerCase();
+            const opponentName = awayTeamName.toLowerCase();
+
+            const franchiseIsHome = isHome;
+
+            const scoredByUserTeam =
+                textLower.includes(franchiseName) ||
+                (franchiseIsHome && !textLower.includes(opponentName));
+
+            if (scoredByUserTeam) {
+                if (franchiseIsHome) homeScore += pts;
+                else awayScore += pts;
+            } else {
+                if (franchiseIsHome) awayScore += pts;
+                else homeScore += pts;
+            }
+
+            // Update DOM scoreboard
+            setText("gameday-home-score", String(homeScore));
+            setText("gameday-away-score", String(awayScore));
+            }
+
           div.textContent = plays[j].text || plays[j].description || "[play]";
           logEl.appendChild(div);
         }
@@ -776,6 +826,8 @@ async function runPlayByPlayGame(save, opponentCode, isHome, weekIndex0) {
       const q = p.quarter ?? p.qtr ?? "";
       const clock = p.clock ?? p.gameClock ?? "";
       const prefix = [q ? `Q${q}` : "", clock].filter(Boolean).join(" • ");
+      setText("gameday-score-meta", `Q${q || "?"} • ${clock || ""}`);
+
   
       div.textContent = prefix ? `${prefix} — ${p.text || p.description}` : p.text || p.description || "[play]";
   
