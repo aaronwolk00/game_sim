@@ -999,6 +999,26 @@ function bindModalHandlers() {
   });
 }
 
+const btnNext = document.getElementById("btn-next-game-gameday");
+if (btnNext && nextGame) {
+  btnNext.disabled = false;
+  btnNext.addEventListener("click", () => {
+    const weekIndex =
+      typeof nextGame.index === "number"
+        ? nextGame.index
+        : (nextGame.seasonWeek || 1) - 1;
+    const opp = nextGame.opponentCode;
+    const home = nextGame.isHome ? "1" : "0";
+
+    const url = `franchise_gameday.html?week=${encodeURIComponent(
+      weekIndex
+    )}&opp=${encodeURIComponent(opp)}&home=${home}`;
+
+    window.location.href = url;
+  });
+}
+
+
 // ---------------------------------------------------------------------------
 // No-franchise fallback
 // ---------------------------------------------------------------------------

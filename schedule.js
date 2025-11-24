@@ -507,7 +507,7 @@ function renderWeekDetail() {
       const homeFlag = game.isHome ? "1" : "0";
 
       window.location.href =
-        `gameday.html?week=${weekParam}&opp=${encodeURIComponent(
+        `franchise_gameday.html?week=${weekParam}&opp=${encodeURIComponent(
           oppParam
         )}&home=${homeFlag}`;
     };
