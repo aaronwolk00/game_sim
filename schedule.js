@@ -27,8 +27,8 @@
 //       #team-name-heading
 //       #season-phase-line
 //   - Scope toggle:
-//       #btn-scope-my-team
-//       #btn-scope-league
+//       #tab-my-team
+//       #tab-league
 //   - Week list card:
 //       #week-list
 //   - Week detail card:
@@ -37,8 +37,8 @@
 //       #week-detail-meta
 //       #week-detail-result
 //       #week-detail-record-line
-//       #btn-week-gameday
-//       #btn-week-boxscore
+//       #btn-advance-week
+//       #btn-view-box
 //   - View mode hint:
 //       #schedule-view-mode-label
 //   - Back to hub:
@@ -107,6 +107,13 @@
 // Storage keys & helpers
 // ---------------------------------------------------------------------------
 
+import {
+  getTeamDisplayName,
+  ensureTeamSchedule,
+  ensureAllTeamSchedules
+} from "./league_schedule.js";
+
+
 const SAVE_KEY_LAST_FRANCHISE = "franchiseGM_lastFranchise";
 const LEAGUE_STATE_KEY_PREFIX = "franchiseGM_leagueState_";
 
@@ -163,390 +170,6 @@ function saveLeagueState(state) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Team metadata (conference / division / city / name)
-// ---------------------------------------------------------------------------
-
-/**
- * Minimal team metadata needed for schedule generation.
- */
-const TEAM_META = [
-  // AFC East
-  { teamCode: "BUF", city: "Buffalo", name: "Bills", conference: "AFC", division: "East" },
-  { teamCode: "MIA", city: "Miami", name: "Dolphins", conference: "AFC", division: "East" },
-  { teamCode: "NE",  city: "New England", name: "Patriots", conference: "AFC", division: "East" },
-  { teamCode: "NYJ", city: "New York", name: "Jets", conference: "AFC", division: "East" },
-
-  // AFC North
-  { teamCode: "BAL", city: "Baltimore", name: "Ravens", conference: "AFC", division: "North" },
-  { teamCode: "CIN", city: "Cincinnati", name: "Bengals", conference: "AFC", division: "North" },
-  { teamCode: "CLE", city: "Cleveland", name: "Browns", conference: "AFC", division: "North" },
-  { teamCode: "PIT", city: "Pittsburgh", name: "Steelers", conference: "AFC", division: "North" },
-
-  // AFC South
-  { teamCode: "HOU", city: "Houston", name: "Texans", conference: "AFC", division: "South" },
-  { teamCode: "IND", city: "Indianapolis", name: "Colts", conference: "AFC", division: "South" },
-  { teamCode: "JAX", city: "Jacksonville", name: "Jaguars", conference: "AFC", division: "South" },
-  { teamCode: "TEN", city: "Tennessee", name: "Titans", conference: "AFC", division: "South" },
-
-  // AFC West
-  { teamCode: "DEN", city: "Denver", name: "Broncos", conference: "AFC", division: "West" },
-  { teamCode: "KC",  city: "Kansas City", name: "Chiefs", conference: "AFC", division: "West" },
-  { teamCode: "LV",  city: "Las Vegas", name: "Raiders", conference: "AFC", division: "West" },
-  { teamCode: "LAC", city: "Los Angeles", name: "Chargers", conference: "AFC", division: "West" },
-
-  // NFC East
-  { teamCode: "DAL", city: "Dallas", name: "Cowboys", conference: "NFC", division: "East" },
-  { teamCode: "NYG", city: "New York", name: "Giants", conference: "NFC", division: "East" },
-  { teamCode: "PHI", city: "Philadelphia", name: "Eagles", conference: "NFC", division: "East" },
-  { teamCode: "WAS", city: "Washington", name: "Commanders", conference: "NFC", division: "East" },
-
-  // NFC North
-  { teamCode: "CHI", city: "Chicago", name: "Bears", conference: "NFC", division: "North" },
-  { teamCode: "DET", city: "Detroit", name: "Lions", conference: "NFC", division: "North" },
-  { teamCode: "GB",  city: "Green Bay", name: "Packers", conference: "NFC", division: "North" },
-  { teamCode: "MIN", city: "Minnesota", name: "Vikings", conference: "NFC", division: "North" },
-
-  // NFC South
-  { teamCode: "ATL", city: "Atlanta", name: "Falcons", conference: "NFC", division: "South" },
-  { teamCode: "CAR", city: "Carolina", name: "Panthers", conference: "NFC", division: "South" },
-  { teamCode: "NO",  city: "New Orleans", name: "Saints", conference: "NFC", division: "South" },
-  { teamCode: "TB",  city: "Tampa Bay", name: "Buccaneers", conference: "NFC", division: "South" },
-
-  // NFC West
-  { teamCode: "ARI", city: "Arizona", name: "Cardinals", conference: "NFC", division: "West" },
-  { teamCode: "LAR", city: "Los Angeles", name: "Rams", conference: "NFC", division: "West" },
-  { teamCode: "SF",  city: "San Francisco", name: "49ers", conference: "NFC", division: "West" },
-  { teamCode: "SEA", city: "Seattle", name: "Seahawks", conference: "NFC", division: "West" }
-];
-
-const DIVISION_NAMES = ["East", "North", "South", "West"];
-
-function getTeamMeta(teamCode) {
-  return TEAM_META.find((t) => t.teamCode === teamCode) || null;
-}
-
-function getDivisionTeams(conference, division) {
-  return TEAM_META
-    .filter(
-      (t) =>
-        t.conference === conference &&
-        t.division === division
-    )
-    .map((t) => t.teamCode);
-}
-
-function getTeamDisplayName(teamCode) {
-  const meta = getTeamMeta(teamCode);
-  if (!meta) return teamCode || "Unknown Team";
-  return `${meta.city} ${meta.name}`;
-}
-
-// ---------------------------------------------------------------------------
-// NFL-style rotation helpers (16-game era style)
-// ---------------------------------------------------------------------------
-
-// 3-year intra-conference division rotation for each conference.
-// Example (yearIdx = 0 is an arbitrary anchor):
-//   - Year 0: East vs West, North vs South
-//   - Year 1: East vs North, South vs West
-//   - Year 2: East vs South, North vs West
-const SAME_CONF_ROTATION = {
-  AFC: [
-    { East: "West", West: "East", North: "South", South: "North" },
-    { East: "North", North: "East", South: "West", West: "South" },
-    { East: "South", South: "East", North: "West", West: "North" }
-  ],
-  NFC: [
-    { East: "West", West: "East", North: "South", South: "North" },
-    { East: "North", North: "East", South: "West", West: "South" },
-    { East: "South", South: "East", North: "West", West: "North" }
-  ]
-};
-
-// 4-year cross-conference rotation. We compute this algorithmically:
-// treat divisions as indices 0..3 and rotate.
-function getCrossConferenceDivision(conference, division, seasonYear) {
-  const baseYear = 2022; // arbitrary anchor
-  const offsetRaw = (seasonYear - baseYear) % 4;
-  const offset = offsetRaw < 0 ? offsetRaw + 4 : offsetRaw;
-
-  const divIndex = DIVISION_NAMES.indexOf(division);
-  if (divIndex < 0) return "East";
-
-  const oppIndex = (divIndex + offset) % 4;
-  return DIVISION_NAMES[oppIndex];
-}
-
-function getSameConferenceOppDivision(conference, division, seasonYear) {
-  const rotations = SAME_CONF_ROTATION[conference];
-  if (!rotations) return "East";
-  const baseYear = 2023;
-  const rawIdx = (seasonYear - baseYear) % rotations.length;
-  const idx = rawIdx < 0 ? rawIdx + rotations.length : rawIdx;
-  const config = rotations[idx];
-  return config[division] || division;
-}
-
-// ---------------------------------------------------------------------------
-// Schedule generation (per team, 16 games)
-// ---------------------------------------------------------------------------
-
-/**
- * Generate a 16-game NFL-style schedule for a single team.
- * This does NOT currently coordinate opponents across the entire league;
- * it's deterministic for the given teamCode + seasonYear and structurally
- * realistic enough for front-office use.
- *
- * @param {string} teamCode
- * @param {number} seasonYear
- * @returns {TeamGame[]}
- */
-function generateTeamSchedule(teamCode, seasonYear) {
-  const meta = getTeamMeta(teamCode);
-  if (!meta) {
-    console.warn("[Franchise GM] generateTeamSchedule: unknown team", teamCode);
-    return [];
-  }
-
-  const conference = meta.conference;
-  const division = meta.division;
-
-  const divTeams = getDivisionTeams(conference, division);
-  const selfIndex = divTeams.indexOf(teamCode);
-
-  if (selfIndex < 0) {
-    console.warn("[Franchise GM] generateTeamSchedule: team not found in division", teamCode);
-    return [];
-  }
-
-  /** @type {TeamGame[]} */
-  const games = [];
-
-  // --- 1) Division games (home & away vs each rival) – 6 games
-  divTeams.forEach((opCode, idx) => {
-    if (opCode === teamCode) return;
-    const homeFirst = selfIndex <= idx;
-
-    games.push({
-      index: -1,
-      seasonWeek: 0,
-      teamCode,
-      opponentCode: opCode,
-      isHome: homeFirst,
-      type: "division",
-      kickoffIso: null,
-      status: "scheduled",
-      teamScore: null,
-      opponentScore: null
-    });
-    games.push({
-      index: -1,
-      seasonWeek: 0,
-      teamCode,
-      opponentCode: opCode,
-      isHome: !homeFirst,
-      type: "division",
-      kickoffIso: null,
-      status: "scheduled",
-      teamScore: null,
-      opponentScore: null
-    });
-  });
-
-  // --- 2) Same-conference rotation division – 4 games
-  const sameConfDivision = getSameConferenceOppDivision(
-    conference,
-    division,
-    seasonYear
-  );
-  const sameConfTeams = getDivisionTeams(conference, sameConfDivision);
-
-  sameConfTeams.forEach((opCode, idx) => {
-    const isHome = ((seasonYear + selfIndex + idx) & 1) === 0;
-    games.push({
-      index: -1,
-      seasonWeek: 0,
-      teamCode,
-      opponentCode: opCode,
-      isHome,
-      type: "conference",
-      kickoffIso: null,
-      status: "scheduled",
-      teamScore: null,
-      opponentScore: null
-    });
-  });
-
-  // --- 3) Cross-conference rotation division – 4 games
-  const otherConference = conference === "AFC" ? "NFC" : "AFC";
-  const crossDivision = getCrossConferenceDivision(
-    conference,
-    division,
-    seasonYear
-  );
-  const crossTeams = getDivisionTeams(otherConference, crossDivision);
-
-  crossTeams.forEach((opCode, idx) => {
-    const isHome = ((seasonYear + idx) & 1) === 0;
-    games.push({
-      index: -1,
-      seasonWeek: 0,
-      teamCode,
-      opponentCode: opCode,
-      isHome,
-      type: "nonconference",
-      kickoffIso: null,
-      status: "scheduled",
-      teamScore: null,
-      opponentScore: null
-    });
-  });
-
-  // --- 4) Extra same-conference games vs the remaining two divisions – 2 games
-  const remainingDivisions = DIVISION_NAMES.filter(
-    (d) => d !== division && d !== sameConfDivision
-  );
-  remainingDivisions.forEach((otherDiv, idx) => {
-    const otherDivTeams = getDivisionTeams(conference, otherDiv);
-    if (!otherDivTeams.length) return;
-    const opIdx = selfIndex % otherDivTeams.length;
-    const opCode = otherDivTeams[opIdx];
-    const isHome = ((seasonYear + idx + selfIndex) & 1) === 0;
-
-    games.push({
-      index: -1,
-      seasonWeek: 0,
-      teamCode,
-      opponentCode: opCode,
-      isHome,
-      type: "extra",
-      kickoffIso: null,
-      status: "scheduled",
-      teamScore: null,
-      opponentScore: null
-    });
-  });
-
-  // Should have 16 total games
-  if (games.length !== 16) {
-    console.warn(
-      "[Franchise GM] Unexpected game count for schedule",
-      teamCode,
-      "season",
-      seasonYear,
-      "count=",
-      games.length
-    );
-  }
-
-  // --- Order games into a plausible weekly flow, then assign weeks & dates ---
-
-  const divisionGames = games.filter((g) => g.type === "division");
-  const confGames = games.filter((g) => g.type === "conference");
-  const nonConfGames = games.filter((g) => g.type === "nonconference");
-  const extraGames = games.filter((g) => g.type === "extra");
-
-  /** @type {TeamGame[]} */
-  const ordered = [];
-
-  // Basic pattern:
-  //   Weeks 1–4: mix non-conf + conference
-  //   Weeks 5–8: division-heavy
-  //   Weeks 9–12: mix all types
-  //   Weeks 13–16: division & conference
-  function pull(list) {
-    return list.length ? list.shift() : null;
-  }
-
-  // We keep things deterministic by sorting each bucket by opponentCode.
-  divisionGames.sort((a, b) => a.opponentCode.localeCompare(b.opponentCode));
-  confGames.sort((a, b) => a.opponentCode.localeCompare(b.opponentCode));
-  nonConfGames.sort((a, b) => a.opponentCode.localeCompare(b.opponentCode));
-  extraGames.sort((a, b) => a.opponentCode.localeCompare(b.opponentCode));
-
-  // Weeks 1–4
-  for (let i = 0; i < 4; i++) {
-    let g = pull(nonConfGames) || pull(confGames) || pull(extraGames) || pull(divisionGames);
-    if (g) ordered.push(g);
-  }
-  // Weeks 5–8
-  for (let i = 0; i < 4; i++) {
-    let g = pull(divisionGames) || pull(confGames) || pull(nonConfGames) || pull(extraGames);
-    if (g) ordered.push(g);
-  }
-  // Weeks 9–12
-  for (let i = 0; i < 4; i++) {
-    let g =
-      pull(confGames) ||
-      pull(nonConfGames) ||
-      pull(divisionGames) ||
-      pull(extraGames);
-    if (g) ordered.push(g);
-  }
-  // Weeks 13–16
-  while (divisionGames.length || confGames.length || nonConfGames.length || extraGames.length) {
-    let g = pull(divisionGames) || pull(confGames) || pull(nonConfGames) || pull(extraGames);
-    if (g) ordered.push(g);
-  }
-
-  // Assign week indices and simple kickoff times:
-  // Approx: Week 1 is second Sunday of September at 1:00 PM.
-  const baseDate = new Date(seasonYear, 8, 10, 13, 0, 0, 0); // Sept ~10 at 1 PM
-
-  ordered.forEach((g, idx) => {
-    g.index = idx;
-    g.seasonWeek = idx + 1;
-
-    const d = new Date(baseDate.getTime());
-    d.setDate(baseDate.getDate() + idx * 7);
-    g.kickoffIso = d.toISOString();
-  });
-
-  return ordered;
-}
-
-// ---------------------------------------------------------------------------
-// LeagueState schedule integration
-// ---------------------------------------------------------------------------
-
-/**
- * Ensure that leagueState.schedule exists and matches the current season.
- * Returns an updated schedule object (mutates leagueState in place).
- *
- * @param {LeagueState} leagueState
- * @param {FranchiseSave} save
- * @returns {LeagueSchedule}
- */
-function ensureLeagueSchedule(leagueState, save) {
-  const year = save.seasonYear;
-  if (!leagueState.schedule || leagueState.schedule.seasonYear !== year) {
-    leagueState.schedule = {
-      seasonYear: year,
-      byTeam: {}
-    };
-  } else if (!leagueState.schedule.byTeam) {
-    leagueState.schedule.byTeam = {};
-  }
-  return leagueState.schedule;
-}
-
-/**
- * Ensure we have a schedule for the user's team in leagueState.schedule.byTeam.
- *
- * @param {LeagueState} leagueState
- * @param {FranchiseSave} save
- * @returns {TeamGame[]}
- */
-function ensureTeamSchedule(leagueState, save) {
-  const schedule = ensureLeagueSchedule(leagueState, save);
-  const teamCode = save.teamCode;
-  if (!schedule.byTeam[teamCode]) {
-    schedule.byTeam[teamCode] = generateTeamSchedule(teamCode, schedule.seasonYear);
-    saveLeagueState(leagueState);
-  }
-  return schedule.byTeam[teamCode];
-}
 
 // ---------------------------------------------------------------------------
 // UI helpers
@@ -625,8 +248,8 @@ function renderHeader(save) {
 }
 
 function renderScopeToggle() {
-  const myBtn = getEl("btn-scope-my-team");
-  const leagueBtn = getEl("btn-scope-league");
+  const myBtn = getEl("tab-my-team");
+  const leagueBtn = getEl("tab-league");
   const labelEl = getEl("schedule-view-mode-label");
 
   if (myBtn) {
@@ -715,8 +338,8 @@ function renderWeekDetail() {
   const metaEl = getEl("week-detail-meta");
   const resultEl = getEl("week-detail-result");
   const recordLineEl = getEl("week-detail-record-line");
-  const gameDayBtn = getEl("btn-week-gameday");
-  const boxBtn = getEl("btn-week-boxscore");
+  const gameDayBtn = getEl("btn-advance-week");
+  const boxBtn = getEl("btn-view-box");
 
   const game = currentTeamSchedule.find((g) => g.index === selectedWeekIndex);
   if (!game) {
@@ -803,8 +426,8 @@ function renderWeekDetail() {
 // ---------------------------------------------------------------------------
 
 function bindScopeToggle() {
-  const myBtn = getEl("btn-scope-my-team");
-  const leagueBtn = getEl("btn-scope-league");
+  const myBtn = getEl("tab-my-team");
+  const leagueBtn = getEl("tab-league");
 
   if (myBtn) {
     myBtn.addEventListener("click", () => {
@@ -880,10 +503,22 @@ function initSchedulePage() {
       franchiseId: save.franchiseId,
       seasonYear: save.seasonYear
     };
+  } else {
+    // keep leagueState season year in sync with the save
+    leagueState.seasonYear = save.seasonYear;
   }
 
-  // Ensure schedule exists and we have this team's schedule.
-  const teamSchedule = ensureTeamSchedule(leagueState, save);
+  // Make sure the league has schedules for all teams this season,
+  // then grab this franchise's schedule.
+  ensureAllTeamSchedules(leagueState, save.seasonYear);
+  const teamSchedule = ensureTeamSchedule(
+    leagueState,
+    save.teamCode,
+    save.seasonYear
+  );
+
+  // Persist any newly generated schedules
+  saveLeagueState(leagueState);
 
   currentFranchiseSave = save;
   currentLeagueState = leagueState;

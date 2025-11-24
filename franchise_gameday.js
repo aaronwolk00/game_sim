@@ -55,6 +55,10 @@
 
 import { loadLeague } from "./data_models.js";
 import { simulateGame as engineSimulateGame } from "./game_engine.js";
+import {
+    getTeamDisplayName as scheduleGetTeamDisplayName,
+    recomputeRecordFromSchedule as scheduleRecomputeRecord
+  } from "./league_schedule.js";
 
 // -----------------------------------------------------------------------------
 // Types (JSDoc – documentation only)
@@ -207,67 +211,19 @@ function saveLeagueState(state) {
 }
 
 // -----------------------------------------------------------------------------
-// Team meta (for nice labels)
+// Team meta (for nice labels) – use shared league_schedule metadata
 // -----------------------------------------------------------------------------
 
-const TEAM_META = [
-  // AFC East
-  { teamCode: "BUF", city: "Buffalo", name: "Bills" },
-  { teamCode: "MIA", city: "Miami", name: "Dolphins" },
-  { teamCode: "NE",  city: "New England", name: "Patriots" },
-  { teamCode: "NYJ", city: "New York", name: "Jets" },
-  // AFC North
-  { teamCode: "BAL", city: "Baltimore", name: "Ravens" },
-  { teamCode: "CIN", city: "Cincinnati", name: "Bengals" },
-  { teamCode: "CLE", city: "Cleveland", name: "Browns" },
-  { teamCode: "PIT", city: "Pittsburgh", name: "Steelers" },
-  // AFC South
-  { teamCode: "HOU", city: "Houston", name: "Texans" },
-  { teamCode: "IND", city: "Indianapolis", name: "Colts" },
-  { teamCode: "JAX", city: "Jacksonville", name: "Jaguars" },
-  { teamCode: "TEN", city: "Tennessee", name: "Titans" },
-  // AFC West
-  { teamCode: "DEN", city: "Denver", name: "Broncos" },
-  { teamCode: "KC",  city: "Kansas City", name: "Chiefs" },
-  { teamCode: "LV",  city: "Las Vegas", name: "Raiders" },
-  { teamCode: "LAC", city: "Los Angeles", name: "Chargers" },
-  // NFC East
-  { teamCode: "DAL", city: "Dallas", name: "Cowboys" },
-  { teamCode: "NYG", city: "New York", name: "Giants" },
-  { teamCode: "PHI", city: "Philadelphia", name: "Eagles" },
-  { teamCode: "WAS", city: "Washington", name: "Commanders" },
-  // NFC North
-  { teamCode: "CHI", city: "Chicago", name: "Bears" },
-  { teamCode: "DET", city: "Detroit", name: "Lions" },
-  { teamCode: "GB",  city: "Green Bay", name: "Packers" },
-  { teamCode: "MIN", city: "Minnesota", name: "Vikings" },
-  // NFC South
-  { teamCode: "ATL", city: "Atlanta", name: "Falcons" },
-  { teamCode: "CAR", city: "Carolina", name: "Panthers" },
-  { teamCode: "NO",  city: "New Orleans", name: "Saints" },
-  { teamCode: "TB",  city: "Tampa Bay", name: "Buccaneers" },
-  // NFC West
-  { teamCode: "ARI", city: "Arizona", name: "Cardinals" },
-  { teamCode: "LAR", city: "Los Angeles", name: "Rams" },
-  { teamCode: "SF",  city: "San Francisco", name: "49ers" },
-  { teamCode: "SEA", city: "Seattle", name: "Seahawks" }
-];
-
-function getTeamMeta(teamCode) {
-  return TEAM_META.find((t) => t.teamCode === teamCode) || null;
-}
-
 function getTeamDisplayNameFromCode(teamCode) {
-  const meta = getTeamMeta(teamCode);
-  if (!meta) return teamCode || "Unknown Team";
-  return `${meta.city} ${meta.name}`;
-}
-
-function getTeamNameFromSave(save) {
-  if (save.teamName) return save.teamName;
-  if (save.franchiseName) return save.franchiseName;
-  return getTeamDisplayNameFromCode(save.teamCode || "");
-}
+    return scheduleGetTeamDisplayName(teamCode);
+  }
+  
+  function getTeamNameFromSave(save) {
+    if (save.teamName) return save.teamName;
+    if (save.franchiseName) return save.franchiseName;
+    return getTeamDisplayNameFromCode(save.teamCode || "");
+  }
+  
 
 // -----------------------------------------------------------------------------
 // League / engine wiring (Layer 3 rosters)
@@ -412,37 +368,12 @@ function getPlayLogFromResult(result) {
 
 /**
  * Recompute record purely from leagueState.schedule.byTeam.
- * Falls back to "0-0" if schedule is missing.
+ * Delegates to the shared helper in league_schedule.js.
  */
-function recomputeFranchiseRecordFromSchedule(leagueState, teamCode) {
-  if (
-    !leagueState ||
-    !leagueState.schedule ||
-    !leagueState.schedule.byTeam ||
-    !leagueState.schedule.byTeam[teamCode]
-  ) {
-    return "0-0";
+ function recomputeFranchiseRecordFromSchedule(leagueState, teamCode) {
+    return scheduleRecomputeRecord(leagueState, teamCode);
   }
-
-  const games = leagueState.schedule.byTeam[teamCode];
-  if (!Array.isArray(games) || !games.length) return "0-0";
-
-  let wins = 0;
-  let losses = 0;
-  let ties = 0;
-
-  for (const g of games) {
-    if (g.status !== "final") continue;
-    const us = safeNumber(g.teamScore, NaN);
-    const them = safeNumber(g.opponentScore, NaN);
-    if (!Number.isFinite(us) || !Number.isFinite(them)) continue;
-    if (us > them) wins++;
-    else if (them > us) losses++;
-    else ties++;
-  }
-
-  return ties > 0 ? `${wins}-${losses}-${ties}` : `${wins}-${losses}`;
-}
+  
 
 /**
  * Update both sides of a matchup in leagueState.schedule.byTeam for
