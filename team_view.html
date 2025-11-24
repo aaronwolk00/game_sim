@@ -1,0 +1,1013 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Franchise GM – Team View & Depth Chart</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #020617;
+      --panel: #020617;
+      --card: #020617;
+      --card-border: #1e293b;
+      --card-border-strong: #4b5563;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --accent: #22c55e;
+      --accent-soft: rgba(34,197,94,0.18);
+      --accent-alt: #38bdf8;
+      --danger: #f97373;
+      --danger-soft: rgba(248,113,113,0.18);
+      --warn: #fbbf24;
+      --warn-soft: rgba(251,191,36,0.18);
+      --radius-lg: 18px;
+      --radius-md: 12px;
+      --radius-pill: 999px;
+      --shadow-soft: 0 22px 45px rgba(0,0,0,0.65);
+      --shadow-sm: 0 10px 24px rgba(0,0,0,0.55);
+      --font: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
+              "Segoe UI", Roboto, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      font-family: var(--font);
+      background: radial-gradient(circle at 0% 0%, #0b1120 0, #020617 48%, #000 100%);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    .page {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 24px 40px 28px;
+      max-width: 1280px;
+      margin: 0 auto;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .page::before {
+      content: "";
+      position: fixed;
+      inset: -40%;
+      background:
+        radial-gradient(circle at 0% 0%, rgba(56,189,248,0.14), transparent 55%),
+        radial-gradient(circle at 100% 100%, rgba(34,197,94,0.12), transparent 60%);
+      opacity: 0.85;
+      mix-blend-mode: screen;
+      pointer-events: none;
+      z-index: -2;
+      animation: ambientShift 26s ease-in-out infinite alternate;
+    }
+
+    @keyframes ambientShift {
+      0% {
+        transform: translate3d(0,0,0) scale(1);
+      }
+      100% {
+        transform: translate3d(-3%, -2%, 0) scale(1.04);
+      }
+    }
+
+    header.team-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .header-left {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    #team-header-name {
+      font-size: 1.3rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    #team-header-season-line {
+      font-size: 0.86rem;
+      color: var(--muted);
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .record-pill {
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(34,197,94,0.8);
+      padding: 6px 14px;
+      font-size: 0.84rem;
+      background: linear-gradient(135deg, rgba(22,163,74,0.18), rgba(15,23,42,0.96));
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 10px 22px rgba(22,163,74,0.35);
+    }
+
+    .record-pill-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--accent);
+      box-shadow: 0 0 0 4px rgba(34,197,94,0.18);
+    }
+
+    .record-pill span.label {
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      font-size: 0.7rem;
+      color: rgba(209,250,229,0.88);
+    }
+
+    .record-pill span.value {
+      font-weight: 600;
+    }
+
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .status-banners {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+
+    .status-banner {
+      border-radius: var(--radius-md);
+      border: 1px solid var(--card-border);
+      padding: 8px 12px;
+      font-size: 0.8rem;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.7), rgba(15,23,42,0.98));
+    }
+
+    .status-banner-label {
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      font-size: 0.7rem;
+    }
+
+    .status-banner--info {
+      border-color: rgba(148,163,184,0.6);
+    }
+
+    .status-banner--lock {
+      border-color: var(--warn);
+      background: var(--warn-soft);
+      color: #fef3c7;
+    }
+
+    .status-banner[hidden] {
+      display: none;
+    }
+
+    .layout-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.1fr);
+      gap: 14px;
+      align-items: flex-start;
+    }
+
+    .card {
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--card-border);
+      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.75), rgba(15,23,42,0.98));
+      box-shadow: var(--shadow-soft);
+      padding: 14px 16px 12px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .card-title {
+      font-size: 0.88rem;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      color: var(--muted);
+    }
+
+    .card-title strong {
+      color: var(--text);
+    }
+
+    .card-subtitle {
+      font-size: 0.74rem;
+      color: var(--muted);
+    }
+
+    .card-body {
+      font-size: 0.84rem;
+    }
+
+    .segment-toggle {
+      display: inline-flex;
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(148,163,184,0.5);
+      overflow: hidden;
+      background: rgba(15,23,42,0.96);
+      margin-bottom: 10px;
+    }
+
+    .segment-toggle button {
+      border: none;
+      background: transparent;
+      padding: 6px 14px;
+      font-size: 0.8rem;
+      color: var(--muted);
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+    }
+
+    .segment-toggle button[aria-pressed="true"] {
+      background: linear-gradient(135deg, rgba(34,197,94,0.2), rgba(56,189,248,0.2));
+      color: var(--text);
+    }
+
+    .segment-toggle button:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    .depthchart-rows {
+      margin-top: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .depth-row {
+      display: grid;
+      grid-template-columns: 70px minmax(0, 1fr);
+      gap: 8px;
+      align-items: center;
+      padding: 6px 8px;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(30,64,175,0.35);
+      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.76), rgba(15,23,42,0.98));
+    }
+
+    .depth-row-label {
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: rgba(191,219,254,0.9);
+    }
+
+    .depth-row-slots {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .depth-slot {
+      flex: 1 1 0;
+      min-width: 0;
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(148,163,184,0.7);
+      background: rgba(15,23,42,0.96);
+      padding: 5px 10px;
+      font-size: 0.78rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      transition:
+        background-color 140ms ease-out,
+        border-color 140ms ease-out,
+        transform 140ms ease-out;
+      text-align: left;
+    }
+
+    .depth-slot-main {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      min-width: 0;
+    }
+
+    .depth-slot-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+    }
+
+    .depth-slot-player {
+      font-weight: 500;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      overflow: hidden;
+    }
+
+    .depth-slot-tags {
+      font-size: 0.7rem;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .depth-slot--starter {
+      border-color: rgba(34,197,94,0.9);
+      background: linear-gradient(135deg, rgba(22,163,74,0.2), rgba(15,23,42,0.96));
+    }
+
+    .depth-slot--empty .depth-slot-player {
+      color: rgba(148,163,184,0.9);
+      font-style: italic;
+    }
+
+    .depth-slot--locked {
+      opacity: 0.6;
+      cursor: default;
+    }
+
+    .depth-slot--highlight {
+      box-shadow: 0 0 0 1px rgba(56,189,248,0.7), 0 0 0 6px rgba(56,189,248,0.2);
+      transform: translateY(-1px);
+    }
+
+    .depth-slot:hover:not(.depth-slot--locked) {
+      background: rgba(31,41,55,0.98);
+      border-color: rgba(226,232,240,0.8);
+      transform: translateY(-1px);
+    }
+
+    .depth-slot:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    /* Roster card */
+    .roster-filters-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .roster-side-filters {
+      display: inline-flex;
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(148,163,184,0.5);
+      overflow: hidden;
+      background: rgba(15,23,42,0.96);
+    }
+
+    .roster-side-filters button {
+      border: none;
+      background: transparent;
+      padding: 4px 10px;
+      font-size: 0.76rem;
+      cursor: pointer;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+
+    .roster-side-filters button[aria-pressed="true"] {
+      background: rgba(30,64,175,0.7);
+      color: #e0f2fe;
+    }
+
+    .roster-position-filter {
+      flex: 0 0 auto;
+    }
+
+    .roster-position-filter select {
+      background: rgba(15,23,42,0.96);
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(148,163,184,0.7);
+      color: var(--text);
+      font-size: 0.78rem;
+      padding: 4px 10px;
+    }
+
+    .roster-search {
+      flex: 1 1 120px;
+    }
+
+    .roster-search input {
+      width: 100%;
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(148,163,184,0.7);
+      background: rgba(15,23,42,0.96);
+      color: var(--text);
+      font-size: 0.78rem;
+      padding: 4px 10px;
+    }
+
+    .roster-list {
+      margin-top: 8px;
+      max-height: 360px;
+      overflow-y: auto;
+      border-top: 1px solid rgba(31,41,55,0.9);
+    }
+
+    .roster-player-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 2px;
+      border-bottom: 1px solid rgba(31,41,55,0.7);
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+
+    .roster-player-main {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      min-width: 0;
+    }
+
+    .roster-player-name {
+      font-weight: 500;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      overflow: hidden;
+    }
+
+    .roster-player-meta {
+      font-size: 0.74rem;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .roster-player-status-pill {
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(148,163,184,0.7);
+      font-size: 0.7rem;
+      padding: 2px 8px;
+      white-space: nowrap;
+    }
+
+    .roster-player-status-pill--injured {
+      border-color: var(--danger);
+      background: var(--danger-soft);
+      color: #fecaca;
+    }
+
+    .roster-player-row--highlight {
+      background: rgba(30,64,175,0.35);
+    }
+
+    .roster-empty {
+      padding: 8px 2px;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
+    /* Notes card */
+    .notes-body {
+      font-size: 0.8rem;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+
+    .notes-body p {
+      margin: 4px 0;
+    }
+
+    /* Shortcuts */
+    .shortcuts-row {
+      margin-top: 10px;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--card-border);
+      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.6), rgba(15,23,42,0.98));
+      padding: 10px 12px;
+      box-shadow: var(--shadow-sm);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .shortcuts-label {
+      font-size: 0.78rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+    }
+
+    .shortcuts-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .shortcut-btn {
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(148,163,184,0.6);
+      background: rgba(15,23,42,0.96);
+      color: var(--text);
+      font-size: 0.8rem;
+      padding: 6px 14px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition:
+        background-color 140ms ease-out,
+        border-color 140ms ease-out,
+        transform 140ms ease-out;
+    }
+
+    .shortcut-btn:hover {
+      background: rgba(31,41,55,0.98);
+      border-color: rgba(226,232,240,0.8);
+      transform: translateY(-1px);
+    }
+
+    .shortcut-btn:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    /* Buttons */
+    .btn {
+      border-radius: var(--radius-pill);
+      border: none;
+      padding: 8px 18px;
+      font-size: 0.86rem;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      cursor: pointer;
+      transition:
+        background-color 140ms ease-out,
+        transform 140ms ease-out,
+        box-shadow 140ms ease-out,
+        border-color 140ms ease-out,
+        color 140ms ease-out;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #22c55e, #16a34a);
+      color: #020617;
+      border: 1px solid rgba(22,163,74,0.9);
+      box-shadow: 0 10px 24px rgba(22,163,74,0.45);
+    }
+
+    .btn-primary:hover:enabled {
+      transform: translateY(-1px);
+      box-shadow: 0 16px 32px rgba(22,163,74,0.6);
+    }
+
+    .btn-secondary {
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(148,163,184,0.7);
+      background: rgba(15,23,42,0.95);
+      color: var(--text);
+      font-size: 0.84rem;
+      padding: 6px 14px;
+      cursor: pointer;
+    }
+
+    .btn-secondary:hover {
+      background: rgba(31,41,55,0.98);
+    }
+
+    button:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 3px;
+    }
+
+    /* Modal */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15,23,42,0.82);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+    }
+
+    .modal-backdrop[hidden] {
+      display: none;
+    }
+
+    .modal-dialog {
+      width: min(480px, 96vw);
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--card-border-strong);
+      background: radial-gradient(circle at 0% 0%, rgba(34,197,94,0.12), rgba(15,23,42,0.98));
+      box-shadow: 0 24px 60px rgba(0,0,0,0.9);
+      padding: 16px 18px 14px;
+    }
+
+    .modal-title {
+      font-size: 0.96rem;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .modal-body {
+      font-size: 0.84rem;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+
+    .assign-slot-label {
+      font-size: 0.8rem;
+      margin-bottom: 8px;
+    }
+
+    .assign-list-label {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--muted);
+      margin-top: 8px;
+      margin-bottom: 4px;
+    }
+
+    .assign-list {
+      max-height: 160px;
+      overflow-y: auto;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(30,41,59,0.9);
+      padding: 4px 0;
+      background: rgba(15,23,42,0.98);
+    }
+
+    .assign-player-btn {
+      width: 100%;
+      border: none;
+      background: transparent;
+      padding: 4px 10px;
+      font-size: 0.8rem;
+      color: var(--text);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+    }
+
+    .assign-player-btn:hover {
+      background: rgba(31,41,55,0.98);
+    }
+
+    .assign-player-main {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .assign-player-name {
+      font-weight: 500;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      overflow: hidden;
+    }
+
+    .assign-player-meta {
+      font-size: 0.74rem;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .assign-empty {
+      padding: 6px 10px;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 10px;
+      align-items: center;
+    }
+
+    .modal-actions-right {
+      display: flex;
+      gap: 8px;
+    }
+
+    .modal-warning-text {
+      font-size: 0.74rem;
+      color: var(--warn);
+    }
+
+    /* No-franchise state */
+    .no-franchise-state {
+      margin-top: 40px;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--card-border-strong);
+      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.7), rgba(15,23,42,0.98));
+      padding: 20px 20px 18px;
+      text-align: left;
+      max-width: 520px;
+      box-shadow: var(--shadow-soft);
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .no-franchise-title {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    .no-franchise-text {
+      font-size: 0.86rem;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    .no-franchise-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    footer {
+      margin-top: 10px;
+      font-size: 0.78rem;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    @media (max-width: 1024px) {
+      .page {
+        padding: 20px 18px 24px;
+      }
+
+      .layout-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
+    @media (max-width: 640px) {
+      header.team-header {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .header-right {
+        align-self: stretch;
+        justify-content: flex-start;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page" id="team-page">
+    <header class="team-header">
+      <div class="header-left">
+        <div id="team-header-name">Franchise Team</div>
+        <div id="team-header-season-line">Season —</div>
+      </div>
+      <div class="header-right">
+        <div class="record-pill" id="team-header-record-pill">
+          <span class="record-pill-dot" aria-hidden="true"></span>
+          <span class="label">Record</span>
+          <span class="value" id="team-header-record-value">0–0</span>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <div class="status-banners">
+        <div class="status-banner status-banner--info" id="depthchart-health-banner" hidden>
+          <span class="status-banner-label">Depth chart</span>
+          <span id="depthchart-health-text">—</span>
+        </div>
+        <div class="status-banner status-banner--lock" id="depthchart-lock-banner" hidden>
+          <span class="status-banner-label">Lock</span>
+          <span id="depthchart-lock-text">Depth chart locked for this week. Changes will apply next game.</span>
+        </div>
+      </div>
+
+      <div class="layout-grid">
+        <!-- Left: depth chart -->
+        <section aria-label="Depth chart">
+          <article class="card" id="depthchart-card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">
+                  <strong>Depth Chart</strong>
+                </div>
+                <div class="card-subtitle" id="depthchart-subtitle">Offense • Starters & backups</div>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="segment-toggle" role="tablist" aria-label="Side of ball">
+                <button type="button" id="toggle-offense" data-side="offense" aria-pressed="true">
+                  Offense
+                </button>
+                <button type="button" id="toggle-defense" data-side="defense" aria-pressed="false">
+                  Defense
+                </button>
+                <button type="button" id="toggle-special" data-side="special" aria-pressed="false">
+                  Special Teams
+                </button>
+              </div>
+              <div class="card-subtitle">
+                Click a slot to assign a player. Starters are shown on the left.
+              </div>
+              <div class="depthchart-rows" id="depthchart-rows">
+                <!-- Populated by JS -->
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <!-- Right: roster + notes -->
+        <section aria-label="Roster and notes">
+          <article class="card" id="roster-card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">
+                  <strong>Team Roster</strong>
+                </div>
+                <div class="card-subtitle" id="roster-subtitle">All players under contract</div>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="roster-filters-row">
+                <div class="roster-side-filters" role="group" aria-label="Side filter">
+                  <button type="button" class="roster-filter-btn" id="roster-filter-all" data-side-filter="all" aria-pressed="true">All</button>
+                  <button type="button" class="roster-filter-btn" id="roster-filter-offense" data-side-filter="offense" aria-pressed="false">Offense</button>
+                  <button type="button" class="roster-filter-btn" id="roster-filter-defense" data-side-filter="defense" aria-pressed="false">Defense</button>
+                  <button type="button" class="roster-filter-btn" id="roster-filter-special" data-side-filter="special" aria-pressed="false">Special</button>
+                </div>
+                <div class="roster-position-filter">
+                  <select id="roster-position-filter">
+                    <option value="all">All positions</option>
+                    <option value="QB">QB</option>
+                    <option value="RB">RB</option>
+                    <option value="FB">FB</option>
+                    <option value="WR">WR</option>
+                    <option value="TE">TE</option>
+                    <option value="LT">LT</option>
+                    <option value="LG">LG</option>
+                    <option value="C">C</option>
+                    <option value="RG">RG</option>
+                    <option value="RT">RT</option>
+                    <option value="DT">DT</option>
+                    <option value="EDGE">EDGE</option>
+                    <option value="LB">LB</option>
+                    <option value="CB">CB</option>
+                    <option value="S">S</option>
+                    <option value="K">K</option>
+                    <option value="P">P</option>
+                    <option value="KR">KR</option>
+                    <option value="PR">PR</option>
+                    <option value="LS">LS</option>
+                  </select>
+                </div>
+                <div class="roster-search">
+                  <input type="text" id="roster-search-input" placeholder="Search by name" />
+                </div>
+              </div>
+              <div class="roster-list" id="roster-list">
+                <!-- Populated by JS -->
+              </div>
+            </div>
+          </article>
+
+          <article class="card" id="notes-card" style="margin-top:12px;">
+            <div class="card-header">
+              <div>
+                <div class="card-title">
+                  <strong>Unit Notes</strong>
+                </div>
+                <div class="card-subtitle" id="notes-subtitle">Staff notes on roster & usage</div>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="notes-body" id="notes-card-body">
+                <!-- Populated by JS -->
+              </div>
+            </div>
+          </article>
+        </section>
+      </div>
+
+      <!-- Shortcuts -->
+      <section class="shortcuts-row" aria-label="Shortcuts">
+        <div class="shortcuts-label">Shortcuts</div>
+        <div class="shortcuts-buttons">
+          <button type="button" class="shortcut-btn" id="shortcut-hub">Back to Hub</button>
+          <button type="button" class="shortcut-btn" id="shortcut-schedule">Schedule</button>
+          <button type="button" class="shortcut-btn" id="shortcut-stats">Stats</button>
+          <button type="button" class="shortcut-btn" id="shortcut-contracts">Contracts / Cap</button>
+          <button type="button" class="shortcut-btn" id="shortcut-scouting">Scouting</button>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <span>Franchise GM • Team View & Depth Chart</span>
+      <span>Future: player detail, coach feedback, deeper usage analytics</span>
+    </footer>
+  </div>
+
+  <!-- No franchise state -->
+  <section id="no-franchise" class="no-franchise-state" hidden>
+    <div class="no-franchise-title">No active franchise found</div>
+    <div class="no-franchise-text">
+      There’s no active franchise in this slot. Return to the main menu to start a new franchise or continue an existing one.
+    </div>
+    <div class="no-franchise-actions">
+      <button type="button" class="btn btn-primary" id="btn-go-main-menu">
+        Back to main menu
+      </button>
+    </div>
+  </section>
+
+  <!-- Assign player modal -->
+  <div id="assign-modal" class="modal-backdrop" hidden>
+    <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="assign-modal-title">
+      <div class="modal-title" id="assign-modal-title">Assign player</div>
+      <div class="modal-body">
+        <div class="assign-slot-label" id="assign-modal-slot-label">—</div>
+
+        <div class="assign-list-label">Eligible players</div>
+        <div class="assign-list" id="assign-eligible-list">
+          <!-- Populated by JS -->
+        </div>
+
+        <div id="assign-oop-section">
+          <div class="assign-list-label">Out-of-position options</div>
+          <div class="assign-list" id="assign-oop-list">
+            <!-- Populated by JS -->
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" id="assign-clear-slot">
+          Clear slot
+        </button>
+        <div class="modal-actions-right">
+          <span class="modal-warning-text" id="assign-modal-warning-text">
+            Out-of-position assignments carry risk in the sim.
+          </span>
+          <button type="button" class="btn-secondary" id="assign-modal-cancel">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="team.js"></script>
+</body>
+</html>
