@@ -220,7 +220,6 @@ function renderLeagueWeekList() {
   const emptyEl = getEl("week-list-empty");
   if (!listEl || !emptyEl) return;
 
-  listEl.innerHTML = "";
   const schedule = currentLeagueState?.schedule?.byWeek || {};
   if (!Object.keys(schedule).length) {
     emptyEl.hidden = false;
@@ -230,14 +229,20 @@ function renderLeagueWeekList() {
 
   emptyEl.hidden = true;
   listEl.hidden = false;
+  listEl.innerHTML = "";
 
   for (let week = 1; week <= 18; week++) {
     const games = schedule[week] || [];
     const row = document.createElement("button");
     row.type = "button";
     row.className = "week-row";
-    row.textContent = `Week ${week} – ${games.length} games`;
-    row.addEventListener("click", () => renderLeagueWeekDetail(week));
+    row.textContent = `Week ${week} • ${games.length} games`;
+    row.addEventListener("click", () => {
+      renderLeagueWeekDetail(week);
+      // visually highlight active week
+      [...listEl.children].forEach((r) => r.removeAttribute("data-selected"));
+      row.dataset.selected = "true";
+    });
     listEl.appendChild(row);
   }
 }
@@ -246,13 +251,25 @@ function renderLeagueWeekDetail(week) {
   const detailLines = getEl("league-context-lines");
   if (!detailLines) return;
   const games = currentLeagueState?.schedule?.byWeek?.[week] || [];
-  detailLines.innerHTML = games
+
+  if (!games.length) {
+    detailLines.innerHTML = `<span>No games scheduled this week.</span>`;
+    return;
+  }
+
+  const rows = games
     .map(
       (g) =>
-        `${g.awayTeam} @ ${g.homeTeam} • ${formatIsoToNice(g.kickoffIso)}`
+        `${g.awayTeam} @ ${g.homeTeam} — ${formatIsoToNice(g.kickoffIso)}`
     )
     .join("<br>");
+  detailLines.innerHTML = rows;
+
+  // Update header to reflect week number
+  const title = getEl("week-detail-title");
+  if (title) title.textContent = `Week ${week} – League Schedule`;
 }
+
 
 
 
@@ -302,10 +319,13 @@ function renderScopeToggle() {
     myBtn.setAttribute("aria-pressed", isTeam ? "true" : "false");
   }
 
-  if (leagueBtn) {
-    const isLeague = currentScope === "league";
-    leagueBtn.dataset.active = isLeague ? "true" : "false";
-    leagueBtn.setAttribute("aria-pressed", isLeague ? "true" : "false");
+if (leagueBtn) {
+  leagueBtn.addEventListener("click", () => {
+    if (currentScope === "league") return;
+    currentScope = "league";
+    renderScopeToggle();
+    renderLeagueWeekList(); // detail updates when user clicks a week
+  });
   }
 }
 
