@@ -2,920 +2,172 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Franchise GM – League Stats &amp; Leaders</title>
+  <title>Franchise GM – League Stats & Leaders</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="style.css" />
   <style>
-    :root {
-      --bg: #020617;
-      --panel: #020617;
-      --card: #020617;
-      --card-border: #1e293b;
-      --card-border-strong: #4b5563;
-      --text: #e5e7eb;
-      --muted: #9ca3af;
-      --accent: #22c55e;
-      --accent-soft: rgba(34,197,94,0.18);
-      --accent-alt: #38bdf8;
-      --danger: #f97373;
-      --danger-soft: rgba(248,113,113,0.18);
-      --radius-lg: 16px;
-      --radius-md: 12px;
-      --radius-pill: 999px;
-      --shadow-soft: 0 18px 45px rgba(15,23,42,0.75);
-      --shadow-subtle: 0 1px 3px rgba(15,23,42,0.7);
-      --border-subtle: rgba(31,41,55,0.9);
-    }
-
-    * {
-      box-sizing: border-box;
-    }
-
-    html,
     body {
       margin: 0;
       padding: 0;
-      background: radial-gradient(circle at 0% 0%, #0b1120 0, #020617 48%, #000 100%);
-      color: var(--text);
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
-        "Segoe UI", sans-serif;
-      -webkit-font-smoothing: antialiased;
+      background: radial-gradient(circle at 0% 0%, #0b1120 0%, #020617 48%, #000 100%);
+      color: #e5e7eb;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
     }
-
-    body {
-      display: flex;
-      min-height: 100vh;
-      flex-direction: column;
-    }
-
     .page {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      padding: 24px 40px 28px;
-      max-width: 1960px;
+      padding: 24px 40px;
+      max-width: 1800px;
       margin: 0 auto;
-      position: relative;
     }
-
-    .page::before {
-      content: "";
-      position: fixed;
-      inset: -40%;
-      background:
-        radial-gradient(circle at 0% 0%, rgba(56,189,248,0.14), transparent 55%),
-        radial-gradient(circle at 100% 100%, rgba(34,197,94,0.12), transparent 60%);
-      opacity: 0.85;
-      mix-blend-mode: screen;
-      pointer-events: none;
-      z-index: -2;
-      animation: ambientShift 26s ease-in-out infinite alternate;
-    }
-
-    @keyframes ambientShift {
-      0% { transform: translate3d(0,0,0) scale(1); }
-      100% { transform: translate3d(-3%, -2%, 0) scale(1.02); }
-    }
-
-    /* Header */
-
-    .stats-header {
+    header.stats-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 16px;
-      margin-bottom: 18px;
-      position: relative;
-      z-index: 1;
-    }
-
-    .header-left {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-
-    #stats-header-name {
-      font-size: 1.2rem;
-      font-weight: 600;
-      letter-spacing: 0.03em;
-    }
-
-    #stats-header-subline {
-      font-size: 0.86rem;
-      color: var(--muted);
-    }
-
-    .header-right {
-      display: flex;
-      align-items: center;
-      gap: 10px;
       flex-wrap: wrap;
-      justify-content: flex-end;
+      gap: 12px;
+      margin-bottom: 18px;
     }
-
     .pill-record {
-      border-radius: var(--radius-pill);
-      border: 1px solid rgba(34,197,94,0.8);
-      padding: 6px 14px;
-      font-size: 0.84rem;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      background: radial-gradient(circle at 0% 0%, rgba(34,197,94,0.16), rgba(15,23,42,0.98));
-      box-shadow: var(--shadow-subtle);
-      white-space: nowrap;
-    }
-
-    .pill-record-dot {
-      width: 7px;
-      height: 7px;
       border-radius: 999px;
-      background: #22c55e;
-      box-shadow: 0 0 0 4px rgba(34,197,94,0.25);
+      border: 1px solid #22c55e;
+      padding: 6px 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(15,23,42,0.85);
+      font-size: 0.84rem;
     }
-
-    .pill-record-label {
-      text-transform: uppercase;
-      letter-spacing: 0.16em;
-      font-size: 0.68rem;
-      color: rgba(187,247,208,0.95);
-    }
-
-    .pill-record-value {
-      font-variant-numeric: tabular-nums;
-      font-weight: 600;
-    }
-
+    .pill-record-dot { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; }
     .btn-ghost {
-      border-radius: var(--radius-pill);
+      border-radius: 999px;
       border: 1px solid rgba(148,163,184,0.7);
       background: rgba(15,23,42,0.85);
-      color: var(--text);
+      color: #e5e7eb;
       font-size: 0.84rem;
       padding: 6px 14px;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
       cursor: pointer;
-      box-shadow: var(--shadow-subtle);
     }
-
-    .btn-ghost:hover {
-      background: rgba(30,64,175,0.7);
-      border-color: rgba(129,140,248,0.9);
-    }
-
-    .btn-ghost:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 3px;
-    }
-
-    /* Scope bar */
+    .btn-ghost:hover { background: rgba(30,64,175,0.7); border-color: rgba(129,140,248,0.9); }
 
     .scope-bar {
-      border-radius: var(--radius-lg);
-      border: 1px solid var(--card-border);
-      background: linear-gradient(135deg, rgba(15,23,42,0.96), rgba(15,23,42,0.98));
-      padding: 12px 14px 10px;
-      display: flex;
-      align-items: center;
-      gap: 14px;
-      margin-bottom: 14px;
-      box-shadow: var(--shadow-subtle);
-    }
-
-    .scope-label {
-      font-size: 0.78rem;
-      text-transform: uppercase;
-      letter-spacing: 0.18em;
-      color: rgba(148,163,184,0.98);
-      white-space: nowrap;
-    }
-
-    .scope-controls {
       display: flex;
       flex-wrap: wrap;
-      gap: 10px;
       align-items: center;
+      gap: 10px;
+      background: rgba(15,23,42,0.9);
+      border: 1px solid rgba(51,65,85,0.9);
+      border-radius: 14px;
+      padding: 10px 14px;
+      margin-bottom: 16px;
     }
-
-    .scope-field {
-      display: flex;
-      flex-direction: column;
-      gap: 3px;
-      min-width: 120px;
-    }
-
-    .scope-field-label {
-      font-size: 0.7rem;
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-      color: rgba(148,163,184,0.96);
-    }
-
+    .scope-label { text-transform: uppercase; font-size: 0.78rem; color: #9ca3af; letter-spacing: 0.15em; }
     .scope-select {
-      border-radius: 999px;
-      border: 1px solid var(--border-subtle);
-      background: rgba(15,23,42,0.95);
-      color: var(--text);
-      font-size: 0.82rem;
-      padding: 6px 24px 6px 10px;
-      font-family: inherit;
-      min-height: 30px;
-      appearance: none;
-      position: relative;
-      background-image: linear-gradient(45deg, transparent 50%, rgba(148,163,184,0.9) 50%),
-                        linear-gradient(135deg, rgba(148,163,184,0.9) 50%, transparent 50%);
-      background-position: calc(100% - 14px) 12px, calc(100% - 10px) 12px;
-      background-size: 6px 6px, 6px 6px;
-      background-repeat: no-repeat;
-    }
-
-    .scope-summary {
-      margin-left: auto;
-      font-size: 0.8rem;
-      color: var(--muted);
-      white-space: nowrap;
-    }
-
-    /* Tab strip */
-
-    .stats-tabs {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      padding: 3px;
-      border-radius: 999px;
-      border: 1px solid rgba(51,65,85,0.95);
-      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.9), rgba(15,23,42,0.98));
-      box-shadow: var(--shadow-subtle);
-      margin-bottom: 10px;
-    }
-
-    .stats-tab {
-      border-radius: 999px;
-      border: none;
-      background: transparent;
-      color: var(--muted);
-      padding: 6px 14px;
-      font-size: 0.82rem;
-      cursor: pointer;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-    }
-
-    .stats-tab[data-active="true"] {
-      background: radial-gradient(circle at 0% 0%, rgba(34,197,94,0.2), rgba(15,23,42,0.98));
-      color: var(--text);
-      font-weight: 600;
-    }
-
-    .stats-tab:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 3px;
-    }
-
-    .stats-panels {
-      margin-top: 6px;
-    }
-
-    .stats-panel {
-      display: block;
-    }
-
-    .stats-panel[hidden] {
-      display: none;
-    }
-
-    /* Cards */
-
-    .layout-leaders-grid {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-      gap: 14px;
-      align-items: flex-start;
-      margin-top: 8px;
-    }
-
-    .leaders-column {
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-    }
-
-    .card {
-      border-radius: var(--radius-lg);
-      border: 1px solid var(--card-border);
-      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.75), rgba(15,23,42,0.98));
-      box-shadow: var(--shadow-soft);
-      padding: 14px 16px 12px;
-      position: relative;
-    }
-
-    .card-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      gap: 10px;
-      margin-bottom: 8px;
-    }
-
-    .card-title {
-      font-size: 0.88rem;
-      letter-spacing: 0.16em;
-      text-transform: uppercase;
-      color: rgba(148,163,184,0.96);
-    }
-
-    .card-title-main {
-      font-size: 0.98rem;
-      font-weight: 600;
-      color: var(--text);
-      letter-spacing: 0.03em;
-    }
-
-    .card-subtitle {
-      font-size: 0.8rem;
-      color: var(--muted);
-      margin-top: 2px;
-    }
-
-    .card-badge {
-      font-size: 0.7rem;
-      text-transform: uppercase;
-      letter-spacing: 0.16em;
-      padding: 3px 8px;
-      border-radius: 999px;
-      border: 1px solid rgba(148,163,184,0.7);
       background: rgba(15,23,42,0.96);
-      white-space: nowrap;
-      color: rgba(148,163,184,0.96);
-    }
-
-    /* Leader lists */
-
-    .leader-list {
-      list-style: none;
-      margin: 6px 0 0;
-      padding: 0;
-      border-top: 1px solid rgba(30,64,175,0.45);
-    }
-
-    .leader-row {
-      display: grid;
-      grid-template-columns: 28px minmax(0, 1fr) 80px;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 0;
-      font-size: 0.84rem;
-      border-bottom: 1px solid rgba(15,23,42,0.9);
-    }
-
-    .leader-rank {
-      font-variant-numeric: tabular-nums;
-      font-size: 0.82rem;
-      color: rgba(148,163,184,0.96);
-      text-align: right;
-    }
-
-    .leader-player {
-      display: flex;
-      flex-direction: column;
-      min-width: 0;
-    }
-
-    .leader-name {
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .leader-team {
-      font-size: 0.76rem;
-      color: var(--muted);
-    }
-
-    .leader-stat {
-      text-align: right;
-      font-variant-numeric: tabular-nums;
-      font-size: 0.86rem;
-      font-weight: 600;
-    }
-
-    .leader-row--user-team {
-      background: linear-gradient(90deg, rgba(34,197,94,0.12), transparent 70%);
-    }
-
-    .leader-expand-row {
-      margin-top: 6px;
-      display: flex;
-      justify-content: flex-end;
-    }
-
-    .leader-expand-btn {
-      border-radius: 999px;
-      border: none;
-      background: transparent;
-      color: var(--accent-alt);
-      font-size: 0.78rem;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      padding: 4px 0;
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      cursor: pointer;
-    }
-
-    .leader-expand-btn:hover {
-      text-decoration: underline;
-    }
-
-    /* Team stats tab */
-
-    .team-stats-layout {
-      display: grid;
-      grid-template-columns: minmax(0, 1.4fr);
-      gap: 14px;
-      align-items: flex-start;
-      margin-top: 8px;
-    }
-
-    .team-stats-controls {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      border-radius: 999px;
-      padding: 3px;
-      border: 1px solid rgba(51,65,85,0.95);
-      background: rgba(15,23,42,0.96);
-    }
-
-    .team-stats-pill {
-      border-radius: 999px;
-      border: none;
-      background: transparent;
-      color: var(--muted);
+      border: 1px solid rgba(51,65,85,0.9);
+      color: #e5e7eb;
       padding: 5px 10px;
-      font-size: 0.8rem;
-      cursor: pointer;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-
-    .team-stats-pill[data-active="true"] {
-      background: radial-gradient(circle at 0% 0%, rgba(59,130,246,0.22), rgba(15,23,42,0.98));
-      color: var(--text);
-      font-weight: 600;
-    }
-
-    .table-wrapper {
-      margin-top: 6px;
-      border-radius: 10px;
-      border: 1px solid rgba(30,64,175,0.65);
-      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.92), rgba(15,23,42,0.98));
-      max-height: 460px;
-      overflow: auto;
-    }
-
-    .stats-table {
-      width: 100%;
-      border-collapse: collapse;
+      border-radius: 999px;
       font-size: 0.82rem;
-      min-width: 540px;
     }
-
-    .stats-table thead {
-      position: sticky;
-      top: 0;
-      background: rgba(15,23,42,0.98);
-      box-shadow: 0 1px 0 rgba(15,23,42,1);
-      z-index: 1;
-    }
-
-    .stats-table th,
-    .stats-table td {
-      padding: 6px 10px;
-      text-align: right;
-      border-bottom: 1px solid rgba(15,23,42,1);
-      font-variant-numeric: tabular-nums;
-    }
-
-    .stats-table th:first-child,
-    .stats-table td:first-child {
-      text-align: left;
-    }
-
-    .stats-table th {
-      font-size: 0.78rem;
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-      color: rgba(148,163,184,0.96);
-    }
-
-    .stats-table tr:nth-child(2n) td {
-      background: rgba(15,23,42,0.92);
-    }
-
-    .stats-table tr.team-row--user-team td {
-      background: linear-gradient(90deg, rgba(34,197,94,0.14), rgba(15,23,42,0.98));
-    }
-
-    /* No franchise */
-
-    .no-franchise-state {
-      margin-top: 40px;
-      border-radius: var(--radius-lg);
-      border: 1px solid var(--card-border-strong);
-      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.7), rgba(15,23,42,0.98));
-      padding: 20px 20px 18px;
-      text-align: left;
-      max-width: 520px;
-      box-shadow: var(--shadow-soft);
-    }
-
-    .no-franchise-title {
-      font-size: 1rem;
-      font-weight: 600;
-      margin-bottom: 6px;
-    }
-
-    .no-franchise-text {
-      font-size: 0.86rem;
-      color: var(--muted);
-      margin-bottom: 12px;
-    }
-
-    .no-franchise-actions {
+    .stats-tabs {
       display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
+      gap: 6px;
+      margin-bottom: 10px;
+      background: rgba(15,23,42,0.9);
+      border: 1px solid rgba(51,65,85,0.95);
+      border-radius: 999px;
+      padding: 3px;
     }
-
-    .btn-primary {
-      border-radius: var(--radius-pill);
+    .stats-tab {
       border: none;
-      background: linear-gradient(135deg, #22c55e, #16a34a);
-      color: #022c22;
-      font-size: 0.86rem;
-      font-weight: 600;
-      padding: 7px 16px;
-      cursor: pointer;
-      box-shadow: 0 10px 26px rgba(22,163,74,0.42);
-    }
-
-    .btn-primary:hover {
-      filter: brightness(1.05);
-    }
-
-    .btn-secondary {
-      border-radius: var(--radius-pill);
-      border: 1px solid rgba(148,163,184,0.9);
-      background: rgba(15,23,42,0.96);
-      color: var(--text);
-      font-size: 0.84rem;
+      border-radius: 999px;
+      background: transparent;
+      color: #9ca3af;
       padding: 6px 14px;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
       cursor: pointer;
     }
-
-    /* Utilities */
-
-    [hidden] {
-      display: none !important;
+    .stats-tab[data-active="true"] {
+      background: linear-gradient(135deg, rgba(34,197,94,0.18), rgba(15,23,42,0.98));
+      color: #e5e7eb;
+      font-weight: 600;
     }
+    .stats-panel[hidden] { display: none; }
+    .card { background: rgba(15,23,42,0.9); border: 1px solid rgba(30,41,59,0.8); border-radius: 14px; padding: 14px; }
+    .card-title { text-transform: uppercase; font-size: 0.9rem; letter-spacing: 0.12em; color: #9ca3af; }
+    .card-title-main { font-weight: 600; color: #e5e7eb; margin-bottom: 4px; }
+    .leader-list { list-style: none; margin: 0; padding: 0; }
+    .leader-row { display: flex; justify-content: space-between; border-bottom: 1px solid rgba(31,41,55,0.8); padding: 6px 0; }
+    .leader-row--user-team { background: rgba(34,197,94,0.12); }
+    .leader-name { font-weight: 500; }
+    .leader-stat { text-align: right; font-variant-numeric: tabular-nums; }
 
-    @media (max-width: 1100px) {
-      .layout-leaders-grid {
-        grid-template-columns: minmax(0, 1fr);
-      }
+    table.stats-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    table.stats-table th, table.stats-table td { padding: 6px 8px; text-align: right; border-bottom: 1px solid rgba(30,41,55,0.9); }
+    table.stats-table th:first-child, table.stats-table td:first-child { text-align: left; }
+    table.stats-table tr.team-row--user-team td { background: rgba(34,197,94,0.12); }
 
-      .team-stats-layout {
-        grid-template-columns: minmax(0, 1fr);
-      }
-
-      .scope-summary {
-        display: none;
-      }
-
-      .page {
-        padding: 18px 18px 24px;
-      }
-    }
-
-    @media (max-width: 640px) {
-      .stats-header {
-        flex-direction: column;
-        align-items: flex-start;
-      }
-
-      .scope-bar {
-        flex-direction: column;
-        align-items: flex-start;
-      }
-
-      .scope-summary {
-        align-self: flex-start;
-        margin-left: 0;
-      }
-    }
+    .no-franchise { margin-top: 50px; background: rgba(15,23,42,0.9); border: 1px solid rgba(51,65,85,0.8); border-radius: 14px; padding: 20px; max-width: 480px; }
   </style>
 </head>
 <body>
-  <div class="page" id="stats-page-root">
+  <div class="page">
     <header class="stats-header">
       <div class="header-left">
         <div id="stats-header-name">Franchise Team</div>
-        <div id="stats-header-subline">Season — • League Stats &amp; Leaders</div>
+        <div id="stats-header-subline">2025 • League Stats & Leaders</div>
       </div>
       <div class="header-right">
-        <div class="pill-record" id="stats-record-pill">
-          <span class="pill-record-dot" aria-hidden="true"></span>
+        <div class="pill-record">
+          <span class="pill-record-dot"></span>
           <span class="pill-record-label">Record</span>
           <span class="pill-record-value" id="stats-record-value">0–0</span>
         </div>
-        <button type="button" class="btn-ghost" id="btn-stats-back">
-          Back to hub
-        </button>
+        <button class="btn-ghost" id="btn-stats-back">Back to Hub</button>
       </div>
     </header>
 
-    <main role="main" aria-label="League stats and leaders">
-      <!-- Scope bar: season-to-date / week / range -->
-      <section class="scope-bar" aria-label="Stats scope">
-        <div class="scope-label">Stats Scope</div>
-        <div class="scope-controls">
-          <label class="scope-field">
-            <span class="scope-field-label">Mode</span>
-            <select id="scope-mode-select" class="scope-select">
-              <option value="season">Season to date</option>
-              <option value="week">Single week</option>
-              <option value="range">Week range</option>
-            </select>
-          </label>
+    <section class="scope-bar">
+      <span class="scope-label">Scope</span>
+      <select id="scope-mode-select" class="scope-select">
+        <option value="season">Season to Date</option>
+        <option value="week">Single Week</option>
+        <option value="range">Week Range</option>
+      </select>
+      <select id="scope-week-select" class="scope-select"></select>
+      <select id="scope-range-from-select" class="scope-select"></select>
+      <select id="scope-range-to-select" class="scope-select"></select>
+      <span id="scope-summary-text" style="margin-left:auto;font-size:0.8rem;color:#9ca3af;">Season to date.</span>
+    </section>
 
-          <label class="scope-field" id="scope-week-wrapper">
-            <span class="scope-field-label">Week</span>
-            <select id="scope-week-select" class="scope-select">
-              <!-- Populated by JS -->
-            </select>
-          </label>
+    <nav class="stats-tabs" role="tablist">
+      <button class="stats-tab" data-active="true" data-panel="panel-leaders">Player Leaders</button>
+      <button class="stats-tab" data-panel="panel-teams">Team Stats</button>
+    </nav>
 
-          <label class="scope-field" id="scope-range-from-wrapper">
-            <span class="scope-field-label">From week</span>
-            <select id="scope-range-from-select" class="scope-select">
-              <!-- Populated by JS -->
-            </select>
-          </label>
+    <main>
+      <section id="panel-leaders" class="stats-panel">
+        <div class="card"><div class="card-title-main">Passing Yards</div><ol id="leader-list-passing" class="leader-list"></ol></div>
+        <div class="card"><div class="card-title-main">Rushing Yards</div><ol id="leader-list-rushing" class="leader-list"></ol></div>
+        <div class="card"><div class="card-title-main">Receiving Yards</div><ol id="leader-list-receiving" class="leader-list"></ol></div>
+        <div class="card"><div class="card-title-main">Kicking</div><ol id="leader-list-kicking" class="leader-list"></ol></div>
+      </section>
 
-          <label class="scope-field" id="scope-range-to-wrapper">
-            <span class="scope-field-label">To week</span>
-            <select id="scope-range-to-select" class="scope-select">
-              <!-- Populated by JS -->
-            </select>
-          </label>
-        </div>
-        <div class="scope-summary" id="scope-summary-text">
-          Season to date.
+      <section id="panel-teams" class="stats-panel" hidden>
+        <div class="card">
+          <div class="card-title-main">Team Rankings</div>
+          <table class="stats-table">
+            <thead><tr><th>Team</th><th>GP</th><th>PF/G</th><th>Yds/G</th><th>Pass/G</th><th>Rush/G</th></tr></thead>
+            <tbody id="team-rankings-tbody"></tbody>
+          </table>
         </div>
       </section>
 
-      <!-- Tabs: Player Leaders / Team Stats -->
-      <nav
-        class="stats-tabs"
-        role="tablist"
-        aria-label="Stats views"
-      >
-        <button
-          type="button"
-          class="stats-tab"
-          id="tab-player-leaders"
-          role="tab"
-          aria-selected="true"
-          data-active="true"
-          data-panel-id="panel-player-leaders"
-        >
-          Player Leaders
-        </button>
-        <button
-          type="button"
-          class="stats-tab"
-          id="tab-team-stats"
-          role="tab"
-          aria-selected="false"
-          data-active="false"
-          data-panel-id="panel-team-stats"
-        >
-          Team Stats
-        </button>
-      </nav>
-
-      <div class="stats-panels">
-        <!-- Player leaders panel -->
-        <section
-          id="panel-player-leaders"
-          class="stats-panel"
-          role="tabpanel"
-          aria-labelledby="tab-player-leaders"
-        >
-          <div class="layout-leaders-grid" aria-label="Offensive league leaders">
-            <!-- Left column: Passing + Rushing -->
-            <div class="leaders-column">
-              <section class="card" aria-label="Passing leaders">
-                <div class="card-header">
-                  <div>
-                    <div class="card-title">Offensive Leaders</div>
-                    <div class="card-title-main">Passing Yards</div>
-                    <div class="card-subtitle">
-                      Top passers across the league for the selected span.
-                    </div>
-                  </div>
-                  <div class="card-badge">Passing</div>
-                </div>
-                <ol class="leader-list" id="leader-list-passing" aria-label="Top passing yards">
-                  <!-- JS populates -->
-                </ol>
-                <div class="leader-expand-row">
-                  <button
-                    type="button"
-                    class="leader-expand-btn"
-                    id="btn-expand-passing"
-                    data-category="passing"
-                  >
-                    Show top 25
-                  </button>
-                </div>
-              </section>
-
-              <section class="card" aria-label="Rushing leaders">
-                <div class="card-header">
-                  <div>
-                    <div class="card-title">Offensive Leaders</div>
-                    <div class="card-title-main">Rushing Yards</div>
-                    <div class="card-subtitle">
-                      Ground game production for the selected span.
-                    </div>
-                  </div>
-                  <div class="card-badge">Rushing</div>
-                </div>
-                <ol class="leader-list" id="leader-list-rushing" aria-label="Top rushing yards">
-                  <!-- JS populates -->
-                </ol>
-                <div class="leader-expand-row">
-                  <button
-                    type="button"
-                    class="leader-expand-btn"
-                    id="btn-expand-rushing"
-                    data-category="rushing"
-                  >
-                    Show top 25
-                  </button>
-                </div>
-              </section>
-            </div>
-
-            <!-- Right column: Receiving + Kicking -->
-            <div class="leaders-column">
-              <section class="card" aria-label="Receiving leaders">
-                <div class="card-header">
-                  <div>
-                    <div class="card-title">Offensive Leaders</div>
-                    <div class="card-title-main">Receiving Yards</div>
-                    <div class="card-subtitle">
-                      Top targets and playmakers through the air.
-                    </div>
-                  </div>
-                  <div class="card-badge">Receiving</div>
-                </div>
-                <ol class="leader-list" id="leader-list-receiving" aria-label="Top receiving yards">
-                  <!-- JS populates -->
-                </ol>
-                <div class="leader-expand-row">
-                  <button
-                    type="button"
-                    class="leader-expand-btn"
-                    id="btn-expand-receiving"
-                    data-category="receiving"
-                  >
-                    Show top 25
-                  </button>
-                </div>
-              </section>
-
-              <section class="card" aria-label="Kicking leaders">
-                <div class="card-header">
-                  <div>
-                    <div class="card-title">Special Teams Leaders</div>
-                    <div class="card-title-main">Kicking Production</div>
-                    <div class="card-subtitle">
-                      Field goals and extra points for the selected span.
-                    </div>
-                  </div>
-                  <div class="card-badge">Kicking</div>
-                </div>
-                <ol class="leader-list" id="leader-list-kicking" aria-label="Top kicking stats">
-                  <!-- JS populates -->
-                </ol>
-                <div class="leader-expand-row">
-                  <button
-                    type="button"
-                    class="leader-expand-btn"
-                    id="btn-expand-kicking"
-                    data-category="kicking"
-                  >
-                    Show top 25
-                  </button>
-                </div>
-              </section>
-            </div>
-          </div>
-        </section>
-
-        <!-- Team stats panel -->
-        <section
-          id="panel-team-stats"
-          class="stats-panel"
-          role="tabpanel"
-          aria-labelledby="tab-team-stats"
-          hidden
-        >
-          <div class="team-stats-layout">
-            <section class="card" aria-label="Team rankings">
-              <div class="card-header">
-                <div>
-                  <div class="card-title">Team Rankings</div>
-                  <div class="card-title-main">Offense &amp; Defense</div>
-                  <div class="card-subtitle">
-                    League-wide efficiency by points and yards per game.
-                  </div>
-                </div>
-                <div
-                  class="team-stats-controls"
-                  role="tablist"
-                  aria-label="Team ranking view"
-                >
-                  <button
-                    type="button"
-                    class="team-stats-pill"
-                    id="pill-team-offense"
-                    role="tab"
-                    aria-selected="true"
-                    data-active="true"
-                    data-view="offense"
-                  >
-                    Offense
-                  </button>
-                  <button
-                    type="button"
-                    class="team-stats-pill"
-                    id="pill-team-defense"
-                    role="tab"
-                    aria-selected="false"
-                    data-active="false"
-                    data-view="defense"
-                  >
-                    Defense
-                  </button>
-                </div>
-              </div>
-              <div class="card-body">
-                <div class="table-wrapper">
-                  <table class="stats-table" id="team-rankings-table">
-                    <thead>
-                      <tr id="team-rankings-header-row">
-                        <th scope="col">Team</th>
-                        <th scope="col">GP</th>
-                        <th scope="col">PF/G</th>
-                        <th scope="col">Yds/G</th>
-                        <th scope="col">Pass/G</th>
-                        <th scope="col">Rush/G</th>
-                      </tr>
-                    </thead>
-                    <tbody id="team-rankings-tbody">
-                      <!-- JS populates -->
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </section>
-          </div>
-        </section>
-      </div>
-
-      <!-- No-franchise fallback -->
-      <section class="no-franchise-state" id="stats-no-franchise" hidden>
-        <div class="no-franchise-title">No active franchise detected</div>
-        <div class="no-franchise-text">
-          Stats &amp; leaders are only available when you have an active Franchise GM career.
-          Start a new franchise or continue your existing save from the landing page.
-        </div>
-        <div class="no-franchise-actions">
-          <button type="button" class="btn-primary" id="btn-no-franchise-start">
-            Start New Franchise
-          </button>
-          <button type="button" class="btn-secondary" id="btn-no-franchise-landing">
-            Back to Landing
-          </button>
-        </div>
+      <section id="no-franchise" class="no-franchise" hidden>
+        <strong>No active franchise detected.</strong>
+        <p>Start a new franchise or continue from the landing page.</p>
+        <button id="btn-new-franchise" class="btn-ghost">Start New Franchise</button>
       </section>
     </main>
   </div>
