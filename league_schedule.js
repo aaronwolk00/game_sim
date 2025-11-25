@@ -56,6 +56,9 @@
 export const REGULAR_SEASON_WEEKS = 18;
 export const GAMES_PER_TEAM = 17;
 export const SCHEDULE_SCHEMA_VERSION = 2;
+// Set true while developing to log detailed schedule summaries to console
+const SCHEDULE_DEBUG = false
+
 
 // -----------------------------------------------------------------------------
 // Team metadata
@@ -691,99 +694,109 @@ export function getTeamOpponents(seasonYear = new Date().getFullYear()) {
     return 1;
   }
   
-  // -----------------------------------------------------------------------------
-  // Perfect NFL-style schedule builder (robust)
-  // -----------------------------------------------------------------------------
-  
-  export function generatePerfectLeagueSchedule(seasonYear) {
+// -----------------------------------------------------------------------------
+// Perfect NFL-style schedule builder (robust)
+// -----------------------------------------------------------------------------
+
+export function generatePerfectLeagueSchedule(seasonYear) {
     // Step 1: Build the raw matchup list (272 total)
-    const allGames = buildLeagueMatchups(seasonYear);
+    const allGames = buildLeagueMatchups(seasonYear)
   
     // Step 2: Assign byes (Weeks 5–14, 4 per week → even)
-    const byeWeeks = createRandomByeWeeks();
+    const byeWeeks = createRandomByeWeeks()
   
     // Step 3: Initialize week containers and trackers
     /** @type {LeagueGame[][]} */
-    const weeks = Array.from({ length: REGULAR_SEASON_WEEKS }, () => []);
+    const weeks = Array.from({ length: REGULAR_SEASON_WEEKS }, () => [])
     /** @type {Object.<string, Set<number>>} */
-    const bookedWeeks = {};
+    const bookedWeeks = {}
     /** @type {Object.<number, number>} */
-    const weeklyGameCount = {};
-    for (const t of getAllTeamCodes()) bookedWeeks[t] = new Set();
+    const weeklyGameCount = {}
+    for (const t of getAllTeamCodes()) bookedWeeks[t] = new Set()
   
-    const earlyWeeks = [1, 2, 3, 4];
-    const midWeeks   = [5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
-    const lateWeeks  = [15, 16, 17, 18];
+    const earlyWeeks = [1, 2, 3, 4]
+    const midWeeks   = [5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+    const lateWeeks  = [15, 16, 17, 18]
   
     // Step 4: Split by type for better distribution
-    const divisionGames = allGames.filter(g => g.type === "division");
-    const others        = allGames.filter(g => g.type !== "division");
-    shuffleInPlace(divisionGames);
-    shuffleInPlace(others);
+    const divisionGames = allGames.filter(g => g.type === "division")
+    const others        = allGames.filter(g => g.type !== "division")
+    shuffleInPlace(divisionGames)
+    shuffleInPlace(others)
   
     // Step 5: Place division-heavy games later
     for (const g of divisionGames) {
-      const preferLate = Math.random() < 0.65;
-      const candidates = preferLate ? lateWeeks : midWeeks;
-      const week = pickWeekForGame(g, candidates, byeWeeks, bookedWeeks, weeklyGameCount);
-      g.week = week;
-      weeks[week - 1].push(g);
-      bookedWeeks[g.homeTeam].add(week);
-      bookedWeeks[g.awayTeam].add(week);
-      weeklyGameCount[week] = (weeklyGameCount[week] ?? 0) + 1;
+      const preferLate = Math.random() < 0.65
+      const candidates = preferLate ? lateWeeks : midWeeks
+      const week = pickWeekForGame(g, candidates, byeWeeks, bookedWeeks, weeklyGameCount)
+      g.week = week
+      weeks[week - 1].push(g)
+      bookedWeeks[g.homeTeam].add(week)
+      bookedWeeks[g.awayTeam].add(week)
+      weeklyGameCount[week] = (weeklyGameCount[week] ?? 0) + 1
     }
   
     // Step 6: Fill early & mid weeks with remaining matchups
     for (const g of others) {
-      const earlyBias = g.type === "nonconference" || g.type === "conference";
-      const pool = earlyBias ? earlyWeeks.concat(midWeeks) : midWeeks;
-      const week = pickWeekForGame(g, pool, byeWeeks, bookedWeeks, weeklyGameCount);
-      g.week = week;
-      weeks[week - 1].push(g);
-      bookedWeeks[g.homeTeam].add(week);
-      bookedWeeks[g.awayTeam].add(week);
-      weeklyGameCount[week] = (weeklyGameCount[week] ?? 0) + 1;
+      const earlyBias = g.type === "nonconference" || g.type === "conference"
+      const pool = earlyBias ? earlyWeeks.concat(midWeeks) : midWeeks
+      const week = pickWeekForGame(g, pool, byeWeeks, bookedWeeks, weeklyGameCount)
+      g.week = week
+      weeks[week - 1].push(g)
+      bookedWeeks[g.homeTeam].add(week)
+      bookedWeeks[g.awayTeam].add(week)
+      weeklyGameCount[week] = (weeklyGameCount[week] ?? 0) + 1
     }
   
     // Step 7: Assign realistic kickoff times
-    assignTimesToWeeks(weeks, seasonYear);
+    assignTimesToWeeks(weeks, seasonYear)
   
     // Step 8: Construct byWeek / byTeam structures
     /** @type {Record<number, LeagueGame[]>} */
-    const byWeek = {};
+    const byWeek = {}
     for (let w = 1; w <= REGULAR_SEASON_WEEKS; w++) {
-      byWeek[w] = weeks[w - 1].map(g => ({ ...g, week: w }));
+      byWeek[w] = weeks[w - 1].map(g => ({ ...g, week: w }))
     }
   
     /** @type {Record<string, TeamGame[]>} */
-    const byTeam = {};
-    for (const team of getAllTeamCodes()) byTeam[team] = [];
+    const byTeam = {}
+    for (const team of getAllTeamCodes()) byTeam[team] = []
   
     // Populate per-team schedules
-    for (const [week, games] of Object.entries(byWeek)) {
-      const w = Number(week);
+    for (const [weekStr, games] of Object.entries(byWeek)) {
+      const w = Number(weekStr)
       for (const g of games) {
-        const { homeTeam, awayTeam } = g;
+        const { homeTeam, awayTeam } = g
         byTeam[homeTeam].push({
-          index: 0, seasonWeek: w, teamCode: homeTeam,
-          opponentCode: awayTeam, isHome: true,
-          type: g.type, kickoffIso: g.kickoffIso,
-          status: g.status, teamScore: g.homeScore,
+          index: 0,
+          seasonWeek: w,
+          teamCode: homeTeam,
+          opponentCode: awayTeam,
+          isHome: true,
+          type: g.type,
+          kickoffIso: g.kickoffIso,
+          status: g.status,
+          teamScore: g.homeScore,
           opponentScore: g.awayScore
-        });
+        })
         byTeam[awayTeam].push({
-          index: 0, seasonWeek: w, teamCode: awayTeam,
-          opponentCode: homeTeam, isHome: false,
-          type: g.type, kickoffIso: g.kickoffIso,
-          status: g.status, teamScore: g.awayScore,
+          index: 0,
+          seasonWeek: w,
+          teamCode: awayTeam,
+          opponentCode: homeTeam,
+          isHome: false,
+          type: g.type,
+          kickoffIso: g.kickoffIso,
+          status: g.status,
+          teamScore: g.awayScore,
           opponentScore: g.homeScore
-        });
+        })
       }
     }
   
     // Step 9: Add bye placeholders properly
     for (const team of getAllTeamCodes()) {
-      const byeW = byeWeeks[team];
+      const byeW = byeWeeks[team]
       byTeam[team].push({
         index: 0,
         seasonWeek: byeW,
@@ -795,23 +808,31 @@ export function getTeamOpponents(seasonYear = new Date().getFullYear()) {
         status: "scheduled",
         teamScore: null,
         opponentScore: null
-      });
+      })
     }
   
     // Step 10: Sort and index each team’s schedule
     for (const team of getAllTeamCodes()) {
-      const arr = byTeam[team].sort((a, b) => a.seasonWeek - b.seasonWeek);
-      arr.forEach((g, i) => (g.index = i));
+      const arr = byTeam[team].sort((a, b) => a.seasonWeek - b.seasonWeek)
+      arr.forEach((g, i) => (g.index = i))
     }
   
-    // Step 11: Return validated structure
-    return {
+    const schedule = {
       seasonYear,
       schemaVersion: SCHEDULE_SCHEMA_VERSION,
       byTeam,
       byWeek
-    };
+    }
+  
+    // Optional: detailed debug summary + validation
+    if (SCHEDULE_DEBUG) {
+      debugPrintScheduleSummary(schedule)
+      validateLeagueSchedule(schedule)
+    }
+  
+    return schedule
   }
+  
   
 
 // -----------------------------------------------------------------------------
@@ -1029,6 +1050,87 @@ export function recomputeRecordFromSchedule(leagueState, teamCode) {
 
   return ties > 0 ? `${wins}-${losses}-${ties}` : `${wins}-${losses}`;
 }
+
+/**
+ * Debug helper: logs bye distribution, weekly game counts, and team-level checks.
+ * Only runs when SCHEDULE_DEBUG === true.
+ *
+ * @param {LeagueSchedule} schedule
+ */
+ export function debugPrintScheduleSummary(schedule) {
+    if (!schedule || !schedule.byWeek || !schedule.byTeam) {
+      console.warn("[league_schedule] debugPrintScheduleSummary: invalid schedule object")
+      return
+    }
+  
+    const teams = getAllTeamCodes()
+  
+    console.groupCollapsed(
+      `[league_schedule] Schedule summary – season ${schedule.seasonYear}`
+    )
+  
+    // ----------------------------
+    // Per-week summary
+    // ----------------------------
+    console.groupCollapsed("By week (games & byes)")
+    for (let w = 1; w <= REGULAR_SEASON_WEEKS; w++) {
+      const games = schedule.byWeek[w] || []
+      const playingTeams = new Set()
+  
+      for (const g of games) {
+        if (g.homeTeam) playingTeams.add(g.homeTeam)
+        if (g.awayTeam) playingTeams.add(g.awayTeam)
+      }
+  
+      const byeTeams = teams.filter(t => !playingTeams.has(t))
+      const byeLabel = byeTeams.length ? ` | byes=${byeTeams.length} [${byeTeams.join(", ")}]` : ""
+      console.log(
+        `Week ${w}: games=${games.length}, teamsPlaying=${playingTeams.size}${byeLabel}`
+      )
+    }
+    console.groupEnd()
+  
+    // ----------------------------
+    // Per-team summary
+    // ----------------------------
+    console.groupCollapsed("By team (game counts, bye, doubleheaders)")
+    for (const team of teams) {
+      const games = schedule.byTeam[team] || []
+      const bye = games.find(g => g.type === "bye") || null
+      const nonBye = games.filter(g => g.type !== "bye")
+  
+      // Track how many non-bye games in each week for this team
+      const perWeekCounts = new Map()
+      for (const g of nonBye) {
+        const w = g.seasonWeek
+        perWeekCounts.set(w, (perWeekCounts.get(w) || 0) + 1)
+      }
+      const doubleWeeks = []
+      for (const [w, count] of perWeekCounts.entries()) {
+        if (count > 1) doubleWeeks.push(`W${w} x${count}`)
+      }
+  
+      const byeWeekStr = bye ? bye.seasonWeek : "none"
+      const issueParts = []
+      if (nonBye.length !== GAMES_PER_TEAM) {
+        issueParts.push(`non-bye=${nonBye.length} (expected ${GAMES_PER_TEAM})`)
+      }
+      if (!bye) {
+        issueParts.push("no bye")
+      }
+  
+      const issues = issueParts.length ? ` | ISSUES: ${issueParts.join("; ")}` : ""
+      const doubles = doubleWeeks.length ? ` | doubleheaders: ${doubleWeeks.join(", ")}` : ""
+  
+      console.log(
+        `${team}: totalGames=${games.length}, nonBye=${nonBye.length}, byeWeek=${byeWeekStr}${doubles}${issues}`
+      )
+    }
+    console.groupEnd()
+  
+    console.groupEnd()
+  }
+  
 
 export function validateLeagueSchedule(schedule) {
     const teams = getAllTeamCodes();
