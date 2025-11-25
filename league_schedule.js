@@ -302,92 +302,138 @@ function createRandomByeWeeks() {
  * Create all 272 games (no weeks / times yet), based on:
  * - 6 division games (home/away vs 3 rivals)
  * - 4 same-conference division rotation games
- * - 2 same-conference extra games (vs remaining divisions, rank-based-ish)
+ * - 2 same-conference "extra" games (vs remaining divisions, rank-based-ish)
  * - 4 cross-conference rotation games
- * - 1 cross-conference 17th game (rank-based-ish, alternating host conf)
+ * - 1 cross-conference 17th game (rank-based-ish, alternating host conference)
  *
  * @param {number} seasonYear
  * @returns {LeagueGame[]}
  */
-function buildLeagueMatchups(seasonYear) {
-  const divisions = groupTeamsByConfAndDiv();
-  /** @type {LeagueGame[]} */
-  const games = [];
-
-  // 1) Division home/away (6 per team)
-  for (const conf of ["AFC", "NFC"]) {
-    for (const div of DIVISION_NAMES) {
-      const teams = divisions[conf][div];
-      if (!teams || teams.length !== 4) continue;
-
-      for (let i = 0; i < teams.length; i++) {
-        for (let j = i + 1; j < teams.length; j++) {
-          const teamA = teams[i];
-          const teamB = teams[j];
-
-          games.push({
-            week: 0,
-            homeTeam: teamA,
-            awayTeam: teamB,
-            type: "division",
-            kickoffIso: null,
-            status: "scheduled",
-            homeScore: null,
-            awayScore: null
-          });
-
-          games.push({
-            week: 0,
-            homeTeam: teamB,
-            awayTeam: teamA,
-            type: "division",
-            kickoffIso: null,
-            status: "scheduled",
-            homeScore: null,
-            awayScore: null
-          });
+ function buildLeagueMatchups(seasonYear) {
+    const divisions = groupTeamsByConfAndDiv();
+    /** @type {LeagueGame[]} */
+    const games = [];
+  
+    // ---------------------------------------------------------------------------
+    // 1) Division home/away (6 per team, 96 games total)
+    // ---------------------------------------------------------------------------
+    for (const conf of ["AFC", "NFC"]) {
+      for (const div of DIVISION_NAMES) {
+        const teams = divisions[conf][div];
+        if (!teams || teams.length !== 4) continue;
+  
+        for (let i = 0; i < teams.length; i++) {
+          for (let j = i + 1; j < teams.length; j++) {
+            const teamA = teams[i];
+            const teamB = teams[j];
+  
+            games.push({
+              week: 0,
+              homeTeam: teamA,
+              awayTeam: teamB,
+              type: "division",
+              kickoffIso: null,
+              status: "scheduled",
+              homeScore: null,
+              awayScore: null
+            });
+  
+            games.push({
+              week: 0,
+              homeTeam: teamB,
+              awayTeam: teamA,
+              type: "division",
+              kickoffIso: null,
+              status: "scheduled",
+              homeScore: null,
+              awayScore: null
+            });
+          }
         }
       }
     }
-  }
-
-  const sameIdx = getSameConfRotationIndex(seasonYear);
-  const crossOffset = getCrossConfOffset(seasonYear);
-
-  // 2) Same-conference 4-game division rotation (4 per team)
-  for (const conf of ["AFC", "NFC"]) {
-    const config = SAME_CONF_ROTATION[conf][sameIdx];
-    if (!config) continue;
-
-    const seenPairs = new Set();
-    /** @type {[string,string][]} */
-    const divisionPairs = [];
-
-    for (const div of DIVISION_NAMES) {
-      const oppDiv = config[div];
-      if (!oppDiv) continue;
-      const key = sortedPairKey(div, oppDiv);
-      if (seenPairs.has(key)) continue;
-      seenPairs.add(key);
-      divisionPairs.push([div, oppDiv]);
+  
+    // ---------------------------------------------------------------------------
+    // 2) Same-conference 4-game division rotation (4 per team, 64 games total)
+    // ---------------------------------------------------------------------------
+    const sameIdx = getSameConfRotationIndex(seasonYear);
+    const crossOffset = getCrossConfOffset(seasonYear);
+  
+    for (const conf of ["AFC", "NFC"]) {
+      const config = SAME_CONF_ROTATION[conf][sameIdx];
+      if (!config) continue;
+  
+      const seenPairs = new Set();
+      /** @type {[string, string][]} */
+      const divisionPairs = [];
+  
+      for (const div of DIVISION_NAMES) {
+        const oppDiv = config[div];
+        if (!oppDiv) continue;
+        const key = sortedPairKey(div, oppDiv);
+        if (seenPairs.has(key)) continue;
+        seenPairs.add(key);
+        divisionPairs.push([div, oppDiv]);
+      }
+  
+      // Expect 2 unique pairs per conference.
+      for (const [divA, divB] of divisionPairs) {
+        const teamsA = divisions[conf][divA];
+        const teamsB = divisions[conf][divB];
+        if (!teamsA || !teamsB || teamsA.length !== 4 || teamsB.length !== 4) continue;
+  
+        for (let i = 0; i < 4; i++) {
+          for (let j = 0; j < 4; j++) {
+            const parityEven = ((i + j) & 1) === 0;
+            const homeTeam = parityEven ? teamsA[i] : teamsB[j];
+            const awayTeam = parityEven ? teamsB[j] : teamsA[i];
+            games.push({
+              week: 0,
+              homeTeam,
+              awayTeam,
+              type: "conference",
+              kickoffIso: null,
+              status: "scheduled",
+              homeScore: null,
+              awayScore: null
+            });
+          }
+        }
+      }
     }
-
-    // Expect 2 unique pairs per conference.
-    for (const [divA, divB] of divisionPairs) {
-      const teamsA = divisions[conf][divA];
-      const teamsB = divisions[conf][divB];
-      if (!teamsA || !teamsB || teamsA.length !== 4 || teamsB.length !== 4) continue;
-
-      for (let i = 0; i < 4; i++) {
-        for (let j = 0; j < 4; j++) {
-          const parityEven = ((i + j) & 1) === 0;
-          const homeTeam = parityEven ? teamsA[i] : teamsB[j];
-          const awayTeam = parityEven ? teamsB[j] : teamsA[i];
+  
+    // ---------------------------------------------------------------------------
+    // 3) Same-conference 2 "extra" games per team (32 games total)
+    //
+    // We use a fixed, symmetric pairing of divisions inside each conference:
+    //   East ↔ South, East ↔ West, North ↔ South, North ↔ West
+    // This gives each division exactly two extra-opponent divisions and
+    // therefore each team exactly 2 extra intra-conference games.
+    // ---------------------------------------------------------------------------
+    const EXTRA_DIV_PAIRS = [
+      ["East", "South"],
+      ["East", "West"],
+      ["North", "South"],
+      ["North", "West"]
+    ];
+  
+    for (const conf of ["AFC", "NFC"]) {
+      for (const [divA, divB] of EXTRA_DIV_PAIRS) {
+        const teamsA = divisions[conf][divA];
+        const teamsB = divisions[conf][divB];
+        if (!teamsA || !teamsB || teamsA.length !== 4 || teamsB.length !== 4) continue;
+  
+        for (let i = 0; i < 4; i++) {
+          // Approximate "same rank" by index within division.
+          const hostIsA = ((seasonYear + i) & 1) === 0;
+          const homeTeam = hostIsA ? teamsA[i] : teamsB[i];
+          const awayTeam = hostIsA ? teamsB[i] : teamsA[i];
+  
           games.push({
             week: 0,
             homeTeam,
             awayTeam,
-            type: "conference",
+            type: "extra",
             kickoffIso: null,
             status: "scheduled",
             homeScore: null,
@@ -396,69 +442,57 @@ function buildLeagueMatchups(seasonYear) {
         }
       }
     }
-  }
-
-  // 3) Same-conference 2 extra games based on remaining divisions (2 per team)
-  for (const conf of ["AFC", "NFC"]) {
-    const config = SAME_CONF_ROTATION[conf][sameIdx];
-    if (!config) continue;
-
-    const extraPairKeys = new Set();
-    /** @type {[string,string][]} */
-    const extraPairs = [];
-
-    for (const div of DIVISION_NAMES) {
-      const rotOpp = config[div];
-      if (!rotOpp) continue;
-
-      const remaining = DIVISION_NAMES.filter((d) => d !== div && d !== rotOpp);
-      for (const other of remaining) {
-        const key = sortedPairKey(div, other);
-        if (extraPairKeys.has(key)) continue;
-        extraPairKeys.add(key);
-        extraPairs.push([div, other]);
+  
+    // ---------------------------------------------------------------------------
+    // 4) Cross-conference 4-game rotation (4 per team, 64 games total)
+    // ---------------------------------------------------------------------------
+    for (let idx = 0; idx < DIVISION_NAMES.length; idx++) {
+      const afcDivName = DIVISION_NAMES[idx];
+      const nfcDivName = DIVISION_NAMES[(idx + crossOffset) % 4];
+  
+      const afcTeams = divisions.AFC[afcDivName];
+      const nfcTeams = divisions.NFC[nfcDivName];
+      if (!afcTeams || !nfcTeams || afcTeams.length !== 4 || nfcTeams.length !== 4) {
+        continue;
       }
-    }
-
-    // Should contain exactly 4 unique division pairs per conference.
-    for (const [divA, divB] of extraPairs) {
-      const teamsA = divisions[conf][divA];
-      const teamsB = divisions[conf][divB];
-      if (!teamsA || !teamsB || teamsA.length !== 4 || teamsB.length !== 4) continue;
-
+  
       for (let i = 0; i < 4; i++) {
-        // Approximate "same rank" by index within division.
-        const hostIsA = ((seasonYear + i) & 1) === 0;
-        const homeTeam = hostIsA ? teamsA[i] : teamsB[i];
-        const awayTeam = hostIsA ? teamsB[i] : teamsA[i];
-        games.push({
-          week: 0,
-          homeTeam,
-          awayTeam,
-          type: "extra",
-          kickoffIso: null,
-          status: "scheduled",
-          homeScore: null,
-          awayScore: null
-        });
+        for (let j = 0; j < 4; j++) {
+          const parityEven = ((i + j) & 1) === 0;
+          const homeTeam = parityEven ? afcTeams[i] : nfcTeams[j];
+          const awayTeam = parityEven ? nfcTeams[j] : afcTeams[i];
+          games.push({
+            week: 0,
+            homeTeam,
+            awayTeam,
+            type: "nonconference",
+            kickoffIso: null,
+            status: "scheduled",
+            homeScore: null,
+            awayScore: null
+          });
+        }
       }
     }
-  }
-
-  // 4) Cross-conference 4-game rotation (4 per team)
-  for (let idx = 0; idx < DIVISION_NAMES.length; idx++) {
-    const afcDivName = DIVISION_NAMES[idx];
-    const nfcDivName = DIVISION_NAMES[(idx + crossOffset) % 4];
-
-    const afcTeams = divisions.AFC[afcDivName];
-    const nfcTeams = divisions.NFC[nfcDivName];
-    if (!afcTeams || !nfcTeams || afcTeams.length !== 4 || nfcTeams.length !== 4) continue;
-
-    for (let i = 0; i < 4; i++) {
-      for (let j = 0; j < 4; j++) {
-        const parityEven = ((i + j) & 1) === 0;
-        const homeTeam = parityEven ? afcTeams[i] : nfcTeams[j];
-        const awayTeam = parityEven ? nfcTeams[j] : afcTeams[i];
+  
+    // ---------------------------------------------------------------------------
+    // 5) Cross-conference 17th game (1 per team, 16 games total)
+    // ---------------------------------------------------------------------------
+    const seventeenthOffset = (crossOffset + 2) % 4;
+    const hostConference = seasonYear % 2 === 0 ? "AFC" : "NFC"; // alternate host
+  
+    for (let idx = 0; idx < DIVISION_NAMES.length; idx++) {
+      const afcDivName = DIVISION_NAMES[idx];
+      const nfcDivName = DIVISION_NAMES[(idx + seventeenthOffset) % 4];
+  
+      const afcTeams = divisions.AFC[afcDivName];
+      const nfcTeams = divisions.NFC[nfcDivName];
+      if (!afcTeams || !nfcTeams || afcTeams.length !== 4 || nfcTeams.length !== 4) continue;
+  
+      for (let i = 0; i < 4; i++) {
+        const homeTeam = hostConference === "AFC" ? afcTeams[i] : nfcTeams[i];
+        const awayTeam = hostConference === "AFC" ? nfcTeams[i] : afcTeams[i];
+  
         games.push({
           week: 0,
           homeTeam,
@@ -471,44 +505,11 @@ function buildLeagueMatchups(seasonYear) {
         });
       }
     }
+  
+    // Sanity: should now be 272 games total; each team will later get 17 games.
+    return games;
   }
-
-  // 5) Cross-conference 17th game (1 per team)
-  const seventeenthOffset = (crossOffset + 2) % 4;
-  const hostConference = seasonYear % 2 === 0 ? "AFC" : "NFC"; // alternate host
-
-  for (let idx = 0; idx < DIVISION_NAMES.length; idx++) {
-    const afcDivName = DIVISION_NAMES[idx];
-    const nfcDivName = DIVISION_NAMES[(idx + seventeenthOffset) % 4];
-
-    const afcTeams = divisions.AFC[afcDivName];
-    const nfcTeams = divisions.NFC[nfcDivName];
-    if (!afcTeams || !nfcTeams || afcTeams.length !== 4 || nfcTeams.length !== 4) continue;
-
-    for (let i = 0; i < 4; i++) {
-      let homeTeam, awayTeam;
-      if (hostConference === "AFC") {
-        homeTeam = afcTeams[i];
-        awayTeam = nfcTeams[i];
-      } else {
-        homeTeam = nfcTeams[i];
-        awayTeam = afcTeams[i];
-      }
-      games.push({
-        week: 0,
-        homeTeam,
-        awayTeam,
-        type: "nonconference",
-        kickoffIso: null,
-        status: "scheduled",
-        homeScore: null,
-        awayScore: null
-      });
-    }
-  }
-
-  return games;
-}
+  
 
 // -----------------------------------------------------------------------------
 // Week assignment helper
