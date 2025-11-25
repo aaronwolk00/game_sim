@@ -700,14 +700,14 @@ function simulateDrive(state) {
     }
   
     // --- Post-drive bookkeeping before we finalize the drive row ---
-  
+
     const lastPlay = drivePlays[drivePlays.length - 1] || null;
     const isTD     = !!lastPlay?.touchdown;
     const isFG     = lastPlay?.playType === "field_goal";
     const isFGGood = !!lastPlay?.fieldGoalGood;
     const isFGMiss = isFG && !isFGGood;
     const isSafety = !!lastPlay?.safety;
-  
+
     // If the last play was a TD and there is still time on the clock,
     // perform a PAT decision and log it as a play belonging to THIS drive.
     if (isTD && state.clockSec > 0) {
@@ -716,15 +716,15 @@ function simulateDrive(state) {
         drivePlays.push(patLog); // keep PAT together with scoring drive
       }
     }
-  
-    // Aggregate basic drive stats (rushing/passing only for yards)
+
+    // Aggregate basic drive stats
     const totalYards = drivePlays.reduce((sum, p) => {
       const y = typeof p.yardsGained === "number" ? p.yardsGained : 0;
       if (p.playType === "run" || p.playType === "pass") return sum + y;
       return sum;
     }, 0);
-  
-    // NEW: duration = sum of per-play clockRunoff for ALL plays with this driveId
+
+    // Duration = sum of per-play clockRunoff for all plays in this drive
     const durationSec = state.plays.reduce(
       (sum, p) =>
         p.driveId === driveId
@@ -732,26 +732,76 @@ function simulateDrive(state) {
           : sum,
       0
     );
-  
-    // Drive result label
+
+    // --- Drive result label + event/log injection for end-of-quarter ---
     let resultText = "Turnover on downs";
-    if (lastPlay) {
+
+    // Detect true quarter expiration (not a 4th-down failure)
+    const quarterExpired = state.clockSec <= 0 && !lastPlay?.turnover && !isTD && !isFG && !isSafety;
+
+    if (quarterExpired) {
+      resultText = "End of quarter";
+
+      // 🔹 Add a “quarter end” play to the log so PBP shows it
+      const clockStr = formatClockFromSec(0);
+      const desc = `End of Q${state.quarter}`;
+      const log = {
+        playId: state.playId++,
+        driveId,
+        quarter: state.quarter,
+        clockSec: 0,
+        clock: clockStr,
+        gameClock: clockStr,
+        offense: offenseSide,
+        defense: offenseSide === "home" ? "away" : "home",
+        offenseTeamId: offenseTeam.teamId,
+        defenseTeamId:
+          offenseSide === "home" ? state.awayTeam.teamId : state.homeTeam.teamId,
+        offenseTeamName: offenseTeam.teamName,
+        defenseTeamName:
+          offenseSide === "home" ? state.awayTeam.teamName : state.homeTeam.teamName,
+        playType: "admin",
+        text: desc,
+        description: desc,
+        desc,
+        downAndDistance: "",
+        tags: ["ENDQTR"],
+        isScoring: false,
+        isTurnover: false,
+        highImpact: false,
+        yardsGained: 0,
+        timeElapsed: 0,
+        clockRunoff: 0,
+        turnover: false,
+        touchdown: false,
+        safety: false,
+        fieldGoalAttempt: false,
+        fieldGoalGood: false,
+        punt: false,
+        endOfDrive: true,
+      };
+      state.plays.push(log);
+      state.events.push({
+        type: "quarter_end_play",
+        quarter: state.quarter,
+        description: desc,
+        score: cloneScore(state.score),
+      });
+    } else if (lastPlay) {
       if (isTD) resultText = "TD";
       else if (isFG && isFGGood) resultText = "FG Good";
       else if (isFG && !isFGGood) resultText = "FG Miss";
       else if (isSafety) resultText = "Safety";
       else if (lastPlay.punt) resultText = "Punt";
       else if (lastPlay.turnover) resultText = "Turnover";
-    } else if (state.clockSec <= 0) {
-      resultText = "End of quarter";
     }
-  
+
+    // --- Finalize the drive row ---
     const playIndices = drivePlays.map((_, idx) => startingPlayIndex + idx);
-  
-    // Write the drive row now
+
     state.drives.push({
       driveId,
-      offense: offenseSide,                 // "home" | "away"
+      offense: offenseSide,
       teamId: offenseTeam.teamId,
       offenseTeamId: offenseTeam.teamId,
       result: resultText,
@@ -766,6 +816,7 @@ function simulateDrive(state) {
       startScore: startingScore,
       endScore: cloneScore(state.score),
     });
+
   
     // Decide how the next drive should start
     if (!state.isFinal && state.clockSec > 0) {
@@ -777,7 +828,7 @@ function simulateDrive(state) {
       if (quarterBreakOnly) {
         // Same offense continues; same ball spot; same down & distance.
         state.driveId += 1;
-        startNewDrive(state, lastPlay, "Quarter break – continuing series");
+        startNewDrive(state, lastPlay, "Quarter End");
         return;
       }
   
