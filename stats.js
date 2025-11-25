@@ -1,207 +1,348 @@
-// stats.js — Franchise GM League Stats
+// stats.js
 // -----------------------------------------------------------------------------
-// Clean, modular, and defensive rewrite of your previous stats system.
+// Franchise GM – League Stats & Leaders
+//
+// Displays player and team leaderboards based on leagueState.seasonStats.
+// Supports week/range filtering, expandable leader cards, and an offense/defense
+// team stats tab.
 // -----------------------------------------------------------------------------
 
-import { getTeamDisplayName } from "./league_schedule.js";
+import { TEAM_META, getTeamDisplayName } from "./league_schedule.js";
 import { rebuildSeasonStats } from "./league_stats.js";
 
-const SAVE_KEY = "franchiseGM_lastFranchise";
-const LEAGUE_PREFIX = "franchiseGM_leagueState_";
+const SAVE_KEY_LAST_FRANCHISE = "franchiseGM_lastFranchise";
+const LEAGUE_STATE_KEY_PREFIX = "franchiseGM_leagueState_";
 
-// -----------------------------
-// Storage utilities
-// -----------------------------
-const safeStorage = {
-  get(key) {
-    try { return JSON.parse(localStorage.getItem(key)); } catch { return null; }
-  },
-  set(key, value) {
-    try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
-  },
-  has() {
-    try {
-      const k = "__test__";
-      localStorage.setItem(k, "1");
-      localStorage.removeItem(k);
-      return true;
-    } catch { return false; }
+function getLeagueStateKey(franchiseId) {
+  return `${LEAGUE_STATE_KEY_PREFIX}${franchiseId}`;
+}
+function storageAvailable() {
+  try {
+    const testKey = "__storage_test__";
+    localStorage.setItem(testKey, "1");
+    localStorage.removeItem(testKey);
+    return true;
+  } catch {
+    return false;
   }
-};
+}
+function loadLastFranchise() {
+  if (!storageAvailable()) return null;
+  const raw = localStorage.getItem(SAVE_KEY_LAST_FRANCHISE);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+function loadLeagueState(franchiseId) {
+  if (!storageAvailable()) return null;
+  const raw = localStorage.getItem(getLeagueStateKey(franchiseId));
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+function saveLeagueState(franchiseId, state) {
+  if (!storageAvailable()) return;
+  try {
+    localStorage.setItem(getLeagueStateKey(franchiseId), JSON.stringify(state));
+  } catch (err) {
+    console.warn("Failed to save LeagueState:", err);
+  }
+}
 
-function leagueKey(id) { return `${LEAGUE_PREFIX}${id}`; }
+document.addEventListener("DOMContentLoaded", initStatsPage);
 
-// -----------------------------
-// Initialization
-// -----------------------------
-document.addEventListener("DOMContentLoaded", async () => {
-  if (!safeStorage.has()) return showNoFranchise();
+async function initStatsPage() {
+  const save = loadLastFranchise();
+  const root = document.getElementById("stats-page-root");
+  const noFranchise = document.getElementById("stats-no-franchise");
 
-  const save = safeStorage.get(SAVE_KEY);
-  if (!save?.franchiseId) return showNoFranchise();
+  if (!save) {
+    noFranchise.hidden = false;
+    root.querySelector("main").hidden = true;
+    document.getElementById("btn-no-franchise-start").onclick = () => {
+      window.location.href = "team_select.html";
+    };
+    document.getElementById("btn-no-franchise-landing").onclick = () => {
+      window.location.href = "index.html";
+    };
+    return;
+  }
 
-  let state = safeStorage.get(leagueKey(save.franchiseId)) || {
-    franchiseId: save.franchiseId,
-    seasonYear: save.seasonYear,
-    gameStats: {},
-    seasonStats: { teams: {}, players: {} },
-  };
+  // Load state
+  let leagueState = loadLeagueState(save.franchiseId);
+  if (!leagueState) {
+    leagueState = {
+      franchiseId: save.franchiseId,
+      seasonYear: save.seasonYear,
+      gameStats: {},
+      seasonStats: { updatedThroughWeekIndex0: null, teams: {}, players: {} },
+    };
+  }
 
-  rebuildSeasonStats(state);
-  safeStorage.set(leagueKey(save.franchiseId), state);
+  // Ensure we have season stats rebuilt
+  rebuildSeasonStats(leagueState, { throughWeekIndex0: null });
+  saveLeagueState(save.franchiseId, leagueState);
 
-  populateHeader(save, state);
-  initNavigation();
-  initScope(state, save);
-  initTabs();
-  renderLeaders(state, save);
-  renderTeams(state, save);
-});
+  populateHeader(save, leagueState);
+  setupNavigation(save);
+  setupScopeControls(save, leagueState);
+  setupTabs();
+  renderAllLeaders(leagueState, save, { throughWeekIndex0: null, rangeFrom: null, rangeTo: null });
+}
 
-// -----------------------------
-// UI Functions
-// -----------------------------
-function populateHeader(save, state) {
+function populateHeader(save, leagueState) {
   document.getElementById("stats-header-name").textContent = getTeamDisplayName(save.teamCode);
-  document.getElementById("stats-header-subline").textContent = `Season ${save.seasonYear} • League Stats`;
-  document.getElementById("stats-record-value").textContent = save.record || "0–0";
+  document.getElementById("stats-header-subline").textContent = `Season ${save.seasonYear} • League Stats & Leaders`;
+  document.getElementById("stats-record-value").textContent =
+    (leagueState.statsSummary && leagueState.statsSummary.record) || save.record || "0–0";
 }
 
-function initNavigation() {
-  const back = document.getElementById("btn-stats-back");
-  if (back) back.onclick = () => (window.location.href = "franchise.html");
-  const newFr = document.getElementById("btn-new-franchise");
-  if (newFr) newFr.onclick = () => (window.location.href = "team_select.html");
+function setupNavigation(save) {
+  const btnBack = document.getElementById("btn-stats-back");
+  btnBack.addEventListener("click", () => {
+    window.location.href = "franchise.html";
+  });
 }
 
-function initTabs() {
+function setupTabs() {
   const tabs = document.querySelectorAll(".stats-tab");
-  tabs.forEach(t => {
-    t.addEventListener("click", () => {
-      tabs.forEach(tab => {
-        tab.dataset.active = "false";
-        document.getElementById(tab.dataset.panel).hidden = true;
+  tabs.forEach(tab => {
+    tab.addEventListener("click", () => {
+      tabs.forEach(t => {
+        t.dataset.active = "false";
+        t.setAttribute("aria-selected", "false");
+        document.getElementById(t.dataset.panelId).hidden = true;
       });
-      t.dataset.active = "true";
-      document.getElementById(t.dataset.panel).hidden = false;
+      tab.dataset.active = "true";
+      tab.setAttribute("aria-selected", "true");
+      document.getElementById(tab.dataset.panelId).hidden = false;
     });
   });
 }
 
-function initScope(state, save) {
-  const modeSel = document.getElementById("scope-mode-select");
-  const weekSel = document.getElementById("scope-week-select");
-  const fromSel = document.getElementById("scope-range-from-select");
-  const toSel = document.getElementById("scope-range-to-select");
+function setupScopeControls(save, leagueState) {
+  const modeSelect = document.getElementById("scope-mode-select");
+  const weekSelect = document.getElementById("scope-week-select");
+  const fromSelect = document.getElementById("scope-range-from-select");
+  const toSelect = document.getElementById("scope-range-to-select");
   const summary = document.getElementById("scope-summary-text");
 
-  const weekCount = 18;
-  [weekSel, fromSel, toSel].forEach(sel => {
+  const weekCount =
+    (leagueState.schedule && leagueState.schedule.byTeam && leagueState.schedule.byTeam[save.teamCode]?.length) ||
+    18;
+
+  // Populate weeks
+  [weekSelect, fromSelect, toSelect].forEach(sel => {
     sel.innerHTML = "";
     for (let i = 0; i < weekCount; i++) {
-      const o = document.createElement("option");
-      o.value = i;
-      o.textContent = `Week ${i + 1}`;
-      sel.appendChild(o);
+      const opt = document.createElement("option");
+      opt.value = String(i);
+      opt.textContent = `Week ${i + 1}`;
+      sel.appendChild(opt);
     }
   });
 
-  function apply() {
-    const mode = modeSel.value;
-    let range = { through: null };
-    if (mode === "season") summary.textContent = "Season to date.";
-    if (mode === "week") {
-      const w = parseInt(weekSel.value, 10);
+  const state = { throughWeekIndex0: null, rangeFrom: null, rangeTo: null };
+
+  function applyFilter() {
+    const mode = modeSelect.value;
+    if (mode === "season") {
+      state.throughWeekIndex0 = null;
+      summary.textContent = "Season to date.";
+      rebuildSeasonStats(leagueState, { throughWeekIndex0: null });
+    } else if (mode === "week") {
+      const w = parseInt(weekSelect.value, 10);
+      state.throughWeekIndex0 = w;
       summary.textContent = `Week ${w + 1} only.`;
-      range.through = w;
+      rebuildSeasonStats(leagueState, { throughWeekIndex0: w });
+    } else if (mode === "range") {
+      const from = parseInt(fromSelect.value, 10);
+      const to = parseInt(toSelect.value, 10);
+      state.rangeFrom = Math.min(from, to);
+      state.rangeTo = Math.max(from, to);
+      summary.textContent = `Weeks ${state.rangeFrom + 1}–${state.rangeTo + 1}.`;
+      rebuildSeasonStats(leagueState, { throughWeekIndex0: state.rangeTo });
     }
-    if (mode === "range") {
-      const a = parseInt(fromSel.value, 10), b = parseInt(toSel.value, 10);
-      const min = Math.min(a, b), max = Math.max(a, b);
-      summary.textContent = `Weeks ${min + 1}–${max + 1}.`;
-      range.through = max;
-    }
-    rebuildSeasonStats(state, { throughWeekIndex0: range.through });
-    renderLeaders(state, save);
-    renderTeams(state, save);
+    renderAllLeaders(leagueState, save, state);
+    renderTeamRankings(leagueState, save, state);
   }
 
-  modeSel.onchange = apply;
-  weekSel.onchange = apply;
-  fromSel.onchange = apply;
-  toSel.onchange = apply;
+  modeSelect.addEventListener("change", () => {
+    const mode = modeSelect.value;
+    document.getElementById("scope-week-wrapper").hidden = mode !== "week";
+    document.getElementById("scope-range-from-wrapper").hidden = mode !== "range";
+    document.getElementById("scope-range-to-wrapper").hidden = mode !== "range";
+    applyFilter();
+  });
+  weekSelect.addEventListener("change", applyFilter);
+  fromSelect.addEventListener("change", applyFilter);
+  toSelect.addEventListener("change", applyFilter);
 }
 
-// -----------------------------
-// Renderers
-// -----------------------------
-function renderLeaders(state, save) {
-  const stats = state.seasonStats?.players || {};
-  const arr = Object.values(stats);
-  renderCategory(arr, save, "passing", "passYds");
-  renderCategory(arr, save, "rushing", "rushYds");
-  renderCategory(arr, save, "receiving", "recYds");
-  renderCategory(arr, save, "kicking", "fgMade");
+function renderAllLeaders(leagueState, save, scope) {
+  const stats = leagueState.seasonStats?.players || {};
+  const players = Object.values(stats);
+  renderCategory(players, save, "passing", "passYds", "passTD", "passInt");
+  renderCategory(players, save, "rushing", "rushYds", "rushTD");
+  renderCategory(players, save, "receiving", "recYds", "recTD");
+  renderCategory(players, save, "kicking", "fgMade", "fgAtt", "xpMade", "xpAtt");
 }
 
-function renderCategory(players, save, id, key) {
-  const list = document.getElementById(`leader-list-${id}`);
-  if (!list) return;
-  list.innerHTML = "";
+function renderCategory(players, save, category, ...fields) {
+  const listEl = document.getElementById(`leader-list-${category}`);
+  if (!listEl) return;
+  listEl.innerHTML = "";
+  let filtered = [];
+  if (category === "passing") filtered = players.filter(p => p.passAtt > 0);
+  else if (category === "rushing") filtered = players.filter(p => p.rushAtt > 0);
+  else if (category === "receiving") filtered = players.filter(p => p.receptions > 0 || p.targets > 0);
+  else if (category === "kicking") filtered = players.filter(p => p.fgAtt > 0 || p.xpAtt > 0);
 
-  const filtered = players
-    .filter(p => (p[key] || 0) > 0)
-    .sort((a, b) => (b[key] || 0) - (a[key] || 0))
-    .slice(0, 10);
+  filtered.sort((a, b) => {
+    const main = fields[0];
+    return (b[main] || 0) - (a[main] || 0);
+  });
 
-  filtered.forEach((p, i) => {
+  const showTop = 5;
+  const topPlayers = filtered.slice(0, showTop);
+
+  for (let i = 0; i < topPlayers.length; i++) {
+    const p = topPlayers[i];
     const li = document.createElement("li");
     li.className = "leader-row";
     if (p.teamCode === save.teamCode) li.classList.add("leader-row--user-team");
+    const rank = document.createElement("div");
+    rank.className = "leader-rank";
+    rank.textContent = i + 1;
+    const playerDiv = document.createElement("div");
+    playerDiv.className = "leader-player";
+    const name = document.createElement("span");
+    name.className = "leader-name";
+    name.textContent = p.name || "Unknown";
+    const team = document.createElement("span");
+    team.className = "leader-team";
+    team.textContent = p.teamCode || "";
+    playerDiv.append(name, team);
+    const stat = document.createElement("div");
+    stat.className = "leader-stat";
+    const mainField = fields[0];
+    stat.textContent = (p[mainField] || 0).toLocaleString();
+    li.append(rank, playerDiv, stat);
+    listEl.appendChild(li);
+  }
 
-    const left = document.createElement("div");
-    left.innerHTML = `<strong>${i + 1}.</strong> ${p.name || "Unknown"} <span style="color:#9ca3af;">(${p.teamCode})</span>`;
-    const right = document.createElement("div");
-    right.className = "leader-stat";
-    right.textContent = (p[key] || 0).toLocaleString();
-
-    li.append(left, right);
-    list.appendChild(li);
-  });
+  // Expand button
+  const expandBtn = document.getElementById(`btn-expand-${category}`);
+  if (expandBtn) {
+    expandBtn.onclick = () => {
+      const expanded = expandBtn.dataset.expanded === "true";
+      expandBtn.dataset.expanded = expanded ? "false" : "true";
+      expandBtn.textContent = expanded ? "Show top 25" : "Show top 5";
+      listEl.innerHTML = "";
+      const arr = expanded ? filtered.slice(0, 25) : filtered.slice(0, 5);
+      arr.forEach((p, i) => {
+        const li = document.createElement("li");
+        li.className = "leader-row";
+        if (p.teamCode === save.teamCode) li.classList.add("leader-row--user-team");
+        const rank = document.createElement("div");
+        rank.className = "leader-rank";
+        rank.textContent = i + 1;
+        const playerDiv = document.createElement("div");
+        playerDiv.className = "leader-player";
+        const name = document.createElement("span");
+        name.className = "leader-name";
+        name.textContent = p.name || "Unknown";
+        const team = document.createElement("span");
+        team.className = "leader-team";
+        team.textContent = p.teamCode || "";
+        playerDiv.append(name, team);
+        const stat = document.createElement("div");
+        stat.className = "leader-stat";
+        const mainField = fields[0];
+        stat.textContent = (p[mainField] || 0).toLocaleString();
+        li.append(rank, playerDiv, stat);
+        listEl.appendChild(li);
+      });
+    };
+  }
 }
 
-function renderTeams(state, save) {
-  const teams = Object.values(state.seasonStats?.teams || {});
-  const body = document.getElementById("team-rankings-tbody");
-  if (!body) return;
-  body.innerHTML = "";
+// -----------------------------------------------------------------------------
+// Team Stats Tab
+// -----------------------------------------------------------------------------
+function renderTeamRankings(leagueState, save) {
+  const tableBody = document.getElementById("team-rankings-tbody");
+  if (!tableBody) return;
+  const teams = Object.values(leagueState.seasonStats?.teams || {});
+  const offensePill = document.getElementById("pill-team-offense");
+  const defensePill = document.getElementById("pill-team-defense");
 
-  const ranked = teams
-    .map(t => ({
-      ...t,
-      ppg: t.pointsFor / Math.max(1, t.gamesPlayed),
-      ypg: t.yardsTotalFor / Math.max(1, t.gamesPlayed),
-    }))
-    .sort((a, b) => b.ppg - a.ppg);
+  function update(view) {
+    tableBody.innerHTML = "";
+    let sorted = [];
+    if (view === "offense") {
+      sorted = teams
+        .map(t => ({
+          ...t,
+          ppg: t.pointsFor / Math.max(1, t.gamesPlayed),
+          ypg: t.yardsTotalFor / Math.max(1, t.gamesPlayed),
+        }))
+        .sort((a, b) => b.ppg - a.ppg);
+    } else {
+      sorted = teams
+        .map(t => ({
+          ...t,
+          ppg: t.pointsAgainst / Math.max(1, t.gamesPlayed),
+          ypg: t.yardsTotalAgainst / Math.max(1, t.gamesPlayed),
+        }))
+        .sort((a, b) => a.ppg - b.ppg);
+    }
 
-  ranked.forEach(t => {
-    const tr = document.createElement("tr");
-    if (t.teamCode === save.teamCode) tr.classList.add("team-row--user-team");
-    tr.innerHTML = `
-      <td>${getTeamDisplayName(t.teamCode)}</td>
-      <td>${t.gamesPlayed}</td>
-      <td>${t.ppg.toFixed(1)}</td>
-      <td>${t.ypg.toFixed(1)}</td>
-      <td>${(t.passYdsFor / Math.max(1, t.gamesPlayed)).toFixed(1)}</td>
-      <td>${(t.rushYdsFor / Math.max(1, t.gamesPlayed)).toFixed(1)}</td>`;
-    body.appendChild(tr);
+    for (const t of sorted) {
+      const tr = document.createElement("tr");
+      if (t.teamCode === save.teamCode) tr.classList.add("team-row--user-team");
+      const nameCell = document.createElement("td");
+      nameCell.textContent = getTeamDisplayName(t.teamCode);
+      const gp = document.createElement("td");
+      gp.textContent = t.gamesPlayed;
+      const pfpg = document.createElement("td");
+      pfpg.textContent = t.ppg.toFixed(1);
+      const ypg = document.createElement("td");
+      ypg.textContent = t.ypg.toFixed(1);
+      const pass = document.createElement("td");
+      const rush = document.createElement("td");
+      if (view === "offense") {
+        pass.textContent = (t.passYdsFor / Math.max(1, t.gamesPlayed)).toFixed(1);
+        rush.textContent = (t.rushYdsFor / Math.max(1, t.gamesPlayed)).toFixed(1);
+      } else {
+        pass.textContent = (t.passYdsAgainst / Math.max(1, t.gamesPlayed)).toFixed(1);
+        rush.textContent = (t.rushYdsAgainst / Math.max(1, t.gamesPlayed)).toFixed(1);
+      }
+      tr.append(nameCell, gp, pfpg, ypg, pass, rush);
+      tableBody.appendChild(tr);
+    }
+  }
+
+  offensePill.addEventListener("click", () => {
+    offensePill.dataset.active = "true";
+    offensePill.setAttribute("aria-selected", "true");
+    defensePill.dataset.active = "false";
+    defensePill.setAttribute("aria-selected", "false");
+    update("offense");
   });
-}
+  defensePill.addEventListener("click", () => {
+    offensePill.dataset.active = "false";
+    offensePill.setAttribute("aria-selected", "false");
+    defensePill.dataset.active = "true";
+    defensePill.setAttribute("aria-selected", "true");
+    update("defense");
+  });
 
-// -----------------------------
-// Fallback
-// -----------------------------
-function showNoFranchise() {
-  document.querySelector("main").hidden = true;
-  document.getElementById("no-franchise").hidden = false;
+  update("offense");
 }

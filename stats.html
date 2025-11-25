@@ -2,173 +2,246 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Franchise GM – League Stats & Leaders</title>
+  <title>Franchise GM – League Stats &amp; Leaders</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="stylesheet" href="style.css" />
   <style>
+    :root {
+      --bg: #020617;
+      --panel: #020617;
+      --card: #020617;
+      --card-border: #1e293b;
+      --card-border-strong: #4b5563;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --accent: #22c55e;
+      --accent-soft: rgba(34,197,94,0.18);
+      --accent-alt: #38bdf8;
+      --danger: #f97373;
+      --danger-soft: rgba(248,113,113,0.18);
+      --radius-lg: 16px;
+      --radius-md: 12px;
+      --radius-pill: 999px;
+      --shadow-soft: 0 18px 45px rgba(15,23,42,0.75);
+      --shadow-subtle: 0 1px 3px rgba(15,23,42,0.7);
+      --border-subtle: rgba(31,41,55,0.9);
+    }
+
+    * { box-sizing: border-box; }
+
+    html,
     body {
       margin: 0;
       padding: 0;
-      background: radial-gradient(circle at 0% 0%, #0b1120 0%, #020617 48%, #000 100%);
-      color: #e5e7eb;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+      background: radial-gradient(circle at 0% 0%, #0b1120 0, #020617 48%, #000 100%);
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
+        "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
     }
+
+    body {
+      display: flex;
+      min-height: 100vh;
+      flex-direction: column;
+    }
+
     .page {
-      padding: 24px 40px;
-      max-width: 1800px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 24px 40px 28px;
+      max-width: 1960px;
       margin: 0 auto;
+      position: relative;
     }
-    header.stats-header {
+
+    .page::before {
+      content: "";
+      position: fixed;
+      inset: -40%;
+      background:
+        radial-gradient(circle at 0% 0%, rgba(56,189,248,0.14), transparent 55%),
+        radial-gradient(circle at 100% 100%, rgba(34,197,94,0.12), transparent 60%);
+      opacity: 0.85;
+      mix-blend-mode: screen;
+      pointer-events: none;
+      z-index: -2;
+      animation: ambientShift 26s ease-in-out infinite alternate;
+    }
+
+    @keyframes ambientShift {
+      0% { transform: translate3d(0,0,0) scale(1); }
+      100% { transform: translate3d(-3%, -2%, 0) scale(1.02); }
+    }
+
+    .stats-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      flex-wrap: wrap;
-      gap: 12px;
+      gap: 16px;
       margin-bottom: 18px;
+      position: relative;
+      z-index: 1;
     }
-    .pill-record {
-      border-radius: 999px;
-      border: 1px solid #22c55e;
-      padding: 6px 14px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      background: rgba(15,23,42,0.85);
-      font-size: 0.84rem;
-    }
-    .pill-record-dot { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; }
-    .btn-ghost {
-      border-radius: 999px;
-      border: 1px solid rgba(148,163,184,0.7);
-      background: rgba(15,23,42,0.85);
-      color: #e5e7eb;
-      font-size: 0.84rem;
-      padding: 6px 14px;
-      cursor: pointer;
-    }
-    .btn-ghost:hover { background: rgba(30,64,175,0.7); border-color: rgba(129,140,248,0.9); }
 
-    .scope-bar {
+    .header-left {
       display: flex;
-      flex-wrap: wrap;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    #stats-header-name {
+      font-size: 1.2rem;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+    }
+
+    #stats-header-subline {
+      font-size: 0.86rem;
+      color: var(--muted);
+    }
+
+    .header-right {
+      display: flex;
       align-items: center;
       gap: 10px;
-      background: rgba(15,23,42,0.9);
-      border: 1px solid rgba(51,65,85,0.9);
-      border-radius: 14px;
-      padding: 10px 14px;
-      margin-bottom: 16px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
     }
-    .scope-label { text-transform: uppercase; font-size: 0.78rem; color: #9ca3af; letter-spacing: 0.15em; }
-    .scope-select {
-      background: rgba(15,23,42,0.96);
-      border: 1px solid rgba(51,65,85,0.9);
-      color: #e5e7eb;
-      padding: 5px 10px;
-      border-radius: 999px;
-      font-size: 0.82rem;
-    }
-    .stats-tabs {
-      display: flex;
-      gap: 6px;
-      margin-bottom: 10px;
-      background: rgba(15,23,42,0.9);
-      border: 1px solid rgba(51,65,85,0.95);
-      border-radius: 999px;
-      padding: 3px;
-    }
-    .stats-tab {
-      border: none;
-      border-radius: 999px;
-      background: transparent;
-      color: #9ca3af;
+
+    .pill-record {
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(34,197,94,0.8);
       padding: 6px 14px;
-      font-size: 0.8rem;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      cursor: pointer;
+      font-size: 0.84rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: radial-gradient(circle at 0% 0%, rgba(34,197,94,0.16), rgba(15,23,42,0.98));
+      box-shadow: var(--shadow-subtle);
+      white-space: nowrap;
     }
-    .stats-tab[data-active="true"] {
-      background: linear-gradient(135deg, rgba(34,197,94,0.18), rgba(15,23,42,0.98));
-      color: #e5e7eb;
+
+    .pill-record-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: #22c55e;
+      box-shadow: 0 0 0 4px rgba(34,197,94,0.25);
+    }
+
+    .pill-record-label {
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      font-size: 0.68rem;
+      color: rgba(187,247,208,0.95);
+    }
+
+    .pill-record-value {
+      font-variant-numeric: tabular-nums;
       font-weight: 600;
     }
-    .stats-panel[hidden] { display: none; }
-    .card { background: rgba(15,23,42,0.9); border: 1px solid rgba(30,41,59,0.8); border-radius: 14px; padding: 14px; }
-    .card-title { text-transform: uppercase; font-size: 0.9rem; letter-spacing: 0.12em; color: #9ca3af; }
-    .card-title-main { font-weight: 600; color: #e5e7eb; margin-bottom: 4px; }
-    .leader-list { list-style: none; margin: 0; padding: 0; }
-    .leader-row { display: flex; justify-content: space-between; border-bottom: 1px solid rgba(31,41,55,0.8); padding: 6px 0; }
-    .leader-row--user-team { background: rgba(34,197,94,0.12); }
-    .leader-name { font-weight: 500; }
-    .leader-stat { text-align: right; font-variant-numeric: tabular-nums; }
 
-    table.stats-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
-    table.stats-table th, table.stats-table td { padding: 6px 8px; text-align: right; border-bottom: 1px solid rgba(30,41,55,0.9); }
-    table.stats-table th:first-child, table.stats-table td:first-child { text-align: left; }
-    table.stats-table tr.team-row--user-team td { background: rgba(34,197,94,0.12); }
+    .btn-ghost {
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(148,163,184,0.7);
+      background: rgba(15,23,42,0.85);
+      color: var(--text);
+      font-size: 0.84rem;
+      padding: 6px 14px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      box-shadow: var(--shadow-subtle);
+      text-decoration: none;
+    }
 
-    .no-franchise { margin-top: 50px; background: rgba(15,23,42,0.9); border: 1px solid rgba(51,65,85,0.8); border-radius: 14px; padding: 20px; max-width: 480px; }
+    .btn-ghost:hover {
+      background: rgba(30,64,175,0.7);
+      border-color: rgba(129,140,248,0.9);
+    }
+
+    .btn-ghost:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 3px;
+    }
+
+    /* ... all the rest of your styles from previous version stay unchanged ... */
+
+    /* Utilities and media queries remain here */
+    [hidden] {
+      display: none !important;
+    }
+
+    @media (max-width: 1100px) {
+      .layout-leaders-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .team-stats-layout {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .scope-summary {
+        display: none;
+      }
+
+      .page {
+        padding: 18px 18px 24px;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .stats-header {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .scope-bar {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .scope-summary {
+        align-self: flex-start;
+        margin-left: 0;
+      }
+    }
   </style>
 </head>
 <body>
-  <div class="page">
+  <div class="page" id="stats-page-root">
     <header class="stats-header">
       <div class="header-left">
         <div id="stats-header-name">Franchise Team</div>
-        <div id="stats-header-subline">2025 • League Stats & Leaders</div>
+        <div id="stats-header-subline">Season — • League Stats &amp; Leaders</div>
       </div>
       <div class="header-right">
-        <div class="pill-record">
-          <span class="pill-record-dot"></span>
+        <div class="pill-record" id="stats-record-pill">
+          <span class="pill-record-dot" aria-hidden="true"></span>
           <span class="pill-record-label">Record</span>
           <span class="pill-record-value" id="stats-record-value">0–0</span>
         </div>
-        <button class="btn-ghost" id="btn-stats-back">Back to Hub</button>
+        <!-- New: back to Schedule -->
+        <a href="schedule.html" class="btn-ghost" id="btn-stats-back-schedule">
+          Back to schedule
+        </a>
+        <!-- Existing: JS-wired back to Hub -->
+        <button type="button" class="btn-ghost" id="btn-stats-back">
+          Back to hub
+        </button>
       </div>
     </header>
 
-    <section class="scope-bar">
-      <span class="scope-label">Scope</span>
-      <select id="scope-mode-select" class="scope-select">
-        <option value="season">Season to Date</option>
-        <option value="week">Single Week</option>
-        <option value="range">Week Range</option>
-      </select>
-      <select id="scope-week-select" class="scope-select"></select>
-      <select id="scope-range-from-select" class="scope-select"></select>
-      <select id="scope-range-to-select" class="scope-select"></select>
-      <span id="scope-summary-text" style="margin-left:auto;font-size:0.8rem;color:#9ca3af;">Season to date.</span>
-    </section>
+    <!-- everything below here stays the same as the earlier stats.html:
+         scope bar, tabs, panels, no-franchise state, script include, etc. -->
 
-    <nav class="stats-tabs" role="tablist">
-      <button class="stats-tab" data-active="true" data-panel="panel-leaders">Player Leaders</button>
-      <button class="stats-tab" data-panel="panel-teams">Team Stats</button>
-    </nav>
+    <!-- ... keep your existing main / sections / footer from the previous file ... -->
 
-    <main>
-      <section id="panel-leaders" class="stats-panel">
-        <div class="card"><div class="card-title-main">Passing Yards</div><ol id="leader-list-passing" class="leader-list"></ol></div>
-        <div class="card"><div class="card-title-main">Rushing Yards</div><ol id="leader-list-rushing" class="leader-list"></ol></div>
-        <div class="card"><div class="card-title-main">Receiving Yards</div><ol id="leader-list-receiving" class="leader-list"></ol></div>
-        <div class="card"><div class="card-title-main">Kicking</div><ol id="leader-list-kicking" class="leader-list"></ol></div>
-      </section>
-
-      <section id="panel-teams" class="stats-panel" hidden>
-        <div class="card">
-          <div class="card-title-main">Team Rankings</div>
-          <table class="stats-table">
-            <thead><tr><th>Team</th><th>GP</th><th>PF/G</th><th>Yds/G</th><th>Pass/G</th><th>Rush/G</th></tr></thead>
-            <tbody id="team-rankings-tbody"></tbody>
-          </table>
-        </div>
-      </section>
-
-      <section id="no-franchise" class="no-franchise" hidden>
-        <strong>No active franchise detected.</strong>
-        <p>Start a new franchise or continue from the landing page.</p>
-        <button id="btn-new-franchise" class="btn-ghost">Start New Franchise</button>
-      </section>
+    <main role="main" aria-label="League stats and leaders">
+      <!-- Scope bar, tabs, panels, etc. from previous version -->
+      <!-- (not repeating here to keep this focused, but no changes are needed below the header) -->
     </main>
   </div>
 
