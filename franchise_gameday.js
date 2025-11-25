@@ -59,6 +59,7 @@ import {
     getTeamDisplayName as scheduleGetTeamDisplayName,
     recomputeRecordFromSchedule as scheduleRecomputeRecord
   } from "./league_schedule.js";
+import { upsertGameStatsFromResult, rebuildSeasonStats } from "./league_stats.js";
 
 // -----------------------------------------------------------------------------
 // Types (JSDoc – documentation only)
@@ -1292,15 +1293,15 @@ function setSimSpeedFromControl(value) {
   
     // Snap scoreboard to engine's final score to correct any heuristic drift
     if (result) {
-      const finalScores = getScoreFromResult(result, homeTeamId, awayTeamId);
-      setText("gameday-home-score", String(finalScores.home));
-      setText("gameday-away-score", String(finalScores.away));
-  
-      // Final render with authoritative result from the engine
-      renderDriveSummary(result);
-      renderTeamStats(result);
-      renderPlayerBox(result);
-    }
+        const finalScores = getScoreFromResult(result, homeTeamId, awayTeamId);
+        setText("gameday-home-score", String(finalScores.home));
+        setText("gameday-away-score", String(finalScores.away));
+      
+        // Use last-play snapshot instead of raw result
+        const lastIndex = plays.length - 1;
+        updateLivePanels(lastIndex);
+      }
+      
   
     // Integrate into franchise state (record, schedule, next event, etc.)
     await finalizePlayByPlayResult(
@@ -1845,8 +1846,9 @@ function renderPregameHeader(save, opponentCode, isFranchiseHome, weekIndex0) {
           const tags = (p.tags || []).map((t) =>
             String(t).toUpperCase()
           );
-          const isScoring =
-            p.isScoring || tags.includes("TD") || tags.includes("FG");
+          const isFgTag = tags.includes("FG") && !tags.includes("FGMISS");
+          const isScoring = p.isScoring || tags.includes("TD") || isFgTag || tags.includes("SAFETY");
+
   
           const prefixParts = [];
           if (q) prefixParts.push(`Q${q}`);
@@ -1880,7 +1882,11 @@ function renderPregameHeader(save, opponentCode, isFranchiseHome, weekIndex0) {
       renderDriveSummary(result);
       renderTeamStats(result);
       renderPlayerBox(result);
+      upsertGameStatsFromResult(leagueState, weekIndex0, `${homeCode}_${awayCode}`, result);
+      rebuildSeasonStats(leagueState);
+      saveLeagueState(franchiseId, leagueState);
     }
+    
   }
   
 
