@@ -761,10 +761,7 @@ async function runPlayByPlayGame(save, opponentCode, isHome, weekIndex0) {
     const awayTeamName = getEl("gameday-away-name")?.textContent || "Away";
 
   
-    const speedSel = getEl("sim-speed-select");
-    const speed = speedSel?.value || "normal";
-    const speedMap = { slow: 800, normal: 400, fast: 150 };
-    const delayMs = speedMap[speed] || 400;
+    const delayMs = simSpeed;
   
     for (let i = 0; i < plays.length; i++) {
       if (playByPlayControl.shouldSkip) {
@@ -913,52 +910,100 @@ async function runPlayByPlayGame(save, opponentCode, isHome, weekIndex0) {
       payload.awayCode,
       isHome
     );
+
+    // Optionally auto-sim rest of league for this week if we have a schedule
+    if (gLeagueState && gLeagueState.schedule && gLeagueState.schedule.byTeam) {
+        const baseSeed = Date.now() & 0xffffffff;
+        await autoSimOtherWeekGames(gLeagueState, save, weekIndex0, baseSeed);
+        saveLeagueState(gLeagueState);
+    }
   
     return payload;
   
   }
 
-    /**
-     * Integrate the result of a play-by-play sim into league + save state,
-     * same as simulateFullWeekWithFranchiseGame but without re-simulating.
-     */
-    async function finalizePlayByPlayResult(save, leagueState, weekIndex0, result, homeCode, awayCode, isHome) {
-        if (!leagueState || !result) return;
-    
-        const homeId = result.homeTeam?.teamId || result.homeTeam?.id || homeCode;
-        const awayId = result.awayTeam?.teamId || result.awayTeam?.id || awayCode;
-    
-        const { home, away } = getScoreFromResult(result, homeId, awayId);
-    
-        // 1. Update schedule
-        updateWeekScheduleForMatchup(leagueState, weekIndex0, homeCode, awayCode, { home, away });
-    
-        // 2. Recompute record
-        const newRecord = recomputeFranchiseRecordFromSchedule(leagueState, save.teamCode);
-        save.record = newRecord;
-        save.lastPlayedISO = new Date().toISOString();
-    
-        // 3. Update stats + next event
-        updateStatsSummaryFromSchedule(leagueState, save.teamCode);
-        updateNextEventFromSchedule(leagueState, save);
-    
-        // 4. Persist
-        saveLastFranchise(save);
-        saveLeagueState(leagueState);
-    
-        // 5. Render final visuals
-        renderPostgameResult(
-        result,
-        result.homeTeam,
-        result.awayTeam,
-        homeCode,
-        awayCode,
-        save,
-        isHome ? awayCode : homeCode,
-        isHome,
-        weekIndex0
-        );
+/**
+ * Integrate the result of a play-by-play sim into league + save state.
+ * Handles both:
+ *   - schedule present  → update schedule, recompute record from schedule
+ *   - no schedule      → simple incremental record update
+ *
+ * @param {FranchiseSave} save
+ * @param {LeagueState|null} leagueState
+ * @param {number|null} weekIndex0
+ * @param {EngineGamePayload} payload
+ * @param {boolean} isHome                // was the franchise team home?
+ */
+ async function finalizePlayByPlayResult(save, leagueState, weekIndex0, payload, isHome) {
+    const { result, homeTeam, awayTeam, homeCode, awayCode } = payload;
+    if (!result || !homeTeam || !awayTeam) {
+      // Nothing to integrate
+      return;
     }
+  
+    const homeId = homeTeam.teamId || homeTeam.id || homeCode;
+    const awayId = awayTeam.teamId || awayTeam.id || awayCode;
+    const scores = getScoreFromResult(result, homeId, awayId);
+  
+    // ---------- Case 1: no schedule (mirror simulateSingleFranchiseGameWithoutSchedule) ----------
+    if (!leagueState || !leagueState.schedule || !leagueState.schedule.byTeam) {
+      const userIsHome = isHome;
+      const userScore = userIsHome ? scores.home : scores.away;
+      const oppScore  = userIsHome ? scores.away : scores.home;
+  
+      const { wins, losses, ties } = parseRecord(save.record || "0-0");
+      let newWins = wins;
+      let newLosses = losses;
+      let newTies = ties;
+  
+      if (userScore > oppScore) newWins++;
+      else if (oppScore > userScore) newLosses++;
+      else newTies++;
+  
+      save.record =
+        newTies > 0 ? `${newWins}-${newLosses}-${newTies}` : `${newWins}-${newLosses}`;
+      save.lastPlayedISO = new Date().toISOString();
+  
+      const wIdx = typeof save.weekIndex === "number" ? save.weekIndex : 0;
+      if (wIdx <= (weekIndex0 ?? wIdx)) {
+        save.weekIndex = (weekIndex0 ?? wIdx) + 1;
+      }
+  
+      saveLastFranchise(save);
+      return;
+    }
+  
+    // ---------- Case 2: schedule present – update schedule & recompute ----------
+    updateWeekScheduleForMatchup(
+      leagueState,
+      weekIndex0,
+      homeCode,
+      awayCode,
+      { home: scores.home, away: scores.away }
+    );
+  
+    const newRecord = recomputeFranchiseRecordFromSchedule(leagueState, save.teamCode);
+    save.record = newRecord;
+    save.lastPlayedISO = new Date().toISOString();
+  
+    // Advance weekIndex similar to simulateFullWeekWithFranchiseGame
+    const currentWeekIndex =
+      typeof save.weekIndex === "number" ? save.weekIndex : 0;
+    if (currentWeekIndex <= weekIndex0) {
+      save.weekIndex = weekIndex0 + 1;
+    }
+  
+    updateStatsSummaryFromSchedule(leagueState, save.teamCode);
+  
+    leagueState.statsSummary = leagueState.statsSummary || {};
+    leagueState.statsSummary.currentWeekIndex = save.weekIndex;
+  
+    updateNextEventFromSchedule(leagueState, save);
+  
+    saveLastFranchise(save);
+    saveLeagueState(leagueState);
+  }
+  
     
   
 
@@ -972,7 +1017,13 @@ async function runPlayByPlayGame(save, opponentCode, isHome, weekIndex0) {
     shouldSkip: false
   };
   
-  
+  if (weekAlreadyFinal) {
+    simBtn.textContent = "Week Simulated";
+    simBtn.disabled = true;
+  } else {
+    simBtn.textContent = hasSchedule ? "Simulate Week" : "Sim Game";
+    simBtn.disabled = false;
+  }
 
 
 // -----------------------------------------------------------------------------
@@ -1111,6 +1162,52 @@ async function simulateFullWeekWithFranchiseGame(
     otherResults
   };
 }
+
+async function autoSimOtherWeekGames(leagueState, save, weekIndex0, baseSeed) {
+    if (
+      !leagueState ||
+      !leagueState.schedule ||
+      !leagueState.schedule.byTeam ||
+      !leagueState.schedule.byTeam[save.teamCode]
+    ) return [];
+  
+    const otherMatchups = collectOtherWeekMatchups(
+      leagueState,
+      save.teamCode,
+      weekIndex0
+    );
+    const otherResults = [];
+  
+    for (let i = 0; i < otherMatchups.length; i++) {
+      const m = otherMatchups[i];
+      const { result, homeTeam, awayTeam, homeCode, awayCode } =
+        await runEngineGameGeneric(
+          m.homeCode,
+          m.awayCode,
+          save,
+          weekIndex0,
+          baseSeed + i + 1,
+          { autoSim: true }
+        );
+  
+      const hId = homeTeam.teamId || homeTeam.id;
+      const aId = awayTeam.teamId || awayTeam.id;
+      const scores = getScoreFromResult(result, hId, aId);
+  
+      updateWeekScheduleForMatchup(
+        leagueState,
+        weekIndex0,
+        homeCode,
+        awayCode,
+        { home: scores.home, away: scores.away }
+      );
+  
+      otherResults.push({ homeCode, awayCode, homeTeam, awayTeam, result, scores });
+    }
+  
+    return otherResults;
+  }
+  
 
 /**
  * Fallback behavior when no schedule is present:
@@ -1465,180 +1562,246 @@ function renderDriveSummary(result) {
 // -----------------------------------------------------------------------------
 
 async function initGameDay() {
-  const save = loadLastFranchise();
-  if (!save) {
-    console.warn("[GameDay] No active franchise found.");
-    setText(
-      "gameday-summary-line",
-      "No active franchise found. Return to the main menu."
-    );
-    const back = getEl("btn-gameday-back");
-    if (back) {
-      back.addEventListener("click", () => {
-        window.location.href = "main_page.html";
-      });
+    const save = loadLastFranchise();
+    if (!save) {
+      console.warn("[GameDay] No active franchise found.");
+      setText(
+        "gameday-summary-line",
+        "No active franchise found. Return to the main menu."
+      );
+      const back = getEl("btn-gameday-back");
+      if (back) {
+        back.addEventListener("click", () => {
+          window.location.href = "main_page.html";
+        });
+      }
+      return;
     }
-    return;
-  }
-
-  // Load LeagueState if available (for schedule / stats / nextEvent)
-  gLeagueState = loadLeagueState(save.franchiseId);
-
-  const defaultWeekIndex =
-    typeof save.weekIndex === "number" ? save.weekIndex : 0;
-
-  let weekIndex0 = PARAMS.has("week")
-    ? safeNumber(PARAMS.get("week"), defaultWeekIndex)
-    : defaultWeekIndex;
-
-  let opponentCode = PARAMS.get("opp") || null;
-  let scheduledGame = null;
-
-  // Home/away from URL param first
-  const homeParam = PARAMS.get("home");
-  let isFranchiseHome;
-  if (homeParam === "1" || homeParam === "true") {
-    isFranchiseHome = true;
-  } else if (homeParam === "0" || homeParam === "false") {
-    isFranchiseHome = false;
-  } else {
-    isFranchiseHome = true; // default if not provided
-  }
-
-  // If we have a schedule, align week/opponent/home with it
-  if (
-    gLeagueState &&
-    gLeagueState.schedule &&
-    gLeagueState.schedule.byTeam &&
-    gLeagueState.schedule.byTeam[save.teamCode]
-  ) {
-    const games = gLeagueState.schedule.byTeam[save.teamCode];
-    if (Array.isArray(games) && games.length) {
-      let scheduledGame =
-        games.find((g) => typeof g.index === "number" && g.index === weekIndex0) ||
-        games.find(
-          (g) =>
-            typeof g.seasonWeek === "number" &&
-            g.seasonWeek === weekIndex0 + 1
-        );
-
-      if (!scheduledGame && typeof save.weekIndex === "number") {
+  
+    // Load LeagueState if available (for schedule / stats / nextEvent)
+    gLeagueState = loadLeagueState(save.franchiseId);
+  
+    const defaultWeekIndex =
+      typeof save.weekIndex === "number" ? save.weekIndex : 0;
+  
+    let weekIndex0 = PARAMS.has("week")
+      ? safeNumber(PARAMS.get("week"), defaultWeekIndex)
+      : defaultWeekIndex;
+  
+    let opponentCode = PARAMS.get("opp") || null;
+    let scheduledGame = null;
+  
+    // Home/away from URL param first
+    const homeParam = PARAMS.get("home");
+    let isFranchiseHome;
+    if (homeParam === "1" || homeParam === "true") {
+      isFranchiseHome = true;
+    } else if (homeParam === "0" || homeParam === "false") {
+      isFranchiseHome = false;
+    } else {
+      isFranchiseHome = true; // default if not provided
+    }
+  
+    // If we have a schedule, align week/opponent/home with it
+    if (
+      gLeagueState &&
+      gLeagueState.schedule &&
+      gLeagueState.schedule.byTeam &&
+      gLeagueState.schedule.byTeam[save.teamCode]
+    ) {
+      const games = gLeagueState.schedule.byTeam[save.teamCode];
+      if (Array.isArray(games) && games.length) {
+        // IMPORTANT: assign to the outer scheduledGame (no "let" here)
         scheduledGame =
           games.find(
-            (g) => typeof g.index === "number" && g.index === save.weekIndex
+            (g) => typeof g.index === "number" && g.index === weekIndex0
           ) ||
           games.find(
             (g) =>
               typeof g.seasonWeek === "number" &&
-              g.seasonWeek === save.weekIndex + 1
+              g.seasonWeek === weekIndex0 + 1
           );
+  
+        if (!scheduledGame && typeof save.weekIndex === "number") {
+          scheduledGame =
+            games.find(
+              (g) => typeof g.index === "number" && g.index === save.weekIndex
+            ) ||
+            games.find(
+              (g) =>
+                typeof g.seasonWeek === "number" &&
+                g.seasonWeek === save.weekIndex + 1
+            );
+        }
+  
+        if (scheduledGame) {
+          if (!opponentCode || opponentCode !== scheduledGame.opponentCode) {
+            opponentCode = scheduledGame.opponentCode;
+          }
+          if (typeof scheduledGame.index === "number") {
+            weekIndex0 = scheduledGame.index;
+          } else if (typeof scheduledGame.seasonWeek === "number") {
+            weekIndex0 = scheduledGame.seasonWeek - 1;
+          }
+          if (homeParam == null && typeof scheduledGame.isHome === "boolean") {
+            isFranchiseHome = scheduledGame.isHome;
+          }
+        }
       }
-
-      if (scheduledGame) {
-        if (!opponentCode || opponentCode !== scheduledGame.opponentCode) {
-          opponentCode = scheduledGame.opponentCode;
-        }
-        if (typeof scheduledGame.index === "number") {
-          weekIndex0 = scheduledGame.index;
-        } else if (typeof scheduledGame.seasonWeek === "number") {
-          weekIndex0 = scheduledGame.seasonWeek - 1;
-        }
-        if (homeParam == null && typeof scheduledGame.isHome === "boolean") {
-          isFranchiseHome = scheduledGame.isHome;
-        }
+    }
+  
+    // Pre-game header (may be overridden below if the week is already final)
+    renderPregameHeader(save, opponentCode, isFranchiseHome, weekIndex0);
+  
+    const simBtn = getEl("btn-gameday-sim");
+    const backBtn = getEl("btn-gameday-back");
+    const pauseBtn = getEl("btn-gameday-pause");
+    const skipBtn = getEl("btn-gameday-skip");
+  
+    if (pauseBtn) {
+      pauseBtn.addEventListener("click", () => {
+        if (!playByPlayControl.isPlaying) return;
+        playByPlayControl.isPaused = !playByPlayControl.isPaused;
+        pauseBtn.textContent = playByPlayControl.isPaused ? "Resume" : "Pause";
+      });
+    }
+  
+    if (skipBtn) {
+      skipBtn.addEventListener("click", () => {
+        if (!playByPlayControl.isPlaying) return;
+        playByPlayControl.shouldSkip = true;
+      });
+    }
+  
+    if (backBtn) {
+      backBtn.addEventListener("click", () => {
+        window.location.href = "franchise.html";
+      });
+    }
+  
+    if (!simBtn || !opponentCode) {
+      if (simBtn) {
+        simBtn.disabled = true;
+        simBtn.textContent = "Opponent not set";
       }
+      return;
     }
-  }
-
-  // Pre-game header
-  renderPregameHeader(save, opponentCode, isFranchiseHome, weekIndex0);
-
-  const simBtn = getEl("btn-gameday-sim");
-  const backBtn = getEl("btn-gameday-back");
-  const pauseBtn = getEl("btn-gameday-pause");
-  const skipBtn = getEl("btn-gameday-skip");
-
-  if (pauseBtn) {
-    pauseBtn.addEventListener("click", () => {
-      if (!playByPlayControl.isPlaying) return;
-      playByPlayControl.isPaused = !playByPlayControl.isPaused;
-      pauseBtn.textContent = playByPlayControl.isPaused ? "Resume" : "Pause";
-    });
-  }
-
-  if (skipBtn) {
-    skipBtn.addEventListener("click", () => {
-      if (!playByPlayControl.isPlaying) return;
-      playByPlayControl.shouldSkip = true;
-    });
-  }
-
-
-  if (backBtn) {
-    backBtn.addEventListener("click", () => {
-      window.location.href = "franchise.html";
-    });
-  }
-
-  if (!simBtn || !opponentCode) {
-    if (simBtn) {
-      simBtn.disabled = true;
-      simBtn.textContent = "Opponent not set";
-    }
-    return;
-  }
-
-  simBtn.disabled = true;
-  simBtn.textContent = "Loading engine…";
-
-  try {
-    await ensureLeagueLoaded();
-
-    const hasSchedule =
-      gLeagueState &&
-      gLeagueState.schedule &&
-      gLeagueState.schedule.byTeam &&
-      gLeagueState.schedule.byTeam[save.teamCode];
-
-    // If this specific week is already final in the schedule, treat it as
-    // already simulated (no re-sims). Otherwise allow a normal sim.
-    const weekAlreadyFinal =
-      !!hasSchedule &&
-      !!scheduledGame &&
-      scheduledGame.status === "final";
-
-    if (weekAlreadyFinal) {
-      simBtn.textContent = "Week Simulated";
-      simBtn.disabled = true;
-    } else {
-      simBtn.textContent = hasSchedule ? "Simulate Week" : "Sim Game";
-      simBtn.disabled = false;
-    }
-    
-
-    simBtn.addEventListener("click", async () => {
+  
+    simBtn.disabled = true;
+    simBtn.textContent = "Loading engine…";
+  
+    try {
+      await ensureLeagueLoaded();
+  
+      const hasSchedule =
+        gLeagueState &&
+        gLeagueState.schedule &&
+        gLeagueState.schedule.byTeam &&
+        gLeagueState.schedule.byTeam[save.teamCode];
+  
+      // If this specific week is already final in the schedule, treat it as
+      // already simulated (no re-sims). Otherwise allow a normal sim.
+      const weekAlreadyFinal =
+        !!hasSchedule &&
+        !!scheduledGame &&
+        scheduledGame.status === "final";
+  
+      if (weekAlreadyFinal) {
+        // Lock the button
+        simBtn.textContent = "Week Simulated";
+        simBtn.disabled = true;
+  
+        // Also reflect the final result on the scoreboard/summary if scores exist
+        if (
+          typeof scheduledGame.teamScore === "number" &&
+          typeof scheduledGame.opponentScore === "number"
+        ) {
+          const teamName = getTeamNameFromSave(save);
+          const oppName = getTeamDisplayNameFromCode(scheduledGame.opponentCode);
+  
+          const userIsHome = isFranchiseHome;
+          const homeName = userIsHome ? teamName : oppName;
+          const awayName = userIsHome ? oppName : teamName;
+  
+          const homeScore = userIsHome
+            ? scheduledGame.teamScore
+            : scheduledGame.opponentScore;
+          const awayScore = userIsHome
+            ? scheduledGame.opponentScore
+            : scheduledGame.teamScore;
+  
+          setText("gameday-home-name", homeName);
+          setText("gameday-away-name", awayName);
+          setText("gameday-home-score", String(homeScore));
+          setText("gameday-away-score", String(awayScore));
+  
+          const weekLabel =
+            typeof weekIndex0 === "number"
+              ? weekIndex0 + 1
+              : (save.weekIndex || 0) + 1;
+  
+          setText("gameday-score-meta", `Final • Week ${weekLabel}`);
+  
+          const summaryEl = getEl("gameday-summary-line");
+          if (summaryEl) {
+            const recordText = save.record || "0-0";
+            const isWin = scheduledGame.teamScore > scheduledGame.opponentScore;
+            const isTie =
+              scheduledGame.teamScore === scheduledGame.opponentScore;
+            const resWord = isWin ? "win" : isTie ? "tie" : "loss";
+  
+            const scoreLine = userIsHome
+              ? `${teamName} ${scheduledGame.teamScore} – ${oppName} ${scheduledGame.opponentScore}`
+              : `${oppName} ${scheduledGame.opponentScore} – ${teamName} ${scheduledGame.teamScore}`;
+  
+            summaryEl.textContent = `Final: ${scoreLine} (${resWord}). Record: ${recordText}.`;
+          }
+        }
+      } else {
+        simBtn.textContent = hasSchedule ? "Simulate Week" : "Sim Game";
+        simBtn.disabled = false;
+      }
+  
+      simBtn.addEventListener("click", async () => {
         if (simBtn.disabled) return;
         simBtn.disabled = true;
-      
+  
         const modeSelect = document.getElementById("sim-mode-select");
         const speedSelect = document.getElementById("sim-speed-select");
         simMode = modeSelect ? modeSelect.value : "instant";
         setSimSpeedFromControl(speedSelect ? speedSelect.value : "normal");
-      
-        simBtn.textContent = simMode === "playbyplay" ? "Playing…" : "Simulating…";
-      
+  
+        simBtn.textContent =
+          simMode === "playbyplay" ? "Playing…" : "Simulating…";
+  
         try {
           let payload;
           if (simMode === "playbyplay") {
-            payload = await runPlayByPlayGame(save, opponentCode, isFranchiseHome, weekIndex0);
+            payload = await runPlayByPlayGame(
+              save,
+              opponentCode,
+              isFranchiseHome,
+              weekIndex0
+            );
           } else if (hasSchedule) {
-            payload = await simulateFullWeekWithFranchiseGame(save, gLeagueState, opponentCode, isFranchiseHome, weekIndex0);
+            payload = await simulateFullWeekWithFranchiseGame(
+              save,
+              gLeagueState,
+              opponentCode,
+              isFranchiseHome,
+              weekIndex0
+            );
           } else {
-            payload = await simulateSingleFranchiseGameWithoutSchedule(save, opponentCode, isFranchiseHome, weekIndex0);
+            payload = await simulateSingleFranchiseGameWithoutSchedule(
+              save,
+              opponentCode,
+              isFranchiseHome,
+              weekIndex0
+            );
           }
-      
-          const { userGame, otherResults } = payload;
-      
+  
+          const { userGame } = payload;
+  
           if (userGame && userGame.result) {
             renderPostgameResult(
               userGame.result,
@@ -1652,27 +1815,30 @@ async function initGameDay() {
               weekIndex0
             );
           }
-      
+  
           simBtn.textContent = "Week Simulated";
           simBtn.disabled = true;
-      
         } catch (err) {
           console.error("[GameDay] Simulation failed:", err);
-          setText("gameday-summary-line", `Simulation failed: ${err.message}`);
+          setText(
+            "gameday-summary-line",
+            `Simulation failed: ${err.message}`
+          );
           simBtn.textContent = "Simulation failed";
           simBtn.disabled = false;
         }
-      });      
-  } catch (err) {
-    console.error("[GameDay] Engine/league load error:", err);
-    simBtn.disabled = true;
-    simBtn.textContent = "Engine unavailable";
-    setText(
-      "gameday-summary-line",
-      "Failed to load game engine. Check network / console."
-    );
+      });
+    } catch (err) {
+      console.error("[GameDay] Engine/league load error:", err);
+      simBtn.disabled = true;
+      simBtn.textContent = "Engine unavailable";
+      setText(
+        "gameday-summary-line",
+        "Failed to load game engine. Check network / console."
+      );
+    }
   }
-}
+  
 
 // -----------------------------------------------------------------------------
 // Bootstrap
