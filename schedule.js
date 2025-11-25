@@ -365,91 +365,67 @@ function isByeGame(game) {
   emptyEl.hidden = true;
   listEl.hidden = false;
 
-  // Always render weeks in numeric order, regardless of internal indices.
-  const weeks = [...schedule].sort(
+  // --- Sort weeks in ascending order ---
+  const sortedWeeks = [...schedule].sort(
     (a, b) => (a.seasonWeek || 0) - (b.seasonWeek || 0)
   );
 
-  weeks.forEach((game) => {
-    const bye = isByeGame(game);
-
-    const row = document.createElement("button");
-    row.type = "button";
-    row.className = "week-row";
-
-    // Fallback: if index is missing, derive from seasonWeek.
-    const rowIndex =
-      typeof game.index === "number" ? game.index : (game.seasonWeek || 1) - 1;
-    row.dataset.weekIndex = String(rowIndex);
-
-    if (rowIndex === selectedWeekIndex) {
-      row.dataset.selected = "true";
+  // --- Deduplicate by week number + opponent + home/away flag ---
+  const uniqueMap = new Map();
+  for (const g of sortedWeeks) {
+    const key = `${g.seasonWeek}-${g.opponentCode}-${g.isHome ? "H" : "A"}`;
+    if (!uniqueMap.has(key)) {
+      uniqueMap.set(key, g);
     }
+  }
+  const dedupedWeeks = Array.from(uniqueMap.values());
 
-    // Home / away / bye classes for coloring.
-    if (bye) {
-      row.classList.add("week-row--bye");
-    } else if (game.isHome) {
-      row.classList.add("week-row--home");
-    } else {
-      row.classList.add("week-row--away");
-    }
+  // --- Render each week row ---
+  for (const game of dedupedWeeks) {
+    const item = document.createElement("div");
+    item.className = "week-list-item";
 
-    // Top line: "Week 7" • "@ New England Patriots" or "Bye week"
-    const topLine = document.createElement("div");
-    topLine.className = "week-row-topline";
+    const wk = game.seasonWeek || "?";
+    const oppName = game.opponentName || "Opponent";
+    const homeAway = game.isHome ? "vs" : "@";
 
-    const weekLabel = document.createElement("span");
-    weekLabel.textContent = `Week ${game.seasonWeek}`;
+    const status = game.status || "scheduled";
+    const scoreDisplay =
+      status === "final"
+        ? `${game.homeScore ?? 0}–${game.awayScore ?? 0}`
+        : "";
 
-    const matchupLabel = document.createElement("span");
-    if (bye) {
-      matchupLabel.textContent = "Bye week";
-    } else {
-      const oppName = getTeamDisplayName(game.opponentCode);
-      const marker = game.isHome ? "vs" : "@";
-      matchupLabel.textContent = `${marker} ${oppName}`;
-    }
+    const selected =
+      typeof selectedWeekIndex === "number" &&
+      selectedWeekIndex + 1 === wk;
 
-    topLine.appendChild(weekLabel);
-    topLine.appendChild(matchupLabel);
+    item.innerHTML = `
+      <div class="week-meta">
+        <span class="week-num">Week ${wk}</span>
+        <span class="week-matchup">${homeAway} ${oppName}</span>
+      </div>
+      <div class="week-score ${status}">
+        ${scoreDisplay || ""}
+      </div>
+    `;
 
-    // Meta line: date/time and (if final) W/L + score
-    const metaLine = document.createElement("div");
-    metaLine.className = "week-row-meta";
+    if (selected) item.classList.add("selected");
+    if (status === "final") item.classList.add("final");
+    if (status === "in_progress") item.classList.add("in-progress");
 
-    if (bye) {
-      metaLine.textContent = "—";
-    } else {
-      const timeText = formatIsoToNice(game.kickoffIso);
-
-      let resultText = "";
-      if (
-        game.status === "final" &&
-        game.teamScore != null &&
-        game.opponentScore != null
-      ) {
-        const isWin = game.teamScore > game.opponentScore;
-        const resLetter = isWin ? "W" : "L";
-        resultText = `${resLetter} ${game.teamScore}–${game.opponentScore}`;
-      }
-
-      metaLine.textContent = resultText ? `${timeText} • ${resultText}` : timeText;
-    }
-
-    row.appendChild(topLine);
-    row.appendChild(metaLine);
-
-    // Keep rows clickable even for bye weeks so the detail pane can show "Bye week".
-    row.addEventListener("click", () => {
-      selectedWeekIndex = rowIndex;
-      renderWeekList();
-      renderWeekDetail();
+    item.addEventListener("click", () => {
+      selectedWeekIndex = wk - 1;
+      renderScheduleDetails(wk);
+      document
+        .querySelectorAll(".week-list-item.selected")
+        .forEach((el) => el.classList.remove("selected"));
+      item.classList.add("selected");
     });
 
-    listEl.appendChild(row);
-  });
+    listEl.appendChild(item);
+  }
 }
+
 
 
 // ---------------------------------------------------------------------------
@@ -702,11 +678,21 @@ function initSchedulePage() {
   // Make sure the league has schedules for all teams this season,
   // then grab this franchise's schedule.
   ensureAllTeamSchedules(leagueState, save.seasonYear);
-  const teamSchedule = ensureTeamSchedule(
+  let teamSchedule = ensureTeamSchedule(
     leagueState,
     save.teamCode,
     save.seasonYear
   );
+  
+  // --- Deduplicate by seasonWeek and opponentCode (prevent reload duplicates) ---
+  const seen = new Set();
+  teamSchedule = teamSchedule.filter(g => {
+    const key = `${g.seasonWeek}-${g.opponentCode}-${g.isHome ? "H" : "A"}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  
 
   // Persist any newly generated schedules
   saveLeagueState(leagueState);
