@@ -814,13 +814,22 @@ function simulateDrive(state) {
       }
   
       if (isFGMiss) {
-        // Missed FG -> defense takes over at spot (already approximated earlier)
+        // Missed FG → defense takes over at spot or 20/25 depending on distance
+        const missSpot = Math.round(state.ballYardline);
+        state.possession = offenseSide === "home" ? "away" : "home";
+        
+        // NFL rule approximation: place at the spot of the kick (LOS + 7)
+        // But minimum at the 20-yard line for long-range misses
+        const newYard = Math.max(20, 100 - Math.min(99, missSpot + 7));
+        state.ballYardline = newYard;
+        
         state.down     = 1;
         state.distance = 10;
         state.driveId += 1;
         startNewDrive(state, lastPlay, "Change of possession after missed FG");
         return;
       }
+      
   
       // Punts / interceptions / fumbles / turnover on downs: possession and spot
       // are already set by applyPlayOutcome. Just start the next drive.
@@ -996,6 +1005,7 @@ function simulateDrive(state) {
     kickerName: attemptTwo ? null : kickerName,
   };
 
+  log.points = attemptTwo ? (made ? 2 : 0) : (made ? 1 : 0);
   state.plays.push(log);
   return log;
 }
@@ -1787,23 +1797,27 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
     
         // 3) Plus territory (opp 40+)
         if (plusTerr) {
-        // Inside comfortable FG range: mostly kick, but go sometimes on 4&short
-        if (inFgRange) {
-            if (shortYds) {
-            let goProb = 0.35;
-            if (quarter >= 2) goProb += 0.10;
-            if (scoreDiff < 0) goProb += 0.15;
-            if (under5 && oneScoreGame && scoreDiff < 0) goProb += 0.20;
-            goProb += (-puntBias) * 0.20;
-            goProb = clamp(goProb, 0.25, 0.75);
-    
-            if (rng.next() < goProb) {
-                return { type: basePassProb > 0.55 ? "pass" : "run" };
+          // --- NEW rule: inside opponent 35 → always FG or go-for-it, never punt ---
+          const autoFgZone = yardline >= 65; // opp 35 or closer (~52-yard FG)
+          if (autoFgZone) {
+            // Only punt if impossible FG (wind, extreme distance, or injury)
+            const puntOverride = rng.next() < 0.02; // 2% ultra-rare
+            if (!puntOverride) {
+              if (shortYds) {
+                let goProb = 0.35;
+                if (scoreDiff < 0) goProb += 0.15;
+                if (quarter >= 4) goProb += 0.10;
+                if (under5 && oneScoreGame && scoreDiff < 0) goProb += 0.20;
+                goProb += (-puntBias) * 0.25;
+                goProb = clamp(goProb, 0.25, 0.85);
+                if (rng.next() < goProb) {
+                  return { type: basePassProb > 0.55 ? "pass" : "run" };
+                }
+              }
+              return { type: "field_goal" };
             }
-            }
-            // Default in range: kick
-            return { type: "field_goal" };
-        }
+          }
+
     
         // Out of normal range (really long FG):
         // - Short/medium distance: go a decent chunk of the time
@@ -2793,34 +2807,38 @@ function computeMomentumImpact(outcome, preState, offenseSide, state) {
     state.ballYardline = clamp(newYard, 1, 99);
 
     const yardsToFirst = state.distance - (outcome.yardsGained || 0);
-    if (yardsToFirst <= 0) {
-      // First down
+    const gainedFirst = yardsToFirst <= 0;
+
+    // Handle downs logic clearly:
+    if (gainedFirst) {
+      // ✅ Successfully converted (even if it was 4th)
       state.down = 1;
       state.distance = 10;
+      applyMomentumFromOutcome(state, outcome, preState, offenseSide, defenseSide);
+    } else if (state.down < 4) {
+      // Normal progress to next down
+      state.down += 1;
+      state.distance = yardsToFirst;
+      applyMomentumFromOutcome(state, outcome, preState, offenseSide, defenseSide);
     } else {
-      if (state.down === 4) {
-        // Turnover on downs
-        state.possession   = offenseSide === "home" ? "away" : "home";
-        state.ballYardline = 100 - clamp(state.ballYardline, 1, 99);
-        state.down         = 1;
-        state.distance     = 10;
-        state.playClockSec = state.cfg.playClockAdmin; // change of possession/admin
-        outcome.endOfDrive = true;
+      // Failed on 4th → turnover on downs
+      state.possession   = offenseSide === "home" ? "away" : "home";
+      state.ballYardline = 100 - clamp(state.ballYardline, 1, 99);
+      state.down         = 1;
+      state.distance     = 10;
+      state.playClockSec = state.cfg.playClockAdmin;
+      outcome.endOfDrive = true;
 
-        state.events.push({
-          type: "turnover_on_downs",
-          offense: offenseSide,
-          defense: defenseSide,
-          quarter: state.quarter,
-          clockSec: state.clockSec,
-          score: cloneScore(state.score),
-        });
-      } else {
-        applyMomentumFromOutcome(state, outcome, preState, offenseSide, defenseSide);
-        state.down += 1;
-        state.distance = yardsToFirst;
-      }
+      state.events.push({
+        type: "turnover_on_downs",
+        offense: offenseSide,
+        defense: defenseSide,
+        quarter: state.quarter,
+        clockSec: state.clockSec,
+        score: cloneScore(state.score),
+      });
     }
+
   }
   
   
