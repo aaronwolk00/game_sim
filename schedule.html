@@ -114,6 +114,16 @@
       box-shadow: 0 8px 18px rgba(22,163,74,0.5);
     }
 
+    .view-tab {
+      text-decoration: none;
+      color: var(--muted);
+    }
+
+    .view-tab:visited {
+      color: var(--muted);
+    }
+
+
     .header-right {
       display: flex;
       align-items: center;
@@ -518,16 +528,14 @@
           >
             My Team
           </button>
-          <button
-            type="button"
-            class="view-tab"
-            id="tab-league"
-            role="tab"
-            aria-selected="false"
-            data-active="false"
-          >
-            League
-          </button>
+          <a
+          href="schedule_grid.html"
+          class="view-tab"
+          id="tab-league"
+          role="tab"
+        >
+          League
+        </a>        
         </div>
       </div>
 
