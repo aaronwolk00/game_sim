@@ -865,21 +865,26 @@ function simulateDrive(state) {
  * Logs a PAT (XP or 2-pt) as its own play and mutates the score.
  * PAT is an **untimed** down — we do NOT change state.clockSec.
  * Assumes the TD points (6) have already been added.
+ *
+ * @param {Object} state
+ * @param {"home"|"away"} scoringSide     // side that scored the TD
+ * @param {{home:number,away:number}} [scoreBeforePAT] // score just after TD, before PAT
  */
- function handlePAT(state, scoringSide) {
+ function handlePAT(state, scoringSide, scoreBeforePAT) {
   const rng = state.rng;
   const cfg = state.cfg || {};
 
   const xpMakeProb    = Number.isFinite(cfg.xpMakeProb)    ? cfg.xpMakeProb    : 0.94;
   const twoPtMakeProb = Number.isFinite(cfg.twoPtMakeProb) ? cfg.twoPtMakeProb : 0.48;
 
-  // --- Figure out sides/teams up front so they're safe to use anywhere below ---
-  const offenseSide = scoringSide; // alias for clarity
+  const offenseSide = scoringSide;
   const defenseSide = scoringSide === "home" ? "away" : "home";
   const offenseTeam = offenseSide === "home" ? state.homeTeam : state.awayTeam;
   const defenseTeam = defenseSide === "home" ? state.homeTeam : state.awayTeam;
 
-  // Score diff from offense perspective *after* TD already applied
+  // Score snapshot *before* PAT (after TD already applied)
+  const scoreBefore = scoreBeforePAT || cloneScore(state.score);
+
   const scoreDiff =
     offenseSide === "home"
       ? state.score.home - state.score.away
@@ -905,11 +910,13 @@ function simulateDrive(state) {
 
   let made = false;
   let desc = "";
+  let points = 0;
 
   if (attemptTwo) {
     // 2-point conversion
     made = rng.next() < twoPtMakeProb;
     if (made) {
+      points = 2;
       if (offenseSide === "home") state.score.home += 2;
       else                        state.score.away += 2;
       desc = "two-point try is good";
@@ -917,9 +924,9 @@ function simulateDrive(state) {
         type: "score",
         subtype: "two_point",
         offense: offenseSide,
-        points: 2,
+        points,
         quarter: state.quarter,
-        clockSec: state.clockSec,  // same as TD time (untimed down)
+        clockSec: state.clockSec,  // same as TD time (untimed)
         score: cloneScore(state.score),
       });
     } else {
@@ -929,13 +936,13 @@ function simulateDrive(state) {
     // Extra point (kick)
     made = rng.next() < xpMakeProb;
 
-    // Kicker stats
     if (kickerRow) {
       kickerRow.xpAtt += 1;
       if (made) kickerRow.xpMade += 1;
     }
 
     if (made) {
+      points = 1;
       if (offenseSide === "home") state.score.home += 1;
       else                        state.score.away += 1;
       desc = "extra point is good";
@@ -943,15 +950,19 @@ function simulateDrive(state) {
         type: "score",
         subtype: "extra_point",
         offense: offenseSide,
-        points: 1,
+        points,
         quarter: state.quarter,
-        clockSec: state.clockSec,  // same as TD time (untimed down)
+        clockSec: state.clockSec,  // same as TD time (untimed)
         score: cloneScore(state.score),
       });
     } else {
       desc = "extra point is no good";
     }
   }
+
+  // Score snapshot *after* PAT decision
+  const scoreAfter = cloneScore(state.score);
+  const clockStr   = formatClockFromSec(state.clockSec);
 
   // PBP text: use kicker name on XP, team on 2-pt
   let playText;
@@ -968,6 +979,8 @@ function simulateDrive(state) {
     driveId: state.driveId,           // PAT stays with the scoring drive
     quarter: state.quarter,
     clockSec: state.clockSec,         // unchanged (untimed)
+    clock: clockStr,
+    gameClock: clockStr,
     offense: offenseSide,
     defense: defenseSide,
     offenseTeamId: offenseTeam.teamId,
@@ -999,16 +1012,19 @@ function simulateDrive(state) {
     fieldGoalGood: false,
     punt: false,
     endOfDrive: false,
+    points,                  // 0/1/2 – convenient for UI
+    scoreBefore,
+    scoreAfter,
 
     // kicker info only meaningful on XP
     kickerId:   attemptTwo ? null : kickerId,
     kickerName: attemptTwo ? null : kickerName,
   };
 
-  log.points = attemptTwo ? (made ? 2 : 0) : (made ? 1 : 0);
   state.plays.push(log);
   return log;
 }
+
 
 
   export function shouldAttemptTwo({
@@ -1319,13 +1335,18 @@ function clockManager(state, preState, outcomeOrNull, offenseSide, defenseSide, 
     const offenseTeam = offenseSide === "home" ? state.homeTeam : state.awayTeam;
     const defenseSide = offenseSide === "home" ? "away" : "home";
     const defenseTeam = offenseSide === "home" ? state.awayTeam : state.homeTeam;
-    const logClock = (displayClockSec != null) ? displayClockSec : state.clockSec;
+  
+    const logClock   = (displayClockSec != null) ? displayClockSec : state.clockSec;
+    const clockStr   = formatClockFromSec(logClock);
+    const scoreSnap  = cloneScore(state.score);
   
     const log = {
       playId: state.playId++,
       driveId: state.driveId, // current drive (e.g., new drive for kickoff)
       quarter: state.quarter,
       clockSec: logClock,
+      clock: clockStr,
+      gameClock: clockStr,
       offense: offenseSide,
       defense: defenseSide,
       offenseTeamId: offenseTeam.teamId,
@@ -1347,7 +1368,7 @@ function clockManager(state, preState, outcomeOrNull, offenseSide, defenseSide, 
       highImpact: false,
       yardsGained,
       timeElapsed,
-      clockRunoff: timeElapsed,    // <-- NEW: assign all special-play time to drive
+      clockRunoff: timeElapsed,    // all admin time counts toward drive duration
       turnover: false,
       touchdown: false,
       safety: false,
@@ -1355,11 +1376,14 @@ function clockManager(state, preState, outcomeOrNull, offenseSide, defenseSide, 
       fieldGoalGood: false,
       punt: false,
       endOfDrive: false,
+      scoreBefore: scoreSnap,
+      scoreAfter: scoreSnap,
     };
   
     state.plays.push(log);
     return log;
   }
+  
 
   function updateClockIntentForKneel(state) {
     const { offenseSide, defenseSide } = getOffenseDefense(state);
@@ -1457,138 +1481,72 @@ function clockManager(state, preState, outcomeOrNull, offenseSide, defenseSide, 
 
 // Play simulation
 function simulatePlay(state) {
-    const { rng } = state;
-  
-    // Update any clock / intent state (hurry-up, spike preferences, etc.)
-    updateClockIntent(state);
-  
-    const {
-      offenseTeam,
-      defenseTeam,
-      offenseSide,
-      defenseSide,
-    } = getOffenseDefense(state);
-  
-    const offenseUnits = getUnitProfiles(offenseTeam).offense;
-    const defenseUnits = getUnitProfiles(defenseTeam).defense;
-    const specialOff   = getUnitProfiles(offenseTeam).special;
-  
-    // Team tilt for 4th-down decisions
-    const puntBias = computePuntBias(state, offenseTeam);
-  
-    // Snapshot of state *before* the play for logging and D&D text
-    const preState = {
-      down:     state.down,
-      distance: state.distance,
-      yardline: state.ballYardline,
-      clockSec: state.clockSec,
-      quarter:  state.quarter,
-    };
+  const { rng } = state;
 
-    // Pre-snap clock plan (pace/bounds); detailed post-play decisions happen later
-    state._clockPlan = clockManager(
-      state, preState, null,
-      offenseSide,
-      defenseSide,
-      { clockStopsAfterPlay: false }
-    );
+  // Update any clock / intent state (hurry-up, spike preferences, etc.)
+  updateClockIntent(state);
 
-  
-    // Timeouts for current half
-    const halfKey = state.quarter <= 2 ? "H1" : "H2";
-    const timeoutsOffense =
-      state.timeouts?.[offenseSide]?.[halfKey] ?? 0;
-    const timeoutsDefense =
-      state.timeouts?.[defenseSide]?.[halfKey] ?? 0;
-  
-    // Scores from the offense perspective
-    const offenseScore =
-      offenseSide === "home" ? state.score.home : state.score.away;
-    const defenseScore =
-      offenseSide === "home" ? state.score.away : state.score.home;
-  
-    // Victory formation: override everything if we can mathematically kill the game
-    if (
-      victoryFormationAvailable({
-        quarter:        state.quarter,
-        secondsLeft:    state.clockSec,
-        offenseLead:    offenseScore - defenseScore,
-        timeoutsDefense,
-        playClock:      40,
-      })
-    ) {
-      const decision   = { type: "kneel" };
-      const playOutcome = simulateKneelPlay(state, rng);
-  
-      applyPlayOutcomeToState(state, playOutcome, preState);
-  
-      const playLog = buildPlayLog(
-        state,
-        decision,
-        playOutcome,
-        preState,
-        offenseSide,
-        defenseSide,
-        offenseTeam,
-        defenseTeam
-      );
-      state.plays.push(playLog);
-      return playLog;
-    }
-  
-    // Situation context passed into the play-caller
-    const situation = {
-      down:     preState.down,
-      distance: preState.distance,
-      yardline: preState.yardline,
-      quarter:  preState.quarter,
-      clockSec: preState.clockSec,
-      scoreDiff:
-        offenseSide === "home"
-          ? state.score.home - state.score.away
-          : state.score.away - state.score.home,
-      puntBias,
-      offMomentum:   state.momentum?.[offenseSide] ?? 0,
-      timeoutsOffense,
+  const {
+    offenseTeam,
+    defenseTeam,
+    offenseSide,
+    defenseSide,
+  } = getOffenseDefense(state);
+
+  const offenseUnits = getUnitProfiles(offenseTeam).offense;
+  const defenseUnits = getUnitProfiles(defenseTeam).defense;
+  const specialOff   = getUnitProfiles(offenseTeam).special;
+
+  const puntBias = computePuntBias(state, offenseTeam);
+
+  // Snapshot of state *before* the play for logging and D&D text
+  const preState = {
+    down:     state.down,
+    distance: state.distance,
+    yardline: state.ballYardline,
+    clockSec: state.clockSec,
+    quarter:  state.quarter,
+  };
+
+  // Score snapshot before play (for PBP)
+  const scoreBefore = cloneScore(state.score);
+
+  // Pre-snap clock plan (pace/bounds)
+  state._clockPlan = clockManager(
+    state, preState, null,
+    offenseSide,
+    defenseSide,
+    { clockStopsAfterPlay: false }
+  );
+
+  // Timeouts for current half
+  const halfKey = state.quarter <= 2 ? "H1" : "H2";
+  const timeoutsOffense =
+    state.timeouts?.[offenseSide]?.[halfKey] ?? 0;
+  const timeoutsDefense =
+    state.timeouts?.[defenseSide]?.[halfKey] ?? 0;
+
+  const offenseScore =
+    offenseSide === "home" ? state.score.home : state.score.away;
+  const defenseScore =
+    offenseSide === "home" ? state.score.away : state.score.home;
+
+  // Victory formation: override everything if we can mathematically kill the game
+  if (
+    victoryFormationAvailable({
+      quarter:        state.quarter,
+      secondsLeft:    state.clockSec,
+      offenseLead:    offenseScore - defenseScore,
       timeoutsDefense,
-      clockIntent:   state.clockIntent?.[offenseSide] ?? null,
-    };
-  
-    const decision = choosePlayType(
-      situation,
-      offenseUnits,
-      defenseUnits,
-      specialOff,
-      rng
-    );
-  
-    let playOutcome;
-    switch (decision.type) {
-      case "run":
-        playOutcome = simulateRunPlay(state, offenseUnits, defenseUnits, rng);
-        break;
-      case "pass":
-        playOutcome = simulatePassPlay(state, offenseUnits, defenseUnits, rng);
-        break;
-      case "field_goal":
-        maybeIceKicker(state, offenseSide, defenseSide);
-        playOutcome = simulateFieldGoal(state, offenseUnits, specialOff, rng);
-        break;
-      case "punt":
-        playOutcome = simulatePunt(state, specialOff, rng);
-        break;
-      case "kneel":
-        playOutcome = simulateKneelPlay(state, rng);
-        break;
-      case "spike":
-        playOutcome = simulateSpikePlay(state, rng);
-        break;
-      default:
-        playOutcome = simulateRunPlay(state, offenseUnits, defenseUnits, rng);
-    }
-  
+      playClock:      40,
+    })
+  ) {
+    const decision    = { type: "kneel" };
+    const kneelBefore = cloneScore(state.score); // essentially same as scoreBefore here
+    const playOutcome = simulateKneelPlay(state, rng);
+
     applyPlayOutcomeToState(state, playOutcome, preState);
-  
+
     const playLog = buildPlayLog(
       state,
       decision,
@@ -1597,12 +1555,82 @@ function simulatePlay(state) {
       offenseSide,
       defenseSide,
       offenseTeam,
-      defenseTeam
+      defenseTeam,
+      kneelBefore
     );
     state.plays.push(playLog);
-  
     return playLog;
   }
+
+  // Situation context passed into the play-caller
+  const situation = {
+    down:     preState.down,
+    distance: preState.distance,
+    yardline: preState.yardline,
+    quarter:  preState.quarter,
+    clockSec: preState.clockSec,
+    scoreDiff:
+      offenseSide === "home"
+        ? state.score.home - state.score.away
+        : state.score.away - state.score.home,
+    puntBias,
+    offMomentum:   state.momentum?.[offenseSide] ?? 0,
+    timeoutsOffense,
+    timeoutsDefense,
+    clockIntent:   state.clockIntent?.[offenseSide] ?? null,
+  };
+
+  const decision = choosePlayType(
+    situation,
+    offenseUnits,
+    defenseUnits,
+    specialOff,
+    rng
+  );
+
+  let playOutcome;
+  switch (decision.type) {
+    case "run":
+      playOutcome = simulateRunPlay(state, offenseUnits, defenseUnits, rng);
+      break;
+    case "pass":
+      playOutcome = simulatePassPlay(state, offenseUnits, defenseUnits, rng);
+      break;
+    case "field_goal":
+      maybeIceKicker(state, offenseSide, defenseSide);
+      playOutcome = simulateFieldGoal(state, offenseUnits, specialOff, rng);
+      break;
+    case "punt":
+      playOutcome = simulatePunt(state, specialOff, rng);
+      break;
+    case "kneel":
+      playOutcome = simulateKneelPlay(state, rng);
+      break;
+    case "spike":
+      playOutcome = simulateSpikePlay(state, rng);
+      break;
+    default:
+      playOutcome = simulateRunPlay(state, offenseUnits, defenseUnits, rng);
+  }
+
+  applyPlayOutcomeToState(state, playOutcome, preState);
+
+  const playLog = buildPlayLog(
+    state,
+    decision,
+    playOutcome,
+    preState,
+    offenseSide,
+    defenseSide,
+    offenseTeam,
+    defenseTeam,
+    scoreBefore
+  );
+  state.plays.push(playLog);
+
+  return playLog;
+}
+
   
   
 
