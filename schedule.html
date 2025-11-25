@@ -27,6 +27,13 @@
       box-sizing: border-box;
     }
 
+    button:not(.btn-primary):not(.btn-secondary):not(.btn-outline):not(.view-tab) {
+      font-family: inherit;
+      border: none;
+      background: none;
+    }
+
+
     html, body {
       margin: 0;
       padding: 0;
@@ -40,16 +47,6 @@
       min-height: 100vh;
       display: flex;
       flex-direction: column;
-    }
-
-    /* Basic button reset without nuking styles from utility classes */
-    button {
-      font-family: inherit;
-    }
-
-    button:disabled {
-      opacity: 0.55;
-      cursor: default;
     }
 
     .page {
