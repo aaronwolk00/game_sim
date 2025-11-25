@@ -824,16 +824,52 @@ async function runPlayByPlayGame(save, opponentCode, isHome, weekIndex0) {
       const p = plays[i];
       const div = document.createElement("div");
       div.className = "gameday-log-line new-play";
-  
+      
+      // Detect scoring plays early
+      const desc = (p.text || p.description || "").toLowerCase();
+      const tags = (p.tags || []).map((t) => t.toUpperCase());
+      const scoringKeywords = ["touchdown", "td", "field goal", "fg", "safety"];
+      const isScore = scoringKeywords.some((kw) => desc.includes(kw)) || p.isScoring;
+      
+      if (isScore) {
+        let pts = 0;
+        if (desc.includes("touchdown") || tags.includes("TD")) pts = 6;
+        else if (desc.includes("field goal") || tags.includes("FG")) pts = 3;
+        else if (desc.includes("safety")) pts = 2;
+      
+        // Determine who scored
+        const homeTeamName = getEl("gameday-home-name")?.textContent.toLowerCase() || "";
+        const awayTeamName = getEl("gameday-away-name")?.textContent.toLowerCase() || "";
+        const textLower = desc.toLowerCase();
+      
+        const franchiseIsHome = isHome;
+        const scoredByUser = textLower.includes(homeTeamName)
+          ? franchiseIsHome
+          : textLower.includes(awayTeamName)
+          ? !franchiseIsHome
+          : franchiseIsHome; // fallback guess
+      
+        if (scoredByUser) {
+          if (franchiseIsHome) homeScore += pts;
+          else awayScore += pts;
+        } else {
+          if (franchiseIsHome) awayScore += pts;
+          else homeScore += pts;
+        }
+      
+        setText("gameday-home-score", String(homeScore));
+        setText("gameday-away-score", String(awayScore));
+      }
+      
       const q = p.quarter ?? p.qtr ?? "";
       const clock = p.clock ?? p.gameClock ?? "";
       const prefix = [q ? `Q${q}` : "", clock].filter(Boolean).join(" • ");
       setText("gameday-score-meta", `Q${q || "?"} • ${clock || ""}`);
+      
 
   
       div.textContent = prefix ? `${prefix} — ${p.text || p.description}` : p.text || p.description || "[play]";
   
-      const tags = (p.tags || []).map((t) => t.toUpperCase());
       if (p.isScoring || tags.includes("TD") || tags.includes("FG")) {
         div.classList.add("scoring");
       }
@@ -852,8 +888,78 @@ async function runPlayByPlayGame(save, opponentCode, isHome, weekIndex0) {
     skipBtn.disabled = true;
   
     if (summaryEl) summaryEl.textContent = "Play-by-play complete.";
+  
+    // --- NEW: update scoreboard to final score if provided ---
+    const homeId = payload.homeTeam.teamId || payload.homeTeam.id;
+    const awayId = payload.awayTeam.teamId || payload.awayTeam.id;
+    const { home, away } = getScoreFromResult(payload.result, homeId, awayId);
+    setText("gameday-home-score", String(home));
+    setText("gameday-away-score", String(away));
+  
+    // --- NEW: auto-render stats & box score ---
+    if (payload.result) {
+      renderDriveSummary(payload.result);
+      renderTeamStats(payload.result);
+      renderPlayerBox(payload.result);
+    }
+  
+    // --- NEW: integrate into schedule + save ---
+    await finalizePlayByPlayResult(
+      save,
+      gLeagueState,
+      weekIndex0,
+      payload.result,
+      payload.homeCode,
+      payload.awayCode,
+      isHome
+    );
+  
     return payload;
+  
   }
+
+    /**
+     * Integrate the result of a play-by-play sim into league + save state,
+     * same as simulateFullWeekWithFranchiseGame but without re-simulating.
+     */
+    async function finalizePlayByPlayResult(save, leagueState, weekIndex0, result, homeCode, awayCode, isHome) {
+        if (!leagueState || !result) return;
+    
+        const homeId = result.homeTeam?.teamId || result.homeTeam?.id || homeCode;
+        const awayId = result.awayTeam?.teamId || result.awayTeam?.id || awayCode;
+    
+        const { home, away } = getScoreFromResult(result, homeId, awayId);
+    
+        // 1. Update schedule
+        updateWeekScheduleForMatchup(leagueState, weekIndex0, homeCode, awayCode, { home, away });
+    
+        // 2. Recompute record
+        const newRecord = recomputeFranchiseRecordFromSchedule(leagueState, save.teamCode);
+        save.record = newRecord;
+        save.lastPlayedISO = new Date().toISOString();
+    
+        // 3. Update stats + next event
+        updateStatsSummaryFromSchedule(leagueState, save.teamCode);
+        updateNextEventFromSchedule(leagueState, save);
+    
+        // 4. Persist
+        saveLastFranchise(save);
+        saveLeagueState(leagueState);
+    
+        // 5. Render final visuals
+        renderPostgameResult(
+        result,
+        result.homeTeam,
+        result.awayTeam,
+        homeCode,
+        awayCode,
+        save,
+        isHome ? awayCode : homeCode,
+        isHome,
+        weekIndex0
+        );
+    }
+    
   
 
   // -----------------------------------------------------------------------------
