@@ -59,7 +59,7 @@ import {
     getTeamDisplayName as scheduleGetTeamDisplayName,
     recomputeRecordFromSchedule as scheduleRecomputeRecord
   } from "./league_schedule.js";
-import { upsertGameStatsFromResult, rebuildSeasonStats } from "./league_stats.js";
+import { upsertGameStatsFromResult, rebuildSeasonStats, rebuildStatsSummary } from "./league_stats.js";
 
 // -----------------------------------------------------------------------------
 // Types (JSDoc – documentation only)
@@ -1768,87 +1768,81 @@ function renderPregameHeader(save, opponentCode, isFranchiseHome, weekIndex0) {
     isFranchiseHome,
     weekIndex0
   ) {
+    // ---------------------------------------------------------------------------
+    // Derive and display scoreboard info
+    // ---------------------------------------------------------------------------
     const homeId = homeTeam.teamId || homeTeam.id;
     const awayId = awayTeam.teamId || awayTeam.id;
   
-    const { home, away, quarter, clock } = getScoreFromResult(
-      result,
-      homeId,
-      awayId
-    );
+    const { home, away, quarter, clock } = getScoreFromResult(result, homeId, awayId);
   
     const userCode = save.teamCode;
     const userIsHome = isFranchiseHome;
     const userScore = userIsHome ? home : away;
     const oppScore = userIsHome ? away : home;
   
-    // Scoreboard numbers
     setText("gameday-home-score", String(home));
     setText("gameday-away-score", String(away));
   
     const teamName = getTeamNameFromSave(save);
     const oppName = getTeamDisplayNameFromCode(opponentCode);
-    const weekLabel =
-      typeof weekIndex0 === "number" ? weekIndex0 + 1 : (save.weekIndex || 0);
+    const weekLabel = typeof weekIndex0 === "number" ? weekIndex0 + 1 : (save.weekIndex || 0);
   
-    const isFinal =
-      quarter === "Final" || quarter === 4 || quarter === "4";
+    const isFinal = quarter === "Final" || quarter === 4 || quarter === "4";
     const statusLabel = isFinal ? "Final" : `Q${quarter} ${clock || ""}`.trim();
   
     const metaEl = getEl("gameday-score-meta");
-    if (metaEl) {
-      metaEl.textContent = `${statusLabel} • Week ${weekLabel}`;
-    }
+    if (metaEl) metaEl.textContent = `${statusLabel} • Week ${weekLabel}`;
   
+    // ---------------------------------------------------------------------------
+    // Summary line (win/loss/tie + record)
+    // ---------------------------------------------------------------------------
     const isWin = userScore > oppScore;
+    const resWord = isWin ? "win" : userScore === oppScore ? "tie" : "loss";
+    const scoreLine = userIsHome
+      ? `${teamName} ${userScore} – ${oppName} ${oppScore}`
+      : `${oppName} ${oppScore} – ${teamName} ${userScore}`;
+  
+    // Update record string in save
+    const recordBefore = save.record || "0-0";
+    const recordNow = recomputeRecordFromSchedule(leagueState, userCode) || recordBefore;
+    save.record = recordNow;
+  
     const summaryEl = getEl("gameday-summary-line");
     if (summaryEl) {
-      const resWord = isWin ? "win" : userScore === oppScore ? "tie" : "loss";
-      const scoreLine = userIsHome
-        ? `${teamName} ${userScore} – ${oppName} ${oppScore}`
-        : `${oppName} ${oppScore} – ${teamName} ${userScore}`;
-  
-      const recordText = save.record || "0-0";
-      summaryEl.textContent = `${statusLabel}: ${scoreLine} (${resWord}). Record: ${recordText}.`;
+      summaryEl.textContent = `${statusLabel}: ${scoreLine} (${resWord}). Record: ${recordNow}.`;
     }
   
-    // Play log – with optional "key plays only" filter
+    // ---------------------------------------------------------------------------
+    // Play-by-play log (condensed)
+    // ---------------------------------------------------------------------------
     const logEl = getEl("gameday-play-log");
     if (logEl) {
       logEl.innerHTML = "";
       const plays = getPlayLogFromResult(result);
       if (!plays.length) {
-        const p = document.createElement("div");
-        p.textContent = "No play-by-play log available from engine.";
-        logEl.appendChild(p);
+        const msg = document.createElement("div");
+        msg.textContent = "No play-by-play log available from engine.";
+        logEl.appendChild(msg);
       } else {
         const keyOnly = isKeyPlaysOnlyEnabled();
-        let appended = 0;
+        let count = 0;
   
-        plays.forEach((p, idx) => {
-          if (idx > 199) return; // cap log length
-  
-          if (keyOnly && !isKeyPlay(p)) {
-            return;
-          }
+        for (const p of plays) {
+          if (count > 199) break;
+          if (keyOnly && !isKeyPlay(p)) continue;
   
           const div = document.createElement("div");
           div.className = "gameday-log-line";
   
           const q = p.quarter ?? p.qtr ?? "";
           const clockStr =
-            p.clock ??
-            p.gameClock ??
-            (Number.isFinite(p.clockSec)
-              ? formatClockFromSeconds(p.clockSec)
-              : "");
+            p.clock ?? p.gameClock ??
+            (Number.isFinite(p.clockSec) ? formatClockFromSeconds(p.clockSec) : "");
   
-          const tags = (p.tags || []).map((t) =>
-            String(t).toUpperCase()
-          );
+          const tags = (p.tags || []).map((t) => String(t).toUpperCase());
           const isFgTag = tags.includes("FG") && !tags.includes("FGMISS");
           const isScoring = p.isScoring || tags.includes("TD") || isFgTag || tags.includes("SAFETY");
-
   
           const prefixParts = [];
           if (q) prefixParts.push(`Q${q}`);
@@ -1856,21 +1850,16 @@ function renderPregameHeader(save, opponentCode, isFranchiseHome, weekIndex0) {
           if (p.downAndDistance) prefixParts.push(p.downAndDistance);
           const prefix = prefixParts.join(" • ");
   
-          div.textContent = `${prefix ? prefix + " – " : ""}${
-            p.text || p.description || p.desc || "[play]"
-          }`;
-  
-          if (isScoring) {
-            div.style.fontWeight = "600";
-          }
+          div.textContent = `${prefix ? prefix + " – " : ""}${p.text || p.description || p.desc || "[play]"}`;
+          if (isScoring) div.style.fontWeight = "600";
   
           logEl.appendChild(div);
-          appended++;
-        });
+          count++;
+        }
   
-        if (appended === 0) {
+        if (count === 0) {
           const msg = document.createElement("div");
-          msg.textContent = isKeyPlaysOnlyEnabled()
+          msg.textContent = keyOnly
             ? "No key plays to display. Turn off 'Key plays only' to see the full log."
             : "No play-by-play log available from engine.";
           logEl.appendChild(msg);
@@ -1878,16 +1867,38 @@ function renderPregameHeader(save, opponentCode, isFranchiseHome, weekIndex0) {
       }
     }
   
+    // ---------------------------------------------------------------------------
+    // Postgame analytics panels
+    // ---------------------------------------------------------------------------
     if (result) {
       renderDriveSummary(result);
       renderTeamStats(result);
       renderPlayerBox(result);
-      upsertGameStatsFromResult(leagueState, weekIndex0, `${homeCode}_${awayCode}`, result);
-      rebuildSeasonStats(leagueState);
-      saveLeagueState(franchiseId, leagueState);
     }
-    
+  
+    // ---------------------------------------------------------------------------
+    // Persist game + update cumulative stats
+    // ---------------------------------------------------------------------------
+    try {
+      const gameKey = `${homeCode}_${awayCode}`;
+  
+      // Store this game result
+      upsertGameStatsFromResult(leagueState, weekIndex0, gameKey, result);
+  
+      // Recompute season totals (idempotent)
+      rebuildSeasonStats(leagueState);
+  
+      // Also recompute quick per-team summary for UI consistency
+      rebuildStatsSummary(leagueState);
+  
+      // Save state and franchise
+      saveLeagueState(franchiseId, leagueState);
+      saveLastFranchise(save);
+    } catch (err) {
+      console.error("[GameDay] Failed to update league stats:", err);
+    }
   }
+  
   
 
 // -----------------------------------------------------------------------------

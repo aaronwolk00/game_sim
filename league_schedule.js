@@ -515,6 +515,130 @@ function groupTeamsByConfAndDiv() {
     // Sanity: should now be 272 games total; each team will later get 17 games.
     return games;
   }
+
+  /**
+ * getTeamOpponents(seasonYear)
+ * Returns a dictionary { teamCode: [ { opponentCode, type } ...17 total ] }
+ * — Defines each team’s 17 games (no schedule order, byes, or kickoff times).
+ * — Based on NFL’s official 17-game formula.
+ * — Each pairing is symmetric (if BUF has NYJ, NYJ also has BUF).
+ */
+export function getTeamOpponents(seasonYear = new Date().getFullYear()) {
+    const divisions = groupTeamsByConfAndDiv();
+  
+    // Rotation indices (stable NFL-like pattern)
+    const sameIdx = getSameConfRotationIndex(seasonYear);
+    const crossOffset = getCrossConfOffset(seasonYear);
+    const hostConference = seasonYear % 2 === 0 ? "AFC" : "NFC";
+  
+    /** @type {Record<string, {opponentCode: string, type: string}[]>} */
+    const byTeam = {};
+    for (const { teamCode } of TEAM_META) byTeam[teamCode] = [];
+  
+    // ---------------------------------------------------------------------------
+    // 1) Division (6)
+    // ---------------------------------------------------------------------------
+    for (const conf of ["AFC", "NFC"]) {
+      for (const div of DIVISION_NAMES) {
+        const teams = divisions[conf][div];
+        for (let i = 0; i < 4; i++) {
+          for (let j = 0; j < 4; j++) {
+            if (i === j) continue;
+            byTeam[teams[i]].push({ opponentCode: teams[j], type: "division" });
+          }
+        }
+      }
+    }
+  
+    // ---------------------------------------------------------------------------
+    // 2) Same-conference rotation (4)
+    // ---------------------------------------------------------------------------
+    for (const conf of ["AFC", "NFC"]) {
+      const config = SAME_CONF_ROTATION[conf][sameIdx];
+      for (const div of DIVISION_NAMES) {
+        const oppDiv = config[div];
+        const aTeams = divisions[conf][div];
+        const bTeams = divisions[conf][oppDiv];
+        for (let i = 0; i < 4; i++) {
+          for (let j = 0; j < 4; j++) {
+            byTeam[aTeams[i]].push({ opponentCode: bTeams[j], type: "conference" });
+            byTeam[bTeams[j]].push({ opponentCode: aTeams[i], type: "conference" });
+          }
+        }
+      }
+    }
+  
+    // ---------------------------------------------------------------------------
+    // 3) Intra-conference "extra" rank-based (2)
+    // ---------------------------------------------------------------------------
+    const EXTRA_DIV_PAIRS = [
+      ["East", "South"],
+      ["East", "West"],
+      ["North", "South"],
+      ["North", "West"]
+    ];
+    for (const conf of ["AFC", "NFC"]) {
+      for (const [divA, divB] of EXTRA_DIV_PAIRS) {
+        const aTeams = divisions[conf][divA];
+        const bTeams = divisions[conf][divB];
+        for (let i = 0; i < 4; i++) {
+          byTeam[aTeams[i]].push({ opponentCode: bTeams[i], type: "extra" });
+          byTeam[bTeams[i]].push({ opponentCode: aTeams[i], type: "extra" });
+        }
+      }
+    }
+  
+    // ---------------------------------------------------------------------------
+    // 4) Cross-conference rotation (4)
+    // ---------------------------------------------------------------------------
+    for (let i = 0; i < 4; i++) {
+      const afcDiv = DIVISION_NAMES[i];
+      const nfcDiv = DIVISION_NAMES[(i + crossOffset) % 4];
+      const afcTeams = divisions.AFC[afcDiv];
+      const nfcTeams = divisions.NFC[nfcDiv];
+      for (let a = 0; a < 4; a++) {
+        for (let n = 0; n < 4; n++) {
+          byTeam[afcTeams[a]].push({ opponentCode: nfcTeams[n], type: "nonconference" });
+          byTeam[nfcTeams[n]].push({ opponentCode: afcTeams[a], type: "nonconference" });
+        }
+      }
+    }
+  
+    // ---------------------------------------------------------------------------
+    // 5) 17th game (cross-conference rank matchups)
+    // ---------------------------------------------------------------------------
+    const seventeenthOffset = (crossOffset + 2) % 4;
+    for (let i = 0; i < 4; i++) {
+      const afcDiv = DIVISION_NAMES[i];
+      const nfcDiv = DIVISION_NAMES[(i + seventeenthOffset) % 4];
+      const afcTeams = divisions.AFC[afcDiv];
+      const nfcTeams = divisions.NFC[nfcDiv];
+      for (let r = 0; r < 4; r++) {
+        const afcTeam = afcTeams[r];
+        const nfcTeam = nfcTeams[r];
+        if (hostConference === "AFC") {
+          byTeam[afcTeam].push({ opponentCode: nfcTeam, type: "nonconference" });
+          byTeam[nfcTeam].push({ opponentCode: afcTeam, type: "nonconference" });
+        } else {
+          byTeam[afcTeam].push({ opponentCode: nfcTeam, type: "nonconference" });
+          byTeam[nfcTeam].push({ opponentCode: afcTeam, type: "nonconference" });
+        }
+      }
+    }
+  
+    // ---------------------------------------------------------------------------
+    // Validation
+    // ---------------------------------------------------------------------------
+    for (const [team, opps] of Object.entries(byTeam)) {
+      const unique = new Set(opps.map(o => o.opponentCode));
+      if (unique.size !== 17) {
+        console.warn(`⚠️ ${team} has ${unique.size} unique opponents (expected 17).`);
+      }
+    }
+  
+    return byTeam;
+  }
+  
   
 
 // -----------------------------------------------------------------------------
