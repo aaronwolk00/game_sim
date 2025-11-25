@@ -769,11 +769,13 @@ async function runPlayByPlayGame(save, opponentCode, isHome, weekIndex0) {
     for (let i = 0; i < plays.length; i++) {
       if (playByPlayControl.shouldSkip) {
         for (let j = i; j < plays.length; j++) {
+          const p = plays[j];
           const div = document.createElement("div");
           div.className = "gameday-log-line";
-            // --- Detect scoring plays and update scoreboard live ---
-            const desc = (p.text || p.description || "").toLowerCase();
-            const tags = (p.tags || []).map((t) => t.toUpperCase());
+          // --- Detect scoring plays and update scoreboard live ---
+          const desc = (p.text || p.description || "").toLowerCase();
+          const tags = (p.tags || []).map((t) => t.toUpperCase());
+
 
             const scoringKeywords = ["touchdown", "td", "field goal", "fg", "safety"];
             const isScore = scoringKeywords.some((kw) => desc.includes(kw)) || p.isScoring;
@@ -1384,6 +1386,7 @@ async function initGameDay() {
     : defaultWeekIndex;
 
   let opponentCode = PARAMS.get("opp") || null;
+  let scheduledGame = null;
 
   // Home/away from URL param first
   const homeParam = PARAMS.get("home");
@@ -1491,8 +1494,21 @@ async function initGameDay() {
       gLeagueState.schedule.byTeam &&
       gLeagueState.schedule.byTeam[save.teamCode];
 
-    simBtn.textContent = hasSchedule ? "Week Simulated" : "Game Simulated";
-    simBtn.disabled = true;      
+    // If this specific week is already final in the schedule, treat it as
+    // already simulated (no re-sims). Otherwise allow a normal sim.
+    const weekAlreadyFinal =
+      !!hasSchedule &&
+      !!scheduledGame &&
+      scheduledGame.status === "final";
+
+    if (weekAlreadyFinal) {
+      simBtn.textContent = "Week Simulated";
+      simBtn.disabled = true;
+    } else {
+      simBtn.textContent = hasSchedule ? "Simulate Week" : "Sim Game";
+      simBtn.disabled = false;
+    }
+    
 
     simBtn.addEventListener("click", async () => {
         if (simBtn.disabled) return;
