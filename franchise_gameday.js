@@ -716,6 +716,16 @@ function setSimSpeedFromControl(value) {
   }
 }
 
+  // -----------------------------------------------------------------------------
+  // Play-by-play control state
+  // -----------------------------------------------------------------------------
+
+  const playByPlayControl = {
+    isPlaying: false,
+    isPaused: false,
+    shouldSkip: false
+  };
+
 async function runPlayByPlayGame(save, opponentCode, isHome, weekIndex0) {
     await ensureLeagueLoaded();
   
@@ -1008,19 +1018,6 @@ async function runPlayByPlayGame(save, opponentCode, isHome, weekIndex0) {
     saveLeagueState(leagueState);
   }
   
-  
-    
-  
-
-  // -----------------------------------------------------------------------------
-  // Play-by-play control state
-  // -----------------------------------------------------------------------------
-
-  const playByPlayControl = {
-    isPlaying: false,
-    isPaused: false,
-    shouldSkip: false
-  };
 
 // -----------------------------------------------------------------------------
 // Sim flows
