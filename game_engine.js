@@ -2834,6 +2834,18 @@ function computeMomentumImpact(outcome, preState, offenseSide, state) {
     // No score, no turnover: advance ball & handle series
     state.ballYardline = clamp(newYard, 1, 99);
 
+    // Correct side’s perspective after possession changes only
+    if (isChangeOfPossessionPlay) {
+      // already handled above for FG, punt, turnover, etc.
+    } else {
+      // keep yardline in current offense's perspective
+      if (state.possession === "away" && newYard > 50) {
+        // convert to away-team-relative if needed
+        state.ballYardline = 100 - state.ballYardline;
+      }
+    }
+
+
     const yardsToFirst = state.distance - (outcome.yardsGained || 0);
     const gainedFirst = yardsToFirst <= 0;
 
@@ -2977,22 +2989,26 @@ function computeMomentumImpact(outcome, preState, offenseSide, state) {
   function buildTags(decision, outcome) {
     const playType = outcome.playType || decision.type || "run";
     const tags = [];
-
+  
     if (playType === "run") tags.push("RUN");
     if (playType === "pass") tags.push("PASS");
-    if (playType === "field_goal") tags.push("FG");
+    if (playType === "field_goal") {
+      if (outcome.fieldGoalGood) tags.push("FG", "SCORE");
+      else tags.push("FGMISS");
+    }
     if (playType === "punt") tags.push("PUNT");
-
+  
     if (outcome.touchdown) tags.push("TD", "SCORE");
     if (outcome.safety) tags.push("SAFETY", "SCORE");
-    if (outcome.fieldGoalGood) tags.push("SCORE");
-
-    if (outcome.turnover) tags.push("TURNOVER");
+  
+    if (outcome.turnover && !outcome.fieldGoalAttempt && !outcome.punt && !outcome.safety)
+      tags.push("TURNOVER");
     if (outcome.interception) tags.push("INT");
     if (outcome.sack) tags.push("SACK");
-
+  
     return tags;
   }
+  
 
 // Build a play log entry after outcome is applied
 function buildPlayLog(state, decision, outcome, preState, offenseSide, defenseSide, offenseTeam, defenseTeam) {

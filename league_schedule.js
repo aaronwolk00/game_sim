@@ -267,32 +267,38 @@ function groupTeamsByConfAndDiv() {
 // -----------------------------------------------------------------------------
 
 /**
- * Assign each team exactly one bye week between 5 and 14.
- * Roughly ~3–4 byes per week.
+ * Assigns one bye per team between Weeks 5–14 (NFL-accurate window).
+ * Each week has exactly 3–4 bye teams; total = 32 teams.
+ * Ensures fully random distribution without repeats.
  *
  * @returns {Object.<string, number>} teamCode -> byeWeek
  */
-function createRandomByeWeeks() {
-  const teams = getAllTeamCodes();
-  const byeWeeksPool = [];
-
-  // Base: each week 5–14 appears 3 times (30 slots).
-  for (let w = 5; w <= 14; w++) {
-    byeWeeksPool.push(w, w, w);
+ function createRandomByeWeeks() {
+    const teams = getAllTeamCodes();
+    const byeWeeks = {};
+  
+    // Weeks 5–14 inclusive → 10 possible bye weeks
+    const byeSlots = [];
+    const baseWeeks = [5,6,7,8,9,10,11,12,13,14];
+  
+    const byePattern = [4,2,2,6,4,4,2,4,0,4];
+    const shuffledTeams = [...teams];
+    shuffleInPlace(shuffledTeams);
+  
+    let cursor = 0;
+    for (let i = 0; i < baseWeeks.length; i++) {
+      const w = baseWeeks[i];
+      const count = byePattern[i];
+      for (let j = 0; j < count; j++) {
+        if (cursor >= shuffledTeams.length) break;
+        const team = shuffledTeams[cursor++];
+        byeWeeks[team] = w;
+      }
+    }
+  
+    return byeWeeks;
   }
-  // Add two extra slots to reach 32 teams.
-  byeWeeksPool.push(5, 6);
-
-  shuffleInPlace(byeWeeksPool);
-
-  /** @type {Object.<string, number>} */
-  const byeWeeks = {};
-  teams.forEach((teamCode, idx) => {
-    byeWeeks[teamCode] = byeWeeksPool[idx % byeWeeksPool.length];
-  });
-
-  return byeWeeks;
-}
+  
 
 // -----------------------------------------------------------------------------
 // Matchup generation – full league (272 games, week-agnostic)

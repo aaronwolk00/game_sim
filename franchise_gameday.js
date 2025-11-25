@@ -790,7 +790,8 @@ function setSimSpeedFromControl(value) {
       Date.now()
     );
   
-    const plays = getPlayLogFromResult(payload.result);
+    const result = payload.result;
+    const plays = getPlayLogFromResult(result);
     const logEl = getEl("gameday-play-log");
     const summaryEl = getEl("gameday-summary-line");
     const pauseBtn = getEl("btn-gameday-pause");
@@ -817,7 +818,7 @@ function setSimSpeedFromControl(value) {
     if (pauseBtn) pauseBtn.disabled = false;
     if (skipBtn) skipBtn.disabled = false;
   
-    // Live score tracking
+    // Live score tracking (we'll override with engine final at the end)
     let homeScore = 0;
     let awayScore = 0;
   
@@ -833,10 +834,15 @@ function setSimSpeedFromControl(value) {
       payload.awayTeam.displayName ||
       "Away";
   
+    const homeTeamId = payload.homeTeam.teamId || payload.homeTeam.id;
+    const awayTeamId = payload.awayTeam.teamId || payload.awayTeam.id;
+  
     const franchiseIsHome = isHome;
     const delayMs = simSpeed;
   
-    // Helper: build "Q1 • 14:58 • 1st & 10 at OWN 35" prefix
+    // ----------------------------- Helpers ---------------------------------
+  
+    // Build "Q1 • 14:58 • 1st & 10 at OWN 35" prefix
     const buildPlayPrefix = (p) => {
       const q = p.quarter ?? p.qtr ?? "";
       let clockStr = p.clock ?? p.gameClock ?? "";
@@ -853,7 +859,7 @@ function setSimSpeedFromControl(value) {
       return parts.join(" • ");
     };
   
-    // Helper: update the scoreboard text underneath scores
+    // Update the meta line under the score (quarter • clock • D&D)
     const updateMetaFromPlay = (p) => {
       const prefix = buildPlayPrefix(p);
       if (prefix) {
@@ -861,63 +867,123 @@ function setSimSpeedFromControl(value) {
       }
     };
   
-    // Helper: detect scoring plays, including TD + XP / 2-pt
-    const applyScoreFromPlay = (p) => {
+    // Shared scoring parser so we treat scoring consistently for score + highlight
+    const getScoringInfo = (p) => {
       const rawDesc = p.text || p.description || p.desc || "";
-      const desc = rawDesc.toLowerCase();
+      const descLower = rawDesc.toLowerCase();
       const tagsUpper = (p.tags || []).map((t) => String(t).toUpperCase());
+      const hasTag = (tag) => tagsUpper.includes(tag);
   
-      const hasTD = desc.includes("touchdown") || tagsUpper.includes("TD");
-      const hasFG = desc.includes("field goal") || tagsUpper.includes("FG");
-      const hasSafety =
-        desc.includes("safety") || tagsUpper.includes("SAFETY");
-      const hasTwoPt =
-        desc.includes("two-point") ||
-        desc.includes("two point") ||
-        tagsUpper.includes("2PT") ||
-        tagsUpper.includes("TWO-POINT");
-      const hasXP =
-        desc.includes("extra point") ||
-        desc.includes("xp") ||
-        tagsUpper.includes("XP");
+      const isTD =
+        !!p.touchdown ||
+        hasTag("TD") ||
+        descLower.includes("touchdown");
   
-      const isScore =
-        p.isScoring || hasTD || hasFG || hasSafety || hasTwoPt || hasXP;
+      const isFGGood =
+        (!!p.fieldGoalAttempt && !!p.fieldGoalGood) ||
+        (hasTag("FG") && !hasTag("FGMISS") && p.fieldGoalGood !== false);
   
-      if (!isScore) return;
+      const isSafety =
+        !!p.safety ||
+        hasTag("SAFETY") ||
+        descLower.includes("safety");
   
-      // Sum up all scoring in this play (TD + XP on same line → 7)
-      let pts = 0;
-      if (hasTD) pts += 6;
-      if (hasFG) pts += 3;
-      if (hasSafety) pts += 2;
+      const isXPGood =
+        (hasTag("XP") || descLower.includes("extra point")) &&
+        p.isScoring !== false; // PATs only scoring if engine says so
   
-      // Two-point vs extra point:
-      if (hasTwoPt) {
-        pts += 2;
-      } else if (hasXP) {
-        pts += 1;
+      const isTwoPtGood =
+        (hasTag("2PT") ||
+          hasTag("TWO-POINT") ||
+          descLower.includes("two-point") ||
+          descLower.includes("two point")) &&
+        p.isScoring !== false;
+  
+      const anyScore =
+        isTD || isFGGood || isSafety || isXPGood || isTwoPtGood;
+  
+      return {
+        isTD,
+        isFGGood,
+        isSafety,
+        isXPGood,
+        isTwoPtGood,
+        anyScore,
+        descLower,
+        tagsUpper,
+      };
+    };
+  
+    // Detect scoring plays and apply points to live scoreboard
+    const applyScoreFromPlay = (p) => {
+      // If engine ever gives us an explicit score snapshot, trust that.
+      if (
+        p.scoreAfter &&
+        Number.isFinite(p.scoreAfter.home) &&
+        Number.isFinite(p.scoreAfter.away)
+      ) {
+        homeScore = p.scoreAfter.home;
+        awayScore = p.scoreAfter.away;
+        setText("gameday-home-score", String(homeScore));
+        setText("gameday-away-score", String(awayScore));
+        p.liveScoreHome = homeScore;
+        p.liveScoreAway = awayScore;
+        return;
       }
+  
+      const info = getScoringInfo(p);
+      if (!info.anyScore) return;
+  
+      const {
+        isTD,
+        isFGGood,
+        isSafety,
+        isXPGood,
+        isTwoPtGood,
+        descLower,
+      } = info;
+  
+      // Work out how many points this play adds
+      let pts = 0;
+      if (isTD) pts += 6;
+      if (isFGGood) pts += 3;
+      if (isSafety) pts += 2;
+      if (isTwoPtGood) pts += 2;
+      else if (isXPGood) pts += 1;
   
       if (!pts) return;
   
-      // Who scored?
-      const descLower = desc;
-      const homeNameLower = homeTeamName.toLowerCase();
-      const awayNameLower = awayTeamName.toLowerCase();
-  
+      // Decide which team actually scored
       let scoredByHome = null;
   
-      // Prefer explicit team name matches
-      if (descLower.includes(homeNameLower)) {
-        scoredByHome = true;
-      } else if (descLower.includes(awayNameLower)) {
-        scoredByHome = false;
-      } else if (p.offense === "home" || p.offense === "away") {
-        // If the engine exposes an offense side, use that
-        scoredByHome = p.offense === "home";
-      } else {
-        // Fallback guess – assume franchise is the scoring side when unclear
+      // Safeties: defense scores
+      if (isSafety) {
+        if (p.offense === "home") scoredByHome = false;
+        else if (p.offense === "away") scoredByHome = true;
+      }
+  
+      // Otherwise, offense normally scores
+      if (
+        scoredByHome === null &&
+        (isTD || isFGGood || isXPGood || isTwoPtGood)
+      ) {
+        if (p.offense === "home") scoredByHome = true;
+        else if (p.offense === "away") scoredByHome = false;
+      }
+  
+      // If still ambiguous, try team name in description
+      if (scoredByHome === null) {
+        const homeNameLower = homeTeamName.toLowerCase();
+        const awayNameLower = awayTeamName.toLowerCase();
+        if (descLower.includes(homeNameLower)) {
+          scoredByHome = true;
+        } else if (descLower.includes(awayNameLower)) {
+          scoredByHome = false;
+        }
+      }
+  
+      // Final fallback: assume franchise side scored
+      if (scoredByHome === null) {
         scoredByHome = franchiseIsHome;
       }
   
@@ -929,9 +995,233 @@ function setSimSpeedFromControl(value) {
   
       setText("gameday-home-score", String(homeScore));
       setText("gameday-away-score", String(awayScore));
+  
+      p.liveScoreHome = homeScore;
+      p.liveScoreAway = awayScore;
     };
   
-    // Main loop
+    const isScoringHighlight = (p) => {
+      const info = getScoringInfo(p);
+      return info.anyScore;
+    };
+  
+    // --- Live stats snapshot helpers (for drive summary / team stats / player box)
+  
+    const makeEmptyTeamRow = () => ({
+      plays: 0,
+      yardsTotal: 0,
+      rushYards: 0,
+      passYards: 0,
+      turnovers: 0,
+      yardsPerPlay: 0,
+    });
+  
+    const computeTeamStatsFromPlays = (slice) => {
+      const stats = {
+        home: makeEmptyTeamRow(),
+        away: makeEmptyTeamRow(),
+      };
+  
+      for (const p of slice) {
+        const side = p.offense === "away" ? "away" : "home";
+        const s = stats[side];
+  
+        const y = Number.isFinite(p.yardsGained) ? p.yardsGained : 0;
+        const type = p.playType || p.decisionType;
+  
+        if (type === "run" || type === "pass") {
+          s.plays += 1;
+          s.yardsTotal += y;
+          if (type === "run") s.rushYards += y;
+          if (type === "pass") s.passYards += y;
+        }
+  
+        if (p.turnover && !p.fieldGoalAttempt && !p.punt) {
+          s.turnovers += 1;
+        }
+      }
+  
+      for (const side of ["home", "away"]) {
+        const s = stats[side];
+        s.yardsPerPlay = s.plays > 0 ? s.yardsTotal / s.plays : 0;
+      }
+  
+      return stats;
+    };
+  
+    const computePlayerStatsFromPlays = (slice) => {
+      const rows = {};
+  
+      const ensureRow = (playerId, playerName, side, guessPos) => {
+        if (!playerId) return null;
+        if (!rows[playerId]) {
+          const teamId = side === "home" ? homeTeamId : awayTeamId;
+          const teamName = side === "home" ? homeTeamName : awayTeamName;
+          rows[playerId] = {
+            playerId,
+            name: playerName || String(playerId),
+            teamId,
+            teamName,
+            side,
+            position: guessPos || null,
+  
+            passAtt: 0,
+            passCmp: 0,
+            passYds: 0,
+            passTD: 0,
+            passInt: 0,
+  
+            rushAtt: 0,
+            rushYds: 0,
+            rushTD: 0,
+  
+            targets: 0,
+            receptions: 0,
+            recYds: 0,
+            recTD: 0,
+  
+            fgAtt: 0,
+            fgMade: 0,
+            xpAtt: 0,
+            xpMade: 0,
+  
+            puntAtt: 0,
+            puntYds: 0,
+          };
+        }
+        return rows[playerId];
+      };
+  
+      for (const p of slice) {
+        const side = p.offense === "away" ? "away" : "home";
+        const type = p.playType || p.decisionType;
+        const y = Number.isFinite(p.yardsGained) ? p.yardsGained : 0;
+  
+        // Passing
+        if (type === "pass" && p.passerId) {
+          const qbRow = ensureRow(p.passerId, p.passerName, side, "QB");
+          if (qbRow) {
+            const ballThrown = !p.sack; // match engine behavior: sacks not attempts
+            if (ballThrown) {
+              qbRow.passAtt += 1;
+              if (p.completion) {
+                qbRow.passCmp += 1;
+                qbRow.passYds += y;
+                if (p.touchdown) qbRow.passTD += 1;
+              }
+              if (p.interception) {
+                qbRow.passInt += 1;
+              }
+            }
+          }
+        }
+  
+        // Rushing
+        if (type === "run" && p.rusherId) {
+          const ruRow = ensureRow(p.rusherId, p.rusherName, side, "RB");
+          if (ruRow) {
+            ruRow.rushAtt += 1;
+            ruRow.rushYds += y;
+            if (p.touchdown) ruRow.rushTD += 1;
+          }
+        }
+  
+        // Receiving
+        if (type === "pass" && p.receiverId) {
+          const recRow = ensureRow(p.receiverId, p.receiverName, side, "WR");
+          if (recRow) {
+            recRow.targets += 1;
+            if (p.completion) {
+              recRow.receptions += 1;
+              recRow.recYds += y;
+              if (p.touchdown) recRow.recTD += 1;
+            }
+          }
+        }
+  
+        // Field goals
+        if (type === "field_goal" && p.kickerId) {
+          const kRow = ensureRow(p.kickerId, p.kickerName, side, "K");
+          if (kRow) {
+            kRow.fgAtt += 1;
+            if (p.fieldGoalGood) kRow.fgMade += 1;
+          }
+        }
+  
+        // Extra points
+        if (p.playType === "extra_point" && p.kickerId) {
+          const xpRow = ensureRow(p.kickerId, p.kickerName, side, "K");
+          if (xpRow) {
+            xpRow.xpAtt += 1;
+            if (p.isScoring) xpRow.xpMade += 1;
+          }
+        }
+  
+        // Punts
+        if (type === "punt" && p.punterId) {
+          const dist = Number.isFinite(p.puntDistance) ? p.puntDistance : 0;
+          const pRow = ensureRow(p.punterId, p.punterName, side, "P");
+          if (pRow) {
+            pRow.puntAtt += 1;
+            pRow.puntYds += dist;
+          }
+        }
+      }
+  
+      return rows;
+    };
+  
+    const buildLiveResultSnapshot = (playIndex) => {
+      if (!result) return null;
+  
+      const allPlays = result.plays || plays;
+      const slice = allPlays.slice(0, playIndex + 1);
+  
+      // Only include drives that have fully occurred (their last play index <= current)
+      const drives = (result.drives || []).filter((d) => {
+        if (!Array.isArray(d.playIndices) || !d.playIndices.length) {
+          return false;
+        }
+        const lastIdx = d.playIndices.reduce(
+          (mx, idx) => (idx > mx ? idx : mx),
+          d.playIndices[0]
+        );
+        return lastIdx <= playIndex;
+      });
+  
+      const liveTeamStats = computeTeamStatsFromPlays(slice);
+      const livePlayerStats = computePlayerStatsFromPlays(slice);
+  
+      return {
+        ...result,
+        plays: slice,
+        drives,
+        teamStats: liveTeamStats,
+        playerStats: livePlayerStats,
+        score: {
+          home: homeScore,
+          away: awayScore,
+        },
+      };
+    };
+  
+    const updateLivePanels = (playIndex) => {
+      if (!result) return;
+      try {
+        const liveResult = buildLiveResultSnapshot(playIndex);
+        if (!liveResult) return;
+  
+        renderDriveSummary(liveResult);
+        renderTeamStats(liveResult);
+        renderPlayerBox(liveResult);
+      } catch (err) {
+        // Don't break the sim if live-panel math explodes
+        console.error("Live panel update failed:", err);
+      }
+    };
+  
+    // ----------------------------- Main loop --------------------------------
+  
     for (let i = 0; i < plays.length; i++) {
       if (playByPlayControl.shouldSkip) {
         // Fast-forward remaining plays with no delay
@@ -943,20 +1233,13 @@ function setSimSpeedFromControl(value) {
           if (!logEl) continue;
   
           const prefix = buildPlayPrefix(p);
-          const text =
-            p.text || p.description || p.desc || "[play]";
+          const text = p.text || p.description || p.desc || "[play]";
+  
           const div = document.createElement("div");
           div.className = "gameday-log-line";
           div.textContent = prefix ? `${prefix} – ${text}` : text;
   
-          const tagsUpper = (p.tags || []).map((t) =>
-            String(t).toUpperCase()
-          );
-          if (
-            p.isScoring ||
-            tagsUpper.includes("TD") ||
-            tagsUpper.includes("FG")
-          ) {
+          if (isScoringHighlight(p)) {
             div.classList.add("scoring");
           }
   
@@ -976,27 +1259,22 @@ function setSimSpeedFromControl(value) {
   
       if (logEl) {
         const prefix = buildPlayPrefix(p);
-        const text =
-          p.text || p.description || p.desc || "[play]";
+        const text = p.text || p.description || p.desc || "[play]";
   
         const div = document.createElement("div");
         div.className = "gameday-log-line new-play";
         div.textContent = prefix ? `${prefix} – ${text}` : text;
   
-        const tagsUpper = (p.tags || []).map((t) =>
-          String(t).toUpperCase()
-        );
-        if (
-          p.isScoring ||
-          tagsUpper.includes("TD") ||
-          tagsUpper.includes("FG")
-        ) {
+        if (isScoringHighlight(p)) {
           div.classList.add("scoring");
         }
   
         logEl.appendChild(div);
         logEl.scrollTo({ top: logEl.scrollHeight, behavior: "smooth" });
       }
+  
+      // Live update drives / team stats / player box
+      updateLivePanels(i);
   
       // eslint-disable-next-line no-await-in-loop
       await new Promise((r) => setTimeout(r, delayMs));
@@ -1013,17 +1291,15 @@ function setSimSpeedFromControl(value) {
     if (summaryEl) summaryEl.textContent = "Play-by-play complete.";
   
     // Snap scoreboard to engine's final score to correct any heuristic drift
-    const homeId = payload.homeTeam.teamId || payload.homeTeam.id;
-    const awayId = payload.awayTeam.teamId || payload.awayTeam.id;
-    const finalScores = getScoreFromResult(payload.result, homeId, awayId);
-    setText("gameday-home-score", String(finalScores.home));
-    setText("gameday-away-score", String(finalScores.away));
+    if (result) {
+      const finalScores = getScoreFromResult(result, homeTeamId, awayTeamId);
+      setText("gameday-home-score", String(finalScores.home));
+      setText("gameday-away-score", String(finalScores.away));
   
-    // Render full stats / box (still final-only for now)
-    if (payload.result) {
-      renderDriveSummary(payload.result);
-      renderTeamStats(payload.result);
-      renderPlayerBox(payload.result);
+      // Final render with authoritative result from the engine
+      renderDriveSummary(result);
+      renderTeamStats(result);
+      renderPlayerBox(result);
     }
   
     // Integrate into franchise state (record, schedule, next event, etc.)
@@ -1059,6 +1335,7 @@ function setSimSpeedFromControl(value) {
   
     return payload;
   }
+  
   
   
   

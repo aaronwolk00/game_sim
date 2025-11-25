@@ -7,7 +7,7 @@
 // team stats tab.
 // -----------------------------------------------------------------------------
 
-import { TEAM_META, getTeamDisplayName } from "./league_schedule.js";
+import { TEAM_META, getTeamDisplayName, recomputeRecordFromSchedule } from "./league_schedule.js";
 import { rebuildSeasonStats } from "./league_stats.js";
 
 const SAVE_KEY_LAST_FRANCHISE = "franchiseGM_lastFranchise";
@@ -97,11 +97,16 @@ async function initStatsPage() {
 }
 
 function populateHeader(save, leagueState) {
-  document.getElementById("stats-header-name").textContent = getTeamDisplayName(save.teamCode);
-  document.getElementById("stats-header-subline").textContent = `Season ${save.seasonYear} • League Stats & Leaders`;
-  document.getElementById("stats-record-value").textContent =
-    (leagueState.statsSummary && leagueState.statsSummary.record) || save.record || "0–0";
+    const teamName = getTeamDisplayName(save.teamCode);
+    const recordFromSchedule = recomputeRecordFromSchedule(leagueState, save.teamCode);
+    const record = recordFromSchedule || save.record || "0–0";
+  
+    document.getElementById("stats-header-name").textContent = teamName;
+    document.getElementById("stats-header-subline").textContent =
+      `Season ${save.seasonYear} • League Stats & Leaders`;
+    document.getElementById("stats-record-value").textContent = record;
 }
+  
 
 function setupNavigation(save) {
   const btnBack = document.getElementById("btn-stats-back");
