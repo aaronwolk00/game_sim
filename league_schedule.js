@@ -57,7 +57,7 @@ export const REGULAR_SEASON_WEEKS = 18;
 export const GAMES_PER_TEAM = 17;
 export const SCHEDULE_SCHEMA_VERSION = 2;
 // Set true while developing to log detailed schedule summaries to console
-const SCHEDULE_DEBUG = false
+const SCHEDULE_DEBUG = true
 
 
 // -----------------------------------------------------------------------------
