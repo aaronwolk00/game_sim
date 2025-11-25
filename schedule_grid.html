@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>League Schedule Grid</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    body {
+      background: #020617;
+      color: #e5e7eb;
+      font-family: system-ui, sans-serif;
+      margin: 0;
+      padding: 1rem;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      font-size: 0.85rem;
+    }
+    thead th {
+      position: sticky;
+      top: 0;
+      background: #0f172a;
+      border-bottom: 2px solid #22c55e;
+      padding: 0.3rem 0.5rem;
+      text-align: center;
+      z-index: 1;
+    }
+    tbody td, th {
+      border: 1px solid #1e293b;
+      padding: 0.25rem 0.4rem;
+      text-align: center;
+      white-space: nowrap;
+    }
+    tbody tr:nth-child(even) { background: rgba(255,255,255,0.03); }
+    .bye { color: #9ca3af; font-style: italic; }
+    .home { color: #22c55e; }
+    .away { color: #60a5fa; }
+  </style>
+</head>
+<body>
+  <h2>Full Season Schedule Grid</h2>
+  <div id="gridContainer"></div>
+
+  <script type="module" src="./schedule_grid.js"></script>
+</body>
+</html>
