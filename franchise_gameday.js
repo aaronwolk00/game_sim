@@ -702,6 +702,59 @@ function runFranchiseEngineGame(
   });
 }
 
+function isKeyPlaysOnlyEnabled() {
+    const cb = getEl("gameday-key-plays-only");
+    return !!cb && !!cb.checked;
+}
+
+function isKeyPlay(p) {
+    if (!p) return false;
+  
+    const desc = (p.text || p.description || p.desc || "").toLowerCase();
+    const tags = (p.tags || []).map((t) => String(t).toUpperCase());
+  
+    // Any scoring play
+    if (
+      p.isScoring ||
+      tags.includes("TD") ||
+      tags.includes("FG") ||
+      tags.includes("SAFETY")
+    ) {
+      return true;
+    }
+  
+    // Turnovers
+    if (
+      desc.includes("interception") ||
+      desc.includes("picked") ||
+      tags.includes("INT")
+    ) {
+      return true;
+    }
+    if (desc.includes("fumble") || tags.includes("FUMBLE")) {
+      return true;
+    }
+  
+    // Sacks
+    if (desc.includes("sack") || tags.includes("SACK")) {
+      return true;
+    }
+  
+    // 4th-down situations
+    if (
+      desc.includes("4th and") ||
+      desc.includes("fourth and") ||
+      (typeof p.downAndDistance === "string" &&
+        p.downAndDistance.toLowerCase().startsWith("4th and"))
+    ) {
+      return true;
+    }
+  
+    return false;
+  }
+  
+  
+
 // -----------------------------------------------------------------------------
 // Play-by-play mode controls
 // -----------------------------------------------------------------------------
@@ -726,7 +779,7 @@ function setSimSpeedFromControl(value) {
     shouldSkip: false
   };
 
-async function runPlayByPlayGame(save, opponentCode, isHome, weekIndex0) {
+  async function runPlayByPlayGame(save, opponentCode, isHome, weekIndex0) {
     await ensureLeagueLoaded();
   
     const payload = await runFranchiseEngineGame(
@@ -748,7 +801,10 @@ async function runPlayByPlayGame(save, opponentCode, isHome, weekIndex0) {
       return payload;
     }
   
-    logEl.innerHTML = "";
+    if (logEl) {
+      logEl.innerHTML = "";
+    }
+  
     if (summaryEl) {
       summaryEl.textContent = `Playing live simulation (${plays.length} plays)…`;
     }
@@ -768,47 +824,107 @@ async function runPlayByPlayGame(save, opponentCode, isHome, weekIndex0) {
     setText("gameday-home-score", String(homeScore));
     setText("gameday-away-score", String(awayScore));
   
-    const homeTeamName = getEl("gameday-home-name")?.textContent || "Home";
-    const awayTeamName = getEl("gameday-away-name")?.textContent || "Away";
-    const franchiseIsHome = isHome;
+    const homeTeamName =
+      getEl("gameday-home-name")?.textContent ||
+      payload.homeTeam.displayName ||
+      "Home";
+    const awayTeamName =
+      getEl("gameday-away-name")?.textContent ||
+      payload.awayTeam.displayName ||
+      "Away";
   
+    const franchiseIsHome = isHome;
     const delayMs = simSpeed;
   
-    // Helper: detect scoring and adjust scoreboard
+    // Helper: build "Q1 • 14:58 • 1st & 10 at OWN 35" prefix
+    const buildPlayPrefix = (p) => {
+      const q = p.quarter ?? p.qtr ?? "";
+      let clockStr = p.clock ?? p.gameClock ?? "";
+      if (!clockStr && Number.isFinite(p.clockSec)) {
+        clockStr = formatClockFromSeconds(p.clockSec);
+      }
+      const downDist = p.downAndDistance || "";
+  
+      const parts = [];
+      if (q) parts.push(`Q${q}`);
+      if (clockStr) parts.push(clockStr);
+      if (downDist) parts.push(downDist);
+  
+      return parts.join(" • ");
+    };
+  
+    // Helper: update the scoreboard text underneath scores
+    const updateMetaFromPlay = (p) => {
+      const prefix = buildPlayPrefix(p);
+      if (prefix) {
+        setText("gameday-score-meta", prefix);
+      }
+    };
+  
+    // Helper: detect scoring plays, including TD + XP / 2-pt
     const applyScoreFromPlay = (p) => {
-      const desc = (p.text || p.description || p.desc || "").toLowerCase();
-      const tags = (p.tags || []).map((t) => String(t).toUpperCase());
-      const scoringKeywords = ["touchdown", "td", "field goal", "fg", "safety"];
+      const rawDesc = p.text || p.description || p.desc || "";
+      const desc = rawDesc.toLowerCase();
+      const tagsUpper = (p.tags || []).map((t) => String(t).toUpperCase());
+  
+      const hasTD = desc.includes("touchdown") || tagsUpper.includes("TD");
+      const hasFG = desc.includes("field goal") || tagsUpper.includes("FG");
+      const hasSafety =
+        desc.includes("safety") || tagsUpper.includes("SAFETY");
+      const hasTwoPt =
+        desc.includes("two-point") ||
+        desc.includes("two point") ||
+        tagsUpper.includes("2PT") ||
+        tagsUpper.includes("TWO-POINT");
+      const hasXP =
+        desc.includes("extra point") ||
+        desc.includes("xp") ||
+        tagsUpper.includes("XP");
+  
       const isScore =
-        scoringKeywords.some((kw) => desc.includes(kw)) || p.isScoring;
+        p.isScoring || hasTD || hasFG || hasSafety || hasTwoPt || hasXP;
   
       if (!isScore) return;
   
+      // Sum up all scoring in this play (TD + XP on same line → 7)
       let pts = 0;
-      if (desc.includes("touchdown") || tags.includes("TD")) pts = 6;
-      else if (desc.includes("field goal") || tags.includes("FG")) pts = 3;
-      else if (desc.includes("safety")) pts = 2;
+      if (hasTD) pts += 6;
+      if (hasFG) pts += 3;
+      if (hasSafety) pts += 2;
   
+      // Two-point vs extra point:
+      if (hasTwoPt) {
+        pts += 2;
+      } else if (hasXP) {
+        pts += 1;
+      }
+  
+      if (!pts) return;
+  
+      // Who scored?
+      const descLower = desc;
       const homeNameLower = homeTeamName.toLowerCase();
       const awayNameLower = awayTeamName.toLowerCase();
   
-      let scoredByUser;
-      if (desc.includes(homeNameLower)) {
-        scoredByUser = franchiseIsHome;
-      } else if (desc.includes(awayNameLower)) {
-        scoredByUser = !franchiseIsHome;
+      let scoredByHome = null;
+  
+      // Prefer explicit team name matches
+      if (descLower.includes(homeNameLower)) {
+        scoredByHome = true;
+      } else if (descLower.includes(awayNameLower)) {
+        scoredByHome = false;
+      } else if (p.offense === "home" || p.offense === "away") {
+        // If the engine exposes an offense side, use that
+        scoredByHome = p.offense === "home";
       } else {
-        // Fallback guess: assume drive log is from the offense, which is
-        // likely the user team if nothing else is clear
-        scoredByUser = franchiseIsHome;
+        // Fallback guess – assume franchise is the scoring side when unclear
+        scoredByHome = franchiseIsHome;
       }
   
-      if (scoredByUser) {
-        if (franchiseIsHome) homeScore += pts;
-        else awayScore += pts;
+      if (scoredByHome) {
+        homeScore += pts;
       } else {
-        if (franchiseIsHome) awayScore += pts;
-        else homeScore += pts;
+        awayScore += pts;
       }
   
       setText("gameday-home-score", String(homeScore));
@@ -822,11 +938,28 @@ async function runPlayByPlayGame(save, opponentCode, isHome, weekIndex0) {
         for (let j = i; j < plays.length; j++) {
           const p = plays[j];
           applyScoreFromPlay(p);
+          updateMetaFromPlay(p);
   
+          if (!logEl) continue;
+  
+          const prefix = buildPlayPrefix(p);
+          const text =
+            p.text || p.description || p.desc || "[play]";
           const div = document.createElement("div");
           div.className = "gameday-log-line";
-          div.textContent =
-            p.text || p.description || p.desc || "[play]";
+          div.textContent = prefix ? `${prefix} – ${text}` : text;
+  
+          const tagsUpper = (p.tags || []).map((t) =>
+            String(t).toUpperCase()
+          );
+          if (
+            p.isScoring ||
+            tagsUpper.includes("TD") ||
+            tagsUpper.includes("FG")
+          ) {
+            div.classList.add("scoring");
+          }
+  
           logEl.appendChild(div);
         }
         break;
@@ -839,27 +972,31 @@ async function runPlayByPlayGame(save, opponentCode, isHome, weekIndex0) {
   
       const p = plays[i];
       applyScoreFromPlay(p);
+      updateMetaFromPlay(p);
   
-      const div = document.createElement("div");
-      div.className = "gameday-log-line new-play";
+      if (logEl) {
+        const prefix = buildPlayPrefix(p);
+        const text =
+          p.text || p.description || p.desc || "[play]";
   
-      const q = p.quarter ?? p.qtr ?? "";
-      const clock = p.clock ?? p.gameClock ?? "";
-      const prefix = [q ? `Q${q}` : "", clock].filter(Boolean).join(" • ");
+        const div = document.createElement("div");
+        div.className = "gameday-log-line new-play";
+        div.textContent = prefix ? `${prefix} – ${text}` : text;
   
-      setText("gameday-score-meta", `Q${q || "?"} • ${clock || ""}`);
+        const tagsUpper = (p.tags || []).map((t) =>
+          String(t).toUpperCase()
+        );
+        if (
+          p.isScoring ||
+          tagsUpper.includes("TD") ||
+          tagsUpper.includes("FG")
+        ) {
+          div.classList.add("scoring");
+        }
   
-      div.textContent = prefix
-        ? `${prefix} — ${p.text || p.description || p.desc || "[play]"}`
-        : p.text || p.description || p.desc || "[play]";
-  
-      const tagsUpper = (p.tags || []).map((t) => String(t).toUpperCase());
-      if (p.isScoring || tagsUpper.includes("TD") || tagsUpper.includes("FG")) {
-        div.classList.add("scoring");
+        logEl.appendChild(div);
+        logEl.scrollTo({ top: logEl.scrollHeight, behavior: "smooth" });
       }
-  
-      logEl.appendChild(div);
-      logEl.scrollTo({ top: logEl.scrollHeight, behavior: "smooth" });
   
       // eslint-disable-next-line no-await-in-loop
       await new Promise((r) => setTimeout(r, delayMs));
@@ -882,7 +1019,7 @@ async function runPlayByPlayGame(save, opponentCode, isHome, weekIndex0) {
     setText("gameday-home-score", String(finalScores.home));
     setText("gameday-away-score", String(finalScores.away));
   
-    // Render full stats / box
+    // Render full stats / box (still final-only for now)
     if (payload.result) {
       renderDriveSummary(payload.result);
       renderTeamStats(payload.result);
@@ -922,6 +1059,8 @@ async function runPlayByPlayGame(save, opponentCode, isHome, weekIndex0) {
   
     return payload;
   }
+  
+  
   
 
 /**
@@ -1108,12 +1247,12 @@ async function runPlayByPlayGame(save, opponentCode, isHome, weekIndex0) {
     saveLastFranchise(save);
     saveLeagueState(leagueState);
   
-    // 4) Render "other finals" panel if the container exists
+    // 4) Render "other finals" panel, highlighting your team
     const weekLabel =
       typeof weekIndex0 === "number"
         ? weekIndex0 + 1
         : (save.weekIndex || 0) + 1;
-    renderOtherWeekResults(otherResults, weekLabel);
+    renderOtherWeekResults(otherResults, weekLabel, save.teamCode);
   
     return {
       userGame: {
@@ -1124,6 +1263,7 @@ async function runPlayByPlayGame(save, opponentCode, isHome, weekIndex0) {
       otherResults
     };
   }
+  
   
 
 async function autoSimOtherWeekGames(leagueState, save, weekIndex0, baseSeed) {
@@ -1287,149 +1427,185 @@ function renderPregameHeader(save, opponentCode, isFranchiseHome, weekIndex0) {
 /**
  * Render other week results in a compact list if #gameday-other-results exists.
  */
-function renderOtherWeekResults(otherResults, seasonWeekLabel) {
-  const container = getEl("gameday-other-results");
-  if (!container) return;
-
-  container.innerHTML = "";
-
-  if (!otherResults || !otherResults.length) {
-    const p = document.createElement("div");
-    p.textContent = "No other league games were simulated this week.";
-    container.appendChild(p);
-    return;
+ function renderOtherWeekResults(otherResults, seasonWeekLabel, userTeamCode) {
+    const container = getEl("gameday-other-results");
+    if (!container) return;
+  
+    container.innerHTML = "";
+  
+    if (!otherResults || !otherResults.length) {
+      const p = document.createElement("div");
+      p.textContent = "No other league games were simulated this week.";
+      container.appendChild(p);
+      return;
+    }
+  
+    const header = document.createElement("div");
+    header.className = "gameday-other-header";
+    header.textContent = `Week ${seasonWeekLabel} – other finals`;
+    container.appendChild(header);
+  
+    const userCodeUpper = (userTeamCode || "").toUpperCase();
+  
+    otherResults.forEach((g) => {
+      const row = document.createElement("div");
+      row.className = "gameday-other-row";
+  
+      const homeName = getTeamDisplayNameFromCode(g.homeCode);
+      const awayName = getTeamDisplayNameFromCode(g.awayCode);
+  
+      const homeScore = safeNumber(g.scores.home, 0);
+      const awayScore = safeNumber(g.scores.away, 0);
+  
+      row.textContent = `${awayName} ${awayScore} @ ${homeName} ${homeScore}`;
+  
+      // Highlight any game involving the user's franchise
+      const involvesUser =
+        userCodeUpper &&
+        (String(g.homeCode || "").toUpperCase() === userCodeUpper ||
+          String(g.awayCode || "").toUpperCase() === userCodeUpper);
+  
+      if (involvesUser) {
+        row.classList.add("user-team-game");
+        // Fallback visual emphasis if CSS class is not styled yet
+        row.style.fontWeight = "600";
+      }
+  
+      container.appendChild(row);
+    });
   }
-
-  const header = document.createElement("div");
-  header.className = "gameday-other-header";
-  header.textContent = `Week ${seasonWeekLabel} – other finals`;
-  container.appendChild(header);
-
-  otherResults.forEach((g) => {
-    const row = document.createElement("div");
-    row.className = "gameday-other-row";
-
-    const homeName = getTeamDisplayNameFromCode(g.homeCode);
-    const awayName = getTeamDisplayNameFromCode(g.awayCode);
-
-    const homeScore = safeNumber(g.scores.home, 0);
-    const awayScore = safeNumber(g.scores.away, 0);
-
-    row.textContent = `${awayName} ${awayScore} @ ${homeName} ${homeScore}`;
-    container.appendChild(row);
-  });
-}
+  
 
 /**
  * Render postgame result + play log for the franchise game.
  */
-function renderPostgameResult(
-  result,
-  homeTeam,
-  awayTeam,
-  homeCode,
-  awayCode,
-  save,
-  opponentCode,
-  isFranchiseHome,
-  weekIndex0,
-) {
-  const homeId = homeTeam.teamId || homeTeam.id;
-  const awayId = awayTeam.teamId || awayTeam.id;
-
-  const { home, away, quarter, clock } = getScoreFromResult(
+ function renderPostgameResult(
     result,
-    homeId,
-    awayId
-  );
-
-  const userCode = save.teamCode;
-  const userIsHome = isFranchiseHome;
-  const userScore = userIsHome ? home : away;
-  const oppScore = userIsHome ? away : home;
-
-  // Scoreboard numbers
-  setText("gameday-home-score", String(home));
-  setText("gameday-away-score", String(away));
-
-  const teamName = getTeamNameFromSave(save);
-  const oppName = getTeamDisplayNameFromCode(opponentCode);
-  const weekLabel =
-    typeof weekIndex0 === "number" ? weekIndex0 + 1 : (save.weekIndex || 0);
-
-  const isFinal =
-    quarter === "Final" || quarter === 4 || quarter === "4";
-  const statusLabel = isFinal ? "Final" : `Q${quarter} ${clock || ""}`.trim();
-
-  const metaEl = getEl("gameday-score-meta");
-  if (metaEl) {
-    metaEl.textContent = `${statusLabel} • Week ${weekLabel}`;
-  }
-
-  const isWin = userScore > oppScore;
-  const summaryEl = getEl("gameday-summary-line");
-  if (summaryEl) {
-    const resWord = isWin ? "win" : userScore === oppScore ? "tie" : "loss";
-    const scoreLine = userIsHome
-      ? `${teamName} ${userScore} – ${oppName} ${oppScore}`
-      : `${oppName} ${oppScore} – ${teamName} ${userScore}`;
-
-    const recordText = save.record || "0-0";
-    summaryEl.textContent = `${statusLabel}: ${scoreLine} (${resWord}). Record: ${recordText}.`;
-  }
-
-  // Play log – scoring / key plays bolded
-  const logEl = getEl("gameday-play-log");
-  if (logEl) {
-    logEl.innerHTML = "";
-    const plays = getPlayLogFromResult(result);
-    if (!plays.length) {
-      const p = document.createElement("div");
-      p.textContent = "No play-by-play log available from engine.";
-      logEl.appendChild(p);
-    } else {
-      plays.forEach((p, idx) => {
-        if (idx > 199) return; // keep from getting huge
-        const div = document.createElement("div");
-        div.className = "gameday-log-line";
-
-        const q = p.quarter ?? p.qtr ?? "";
-        const clockStr =
-          p.clock ??
-          p.gameClock ??
-          (Number.isFinite(p.clockSec)
-            ? formatClockFromSeconds(p.clockSec)
-            : "");
-
-        const tags = (p.tags || []).map((t) => String(t).toUpperCase());
-        const isScoring =
-          p.isScoring || tags.includes("TD") || tags.includes("FG");
-
-        const prefixParts = [];
-        if (q) prefixParts.push(`Q${q}`);
-        if (clockStr) prefixParts.push(clockStr);
-        if (p.downAndDistance) prefixParts.push(p.downAndDistance);
-        const prefix = prefixParts.join(" • ");
-
-        div.textContent = `${prefix ? prefix + " – " : ""}${
-          p.text || p.description || p.desc || "[play]"
-        }`;
-
-        if (isScoring) {
-          div.style.fontWeight = "600";
+    homeTeam,
+    awayTeam,
+    homeCode,
+    awayCode,
+    save,
+    opponentCode,
+    isFranchiseHome,
+    weekIndex0
+  ) {
+    const homeId = homeTeam.teamId || homeTeam.id;
+    const awayId = awayTeam.teamId || awayTeam.id;
+  
+    const { home, away, quarter, clock } = getScoreFromResult(
+      result,
+      homeId,
+      awayId
+    );
+  
+    const userCode = save.teamCode;
+    const userIsHome = isFranchiseHome;
+    const userScore = userIsHome ? home : away;
+    const oppScore = userIsHome ? away : home;
+  
+    // Scoreboard numbers
+    setText("gameday-home-score", String(home));
+    setText("gameday-away-score", String(away));
+  
+    const teamName = getTeamNameFromSave(save);
+    const oppName = getTeamDisplayNameFromCode(opponentCode);
+    const weekLabel =
+      typeof weekIndex0 === "number" ? weekIndex0 + 1 : (save.weekIndex || 0);
+  
+    const isFinal =
+      quarter === "Final" || quarter === 4 || quarter === "4";
+    const statusLabel = isFinal ? "Final" : `Q${quarter} ${clock || ""}`.trim();
+  
+    const metaEl = getEl("gameday-score-meta");
+    if (metaEl) {
+      metaEl.textContent = `${statusLabel} • Week ${weekLabel}`;
+    }
+  
+    const isWin = userScore > oppScore;
+    const summaryEl = getEl("gameday-summary-line");
+    if (summaryEl) {
+      const resWord = isWin ? "win" : userScore === oppScore ? "tie" : "loss";
+      const scoreLine = userIsHome
+        ? `${teamName} ${userScore} – ${oppName} ${oppScore}`
+        : `${oppName} ${oppScore} – ${teamName} ${userScore}`;
+  
+      const recordText = save.record || "0-0";
+      summaryEl.textContent = `${statusLabel}: ${scoreLine} (${resWord}). Record: ${recordText}.`;
+    }
+  
+    // Play log – with optional "key plays only" filter
+    const logEl = getEl("gameday-play-log");
+    if (logEl) {
+      logEl.innerHTML = "";
+      const plays = getPlayLogFromResult(result);
+      if (!plays.length) {
+        const p = document.createElement("div");
+        p.textContent = "No play-by-play log available from engine.";
+        logEl.appendChild(p);
+      } else {
+        const keyOnly = isKeyPlaysOnlyEnabled();
+        let appended = 0;
+  
+        plays.forEach((p, idx) => {
+          if (idx > 199) return; // cap log length
+  
+          if (keyOnly && !isKeyPlay(p)) {
+            return;
+          }
+  
+          const div = document.createElement("div");
+          div.className = "gameday-log-line";
+  
+          const q = p.quarter ?? p.qtr ?? "";
+          const clockStr =
+            p.clock ??
+            p.gameClock ??
+            (Number.isFinite(p.clockSec)
+              ? formatClockFromSeconds(p.clockSec)
+              : "");
+  
+          const tags = (p.tags || []).map((t) =>
+            String(t).toUpperCase()
+          );
+          const isScoring =
+            p.isScoring || tags.includes("TD") || tags.includes("FG");
+  
+          const prefixParts = [];
+          if (q) prefixParts.push(`Q${q}`);
+          if (clockStr) prefixParts.push(clockStr);
+          if (p.downAndDistance) prefixParts.push(p.downAndDistance);
+          const prefix = prefixParts.join(" • ");
+  
+          div.textContent = `${prefix ? prefix + " – " : ""}${
+            p.text || p.description || p.desc || "[play]"
+          }`;
+  
+          if (isScoring) {
+            div.style.fontWeight = "600";
+          }
+  
+          logEl.appendChild(div);
+          appended++;
+        });
+  
+        if (appended === 0) {
+          const msg = document.createElement("div");
+          msg.textContent = isKeyPlaysOnlyEnabled()
+            ? "No key plays to display. Turn off 'Key plays only' to see the full log."
+            : "No play-by-play log available from engine.";
+          logEl.appendChild(msg);
         }
-
-        logEl.appendChild(div);
-      });
+      }
+    }
+  
+    if (result) {
+      renderDriveSummary(result);
+      renderTeamStats(result);
+      renderPlayerBox(result);
     }
   }
-
-  if (result) {
-    renderDriveSummary(result);
-    renderTeamStats(result);
-    renderPlayerBox(result);
-  }
-}
+  
 
 // -----------------------------------------------------------------------------
 // Rendering – drive summary, team stats, player box
