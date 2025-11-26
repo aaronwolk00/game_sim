@@ -25,11 +25,20 @@
 // Imports (from league_schedule.js)
 // ---------------------------------------------------------------------------
 
+// OLD
+// import {
+//   getTeamDisplayName,
+//   ensureTeamSchedule,
+//   ensureAllTeamSchedules
+// } from "./league_schedule.js";
+
+// NEW
 import {
   getTeamDisplayName,
   ensureTeamSchedule,
   ensureAllTeamSchedules
-} from "./league_schedule.js";
+} from "./league_schedule_csv.js";
+
 
 // ---------------------------------------------------------------------------
 // Shared types (documentation only)
