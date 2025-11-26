@@ -60,6 +60,144 @@ export const SCHEDULE_SCHEMA_VERSION = 2;
 const SCHEDULE_DEBUG = true;
 
 // -----------------------------------------------------------------------------
+// CSV-based schedule loader (temporary real NFL schedule source)
+// -----------------------------------------------------------------------------
+const CSV_URL = "https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/schedule.csv";
+
+let CSV_SCHEDULE_CACHE = null; // will hold parsed data by season
+let CSV_SEASON_LIST = [];
+
+/**
+ * Lightweight CSV parser tailored for the NFL schedule format.
+ */
+async function loadScheduleCsv() {
+  if (CSV_SCHEDULE_CACHE) return CSV_SCHEDULE_CACHE;
+
+  try {
+    const res = await fetch(CSV_URL);
+    const text = await res.text();
+
+    const lines = text.trim().split(/\r?\n/);
+    const headers = lines[0].split(",");
+
+    const rows = [];
+    for (let i = 1; i < lines.length; i++) {
+      const cols = lines[i].split(",");
+      const row = {};
+      headers.forEach((h, idx) => (row[h] = cols[idx]));
+      rows.push(row);
+    }
+
+    const bySeason = {};
+    for (const r of rows) {
+      if (r.season_type !== "REG") continue;
+      const s = Number(r.season);
+      if (!bySeason[s]) bySeason[s] = [];
+      bySeason[s].push(r);
+    }
+
+    CSV_SEASON_LIST = Object.keys(bySeason)
+      .map((n) => Number(n))
+      .sort((a, b) => a - b);
+    CSV_SCHEDULE_CACHE = bySeason;
+    console.log("[league_schedule] Loaded CSV seasons:", CSV_SEASON_LIST);
+    return bySeason;
+  } catch (err) {
+    console.error("[league_schedule] Failed to load schedule CSV:", err);
+    return {};
+  }
+}
+
+/**
+ * Get the nearest valid CSV season to use for the given seasonYear.
+ */
+function resolveCsvSeason(seasonYear) {
+  if (!CSV_SEASON_LIST.length) return 2016;
+  if (CSV_SEASON_LIST.includes(seasonYear)) return seasonYear;
+  const min = CSV_SEASON_LIST[0];
+  const max = CSV_SEASON_LIST[CSV_SEASON_LIST.length - 1];
+  if (seasonYear < min) return min;
+  if (seasonYear > max) return max;
+  return CSV_SEASON_LIST.reduce((a, b) =>
+    Math.abs(b - seasonYear) < Math.abs(a - seasonYear) ? b : a
+  );
+}
+
+/**
+ * Build a LeagueSchedule from the CSV for a specific season.
+ */
+function buildScheduleFromCsv(rows, seasonYear) {
+  /** @type {Record<number, LeagueGame[]>} */
+  const byWeek = {};
+  /** @type {Record<string, TeamGame[]>} */
+  const byTeam = {};
+
+  for (const t of getAllTeamCodes()) byTeam[t] = [];
+
+  for (const r of rows) {
+    const week = Number(r.week);
+    const home = r.home_away === "H" ? r.team : r.opp;
+    const away = r.home_away === "A" ? r.team : r.opp;
+
+    // Ensure we only add each matchup once
+    if (!byWeek[week]) byWeek[week] = [];
+    const already = byWeek[week].some(
+      (g) =>
+        (g.homeTeam === home && g.awayTeam === away) ||
+        (g.homeTeam === away && g.awayTeam === home)
+    );
+    if (already) continue;
+
+    const game = {
+      week,
+      homeTeam: home,
+      awayTeam: away,
+      type: "nonconference",
+      kickoffIso: `${r.date}T18:00:00Z`,
+      status: "scheduled",
+      homeScore: null,
+      awayScore: null,
+    };
+
+    byWeek[week].push(game);
+
+    // Populate team-level
+    for (const [team, opp, isHome] of [
+      [home, away, true],
+      [away, home, false],
+    ]) {
+      byTeam[team].push({
+        index: 0,
+        seasonWeek: week,
+        teamCode: team,
+        opponentCode: opp,
+        isHome,
+        type: "nonconference",
+        kickoffIso: game.kickoffIso,
+        status: "scheduled",
+        teamScore: null,
+        opponentScore: null,
+      });
+    }
+  }
+
+  // Sort and index
+  for (const t of Object.keys(byTeam)) {
+    byTeam[t].sort((a, b) => a.seasonWeek - b.seasonWeek);
+    byTeam[t].forEach((g, i) => (g.index = i));
+  }
+
+  return {
+    seasonYear,
+    schemaVersion: SCHEDULE_SCHEMA_VERSION,
+    byWeek,
+    byTeam,
+    source: "csv",
+  };
+}
+
+
+// -----------------------------------------------------------------------------
 // Team metadata
 // -----------------------------------------------------------------------------
 
@@ -861,24 +999,39 @@ function assignTimesToWeeks(weeks, seasonYear) {
  * @param {number} seasonYear
  * @returns {LeagueSchedule}
  */
-export function ensureLeagueScheduleObject(leagueState, seasonYear) {
-  if (!leagueState) {
-    throw new Error("leagueState is required for ensureLeagueScheduleObject");
-  }
-
-  const existing = leagueState.schedule;
-  if (
-    !existing ||
-    existing.seasonYear !== seasonYear ||
-    existing.schemaVersion !== SCHEDULE_SCHEMA_VERSION
-  ) {
+ export async function ensureLeagueScheduleObject(leagueState, seasonYear) {
+    if (!leagueState) {
+      throw new Error("leagueState is required for ensureLeagueScheduleObject");
+    }
+  
+    const existing = leagueState.schedule;
+    if (
+      existing &&
+      existing.seasonYear === seasonYear &&
+      existing.schemaVersion === SCHEDULE_SCHEMA_VERSION
+    ) {
+      return existing;
+    }
+  
+    // --- Try CSV first ---
+    const csvData = await loadScheduleCsv();
+    const csvSeason = resolveCsvSeason(seasonYear);
+    const rows = csvData[csvSeason];
+  
+    if (rows && rows.length) {
+      console.log(`[league_schedule] Using CSV schedule for season ${csvSeason}`);
+      const schedule = buildScheduleFromCsv(rows, seasonYear);
+      leagueState.schedule = schedule;
+      return schedule;
+    }
+  
+    // --- Fallback to generator ---
+    console.warn("[league_schedule] CSV unavailable – falling back to generator");
     const fresh = generatePerfectLeagueSchedule(seasonYear);
     leagueState.schedule = fresh;
     return fresh;
   }
-
-  return existing;
-}
+  
 
 /**
  * Return the per-team schedule (TeamGame[]) for a given team & season.
@@ -888,8 +1041,8 @@ export function ensureLeagueScheduleObject(leagueState, seasonYear) {
  * @param {number} seasonYear
  * @returns {TeamGame[]}
  */
-export function ensureTeamSchedule(leagueState, teamCode, seasonYear) {
-  const schedule = ensureLeagueScheduleObject(leagueState, seasonYear);
+export async function ensureTeamSchedule(leagueState, teamCode, seasonYear) {
+  const schedule = await ensureLeagueScheduleObject(leagueState, seasonYear);
   if (!schedule.byTeam[teamCode]) {
     schedule.byTeam[teamCode] = [];
   }
@@ -903,8 +1056,8 @@ export function ensureTeamSchedule(leagueState, teamCode, seasonYear) {
  * @param {number} seasonYear
  * @returns {LeagueSchedule}
  */
-export function ensureAllTeamSchedules(leagueState, seasonYear) {
-  const schedule = ensureLeagueScheduleObject(leagueState, seasonYear);
+export async function ensureAllTeamSchedules(leagueState, seasonYear) {
+  const schedule = await ensureLeagueScheduleObject(leagueState, seasonYear);
   return schedule;
 }
 

@@ -25,20 +25,11 @@
 // Imports (from league_schedule.js)
 // ---------------------------------------------------------------------------
 
-// OLD
-// import {
-//   getTeamDisplayName,
-//   ensureTeamSchedule,
-//   ensureAllTeamSchedules
-// } from "./league_schedule.js";
-
-// NEW
 import {
   getTeamDisplayName,
   ensureTeamSchedule,
   ensureAllTeamSchedules
-} from "./league_schedule_csv.js";
-
+} from "./league_schedule.js";
 
 // ---------------------------------------------------------------------------
 // Shared types (documentation only)
@@ -667,7 +658,7 @@ function renderNoFranchiseScheduleState() {
 // Init
 // ---------------------------------------------------------------------------
 
-function initSchedulePage() {
+async function initSchedulePage() {
   const save = loadLastFranchise();
   if (!save) {
     renderNoFranchiseScheduleState();
@@ -686,8 +677,8 @@ function initSchedulePage() {
 
   // Make sure the league has schedules for all teams this season,
   // then grab this franchise's schedule.
-  ensureAllTeamSchedules(leagueState, save.seasonYear);
-  let teamSchedule = ensureTeamSchedule(
+  await ensureAllTeamSchedules(leagueState, save.seasonYear);
+  let teamSchedule = await ensureTeamSchedule(
     leagueState,
     save.teamCode,
     save.seasonYear
