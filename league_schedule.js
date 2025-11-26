@@ -1,7 +1,7 @@
 // league_schedule.js
 // -----------------------------------------------------------------------------
 // Shared schedule engine (no DOM, no localStorage).
-// Used by: schedule.js, franchise_gameday.js, franchise.js (season rollover).
+// Used by: schedule.js, schedule_gameday.js, schedule_grid.js, franchise.js.
 //
 // League-wide 17-game / 18-week schedule:
 //
@@ -13,6 +13,7 @@
 // - Realistic dates/times with TNF / SNF / MNF + Sunday windows.
 // - London / early Sunday game occasionally in Weeks 5–8.
 // -----------------------------------------------------------------------------
+
 
 /**
  * @typedef {Object} TeamGame
@@ -49,152 +50,19 @@
  * @property {Object.<number, LeagueGame[]>} byWeek
  */
 
+
 // -----------------------------------------------------------------------------
 // Constants
 // -----------------------------------------------------------------------------
 
 export const REGULAR_SEASON_WEEKS = 18;
 export const GAMES_PER_TEAM = 17;
-export const SCHEDULE_SCHEMA_VERSION = 2;
+
+// Bump this any time the schedule structure / algorithm changes
+export const SCHEDULE_SCHEMA_VERSION = 4;
+
 // Set true while developing to log detailed schedule summaries to console
-const SCHEDULE_DEBUG = true;
-
-// -----------------------------------------------------------------------------
-// CSV-based schedule loader (temporary real NFL schedule source)
-// -----------------------------------------------------------------------------
-const CSV_URL = "https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/schedule.csv";
-
-let CSV_SCHEDULE_CACHE = null; // will hold parsed data by season
-let CSV_SEASON_LIST = [];
-
-/**
- * Lightweight CSV parser tailored for the NFL schedule format.
- */
-async function loadScheduleCsv() {
-  if (CSV_SCHEDULE_CACHE) return CSV_SCHEDULE_CACHE;
-
-  try {
-    const res = await fetch(CSV_URL);
-    const text = await res.text();
-
-    const lines = text.trim().split(/\r?\n/);
-    const headers = lines[0].split(",");
-
-    const rows = [];
-    for (let i = 1; i < lines.length; i++) {
-      const cols = lines[i].split(",");
-      const row = {};
-      headers.forEach((h, idx) => (row[h] = cols[idx]));
-      rows.push(row);
-    }
-
-    const bySeason = {};
-    for (const r of rows) {
-      if (r.season_type !== "REG") continue;
-      const s = Number(r.season);
-      if (!bySeason[s]) bySeason[s] = [];
-      bySeason[s].push(r);
-    }
-
-    CSV_SEASON_LIST = Object.keys(bySeason)
-      .map((n) => Number(n))
-      .sort((a, b) => a - b);
-    CSV_SCHEDULE_CACHE = bySeason;
-    console.log("[league_schedule] Loaded CSV seasons:", CSV_SEASON_LIST);
-    return bySeason;
-  } catch (err) {
-    console.error("[league_schedule] Failed to load schedule CSV:", err);
-    return {};
-  }
-}
-
-/**
- * Get the nearest valid CSV season to use for the given seasonYear.
- */
-function resolveCsvSeason(seasonYear) {
-  if (!CSV_SEASON_LIST.length) return 2016;
-  if (CSV_SEASON_LIST.includes(seasonYear)) return seasonYear;
-  const min = CSV_SEASON_LIST[0];
-  const max = CSV_SEASON_LIST[CSV_SEASON_LIST.length - 1];
-  if (seasonYear < min) return min;
-  if (seasonYear > max) return max;
-  return CSV_SEASON_LIST.reduce((a, b) =>
-    Math.abs(b - seasonYear) < Math.abs(a - seasonYear) ? b : a
-  );
-}
-
-/**
- * Build a LeagueSchedule from the CSV for a specific season.
- */
-function buildScheduleFromCsv(rows, seasonYear) {
-  /** @type {Record<number, LeagueGame[]>} */
-  const byWeek = {};
-  /** @type {Record<string, TeamGame[]>} */
-  const byTeam = {};
-
-  for (const t of getAllTeamCodes()) byTeam[t] = [];
-
-  for (const r of rows) {
-    const week = Number(r.week);
-    const home = r.home_away === "H" ? r.team : r.opp;
-    const away = r.home_away === "A" ? r.team : r.opp;
-
-    // Ensure we only add each matchup once
-    if (!byWeek[week]) byWeek[week] = [];
-    const already = byWeek[week].some(
-      (g) =>
-        (g.homeTeam === home && g.awayTeam === away) ||
-        (g.homeTeam === away && g.awayTeam === home)
-    );
-    if (already) continue;
-
-    const game = {
-      week,
-      homeTeam: home,
-      awayTeam: away,
-      type: "nonconference",
-      kickoffIso: `${r.date}T18:00:00Z`,
-      status: "scheduled",
-      homeScore: null,
-      awayScore: null,
-    };
-
-    byWeek[week].push(game);
-
-    // Populate team-level
-    for (const [team, opp, isHome] of [
-      [home, away, true],
-      [away, home, false],
-    ]) {
-      byTeam[team].push({
-        index: 0,
-        seasonWeek: week,
-        teamCode: team,
-        opponentCode: opp,
-        isHome,
-        type: "nonconference",
-        kickoffIso: game.kickoffIso,
-        status: "scheduled",
-        teamScore: null,
-        opponentScore: null,
-      });
-    }
-  }
-
-  // Sort and index
-  for (const t of Object.keys(byTeam)) {
-    byTeam[t].sort((a, b) => a.seasonWeek - b.seasonWeek);
-    byTeam[t].forEach((g, i) => (g.index = i));
-  }
-
-  return {
-    seasonYear,
-    schemaVersion: SCHEDULE_SCHEMA_VERSION,
-    byWeek,
-    byTeam,
-    source: "csv",
-  };
-}
+const SCHEDULE_DEBUG = false;
 
 
 // -----------------------------------------------------------------------------
@@ -235,7 +103,7 @@ export const TEAM_META = [
   // NFC North
   { teamCode: "CHI", city: "Chicago",      name: "Bears",       conference: "NFC", division: "North" },
   { teamCode: "DET", city: "Detroit",      name: "Lions",       conference: "NFC", division: "North" },
-  { teamCode: "GB",  city: "Green Bay",    name: "Packers",     conference: "NFC", division: "North" },
+  { teamCode: "GB",  teamCodeAlt: "GB",    city: "Green Bay",  name: "Packers",   conference: "NFC", division: "North" }, // teamCodeAlt is harmless; keep teamCode primary
   { teamCode: "MIN", city: "Minnesota",    name: "Vikings",     conference: "NFC", division: "North" },
 
   // NFC South
@@ -254,19 +122,12 @@ export const TEAM_META = [
 export const DIVISION_NAMES = ["East", "North", "South", "West"];
 
 // Intra-conference division pairs used for 4-game rotation and "extra" games.
-// Matches your Python INTRA_CONF_PAIRS.
 const INTRA_CONF_PAIRS = [
   ["East", "North"],
   ["South", "West"]
 ];
 
-// Cross-conference 4-game rotation mapping, per division, per conference.
-// This matches the Python logic:
-//   AFC East  vs NFC North
-//   AFC North vs NFC South
-//   AFC South vs NFC West
-//   AFC West  vs NFC East
-// And the inverse for NFC.
+// Cross-conference “helper” for other modules (not used directly by the builder)
 const CROSS_CONF_ROTATION = {
   AFC: {
     East: "North",
@@ -281,6 +142,7 @@ const CROSS_CONF_ROTATION = {
     West: "South"
   }
 };
+
 
 // -----------------------------------------------------------------------------
 // Public team meta helpers
@@ -306,14 +168,7 @@ export function getAllTeamCodes() {
   return TEAM_META.map((t) => t.teamCode);
 }
 
-// -----------------------------------------------------------------------------
-// Rotation helpers (now aligned with the Python schedule logic)
-// -----------------------------------------------------------------------------
-
-/**
- * Same-conference division rotation for the 4-game block.
- * East <-> North, South <-> West — fixed, seasonYear ignored.
- */
+// Rotation helpers kept for compatibility / future use
 export function getSameConferenceOppDivision(_conference, division, _seasonYear) {
   for (const [a, b] of INTRA_CONF_PAIRS) {
     if (division === a) return b;
@@ -322,25 +177,20 @@ export function getSameConferenceOppDivision(_conference, division, _seasonYear)
   return "East";
 }
 
-/**
- * Cross-conference division rotation for the 4-game block.
- * Matches CROSS_CONF_ROTATION and buildLeagueMatchups.
- */
 export function getCrossConferenceDivision(conference, division, _seasonYear) {
   const confMap = CROSS_CONF_ROTATION[conference];
   if (!confMap) return "East";
   return confMap[division] || "East";
 }
 
+
 // -----------------------------------------------------------------------------
-// Time helpers
+// Time helpers (kickoff slotting, unchanged from your good “timing” logic)
 // -----------------------------------------------------------------------------
 
-// Compute the second Thursday of September in LOCAL time.
-// This is treated as the Week 1 Thursday night opener.
 function getSeasonStartDateLocal(seasonYear) {
   const d = new Date(seasonYear, 8, 1, 0, 0, 0, 0); // month 8 = September
-  const THURSDAY = 4; // 0 = Sun, 1 = Mon, ... 4 = Thu
+  const THURSDAY = 4; // 0 = Sun ... 4 = Thu
   const firstDow = d.getDay();
 
   const offsetToFirstThu = (THURSDAY - firstDow + 7) % 7;
@@ -348,7 +198,7 @@ function getSeasonStartDateLocal(seasonYear) {
   const secondThuDate = firstThuDate + 7;
 
   d.setDate(secondThuDate);
-  return d; // second Thursday in September, local midnight
+  return d; // local midnight of the second Thursday in September
 }
 
 const SLOT_DEFS = {
@@ -364,6 +214,7 @@ const SLOT_DEFS = {
 
 // West / Mountain hosts heavily favored in late windows.
 const LATE_HOSTS = new Set(["SEA", "SF", "LAR", "LAC", "ARI", "LV", "DEN"]);
+
 
 // -----------------------------------------------------------------------------
 // Utility helpers
@@ -399,7 +250,6 @@ function groupTeamsByConfAndDiv() {
     map[t.conference][t.division].push(t.teamCode);
   }
 
-  // Make ordering deterministic inside each division
   for (const conf of ["AFC", "NFC"]) {
     for (const div of DIVISION_NAMES) {
       map[conf][div].sort();
@@ -409,53 +259,26 @@ function groupTeamsByConfAndDiv() {
   return map;
 }
 
-// -----------------------------------------------------------------------------
-// Bye week allocation (Weeks 5–14)
-// -----------------------------------------------------------------------------
-
-/**
- * Assigns one bye per team between Weeks 5–14 (NFL-accurate window).
- * Pattern: [4,2,2,6,4,4,2,4,0,4] → 32 byes total.
- *
- * @returns {Object.<string, number>} teamCode -> byeWeek
- */
-function createRandomByeWeeks() {
-  const teams = getAllTeamCodes();
-  const byeWeeks = {};
-
-  // Weeks 5–14 inclusive → 10 possible bye weeks
-  const baseWeeks = [5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
-  const byePattern = [4, 2, 2, 6, 4, 4, 2, 4, 0, 4];
-
-  const shuffledTeams = [...teams];
-  shuffleInPlace(shuffledTeams);
-
-  let cursor = 0;
-  for (let i = 0; i < baseWeeks.length; i++) {
-    const w = baseWeeks[i];
-    const count = byePattern[i];
-    for (let j = 0; j < count && cursor < shuffledTeams.length; j++) {
-      const team = shuffledTeams[cursor++];
-      byeWeeks[team] = w;
-    }
-  }
-
-  return byeWeeks;
-}
 
 // -----------------------------------------------------------------------------
-// Matchup generation – full league (272 games, week-agnostic)
+// Base matchup generation (type & opponent formula, no home/away, no weeks)
+// -----------------------------------------------------------------------------
+//
+// This is the same “opponent math” you had before; we’ll only use it to build
+// per-team opponent lists, then layer home/away + weeks on top.
 // -----------------------------------------------------------------------------
 
 /**
- * Create all 272 games (no weeks / times yet), based on the same formula
- * as your working Python script:
+ * Create all 272 matchups (no weeks / times yet), based on the same formula:
  *
  * - 6 division games (home/away vs 3 rivals)
  * - 4 same-conference division rotation games
  * - 2 same-conference "extra" rank-based games
  * - 4 cross-conference rotation games
- * - 1 17th cross-conference rank-based game (host conf alternates by year)
+ * - 1 17th cross-conference rank-based game
+ *
+ * Home/away here is just a temporary placeholder; we will recompute
+ * home/away later via the team-first algorithm.
  *
  * @param {number} seasonYear
  * @returns {LeagueGame[]}
@@ -480,9 +303,7 @@ function buildLeagueMatchups(seasonYear) {
     };
   }
 
-  // ---------------------------------------------------------------------------
   // 1) Division home/away (6 per team, 96 games total)
-  // ---------------------------------------------------------------------------
   for (const conf of ["AFC", "NFC"]) {
     for (const div of DIVISION_NAMES) {
       const teams = divisions[conf][div];
@@ -500,16 +321,13 @@ function buildLeagueMatchups(seasonYear) {
     }
   }
 
-  // ---------------------------------------------------------------------------
   // 2) Same-conference 4-game division rotation (4 per team, 64 games total)
-  // ---------------------------------------------------------------------------
   for (const conf of ["AFC", "NFC"]) {
     for (const [divA, divB] of INTRA_CONF_PAIRS) {
       const teamsA = divisions[conf][divA];
       const teamsB = divisions[conf][divB];
       if (!teamsA || !teamsB || teamsA.length !== 4 || teamsB.length !== 4) continue;
 
-      // 4x4 matrix of matchups
       for (let i = 0; i < 4; i++) {
         for (let j = 0; j < 4; j++) {
           const parityEven = ((i + j) & 1) === 0;
@@ -521,14 +339,13 @@ function buildLeagueMatchups(seasonYear) {
     }
   }
 
-  // ---------------------------------------------------------------------------
   // 3) Cross-conference 4-game rotation (4 per team, 64 games total)
   //
   //   AFC East  vs NFC North
   //   AFC North vs NFC South
   //   AFC South vs NFC West
   //   AFC West  vs NFC East
-  // ---------------------------------------------------------------------------
+  //
   for (let idx = 0; idx < DIVISION_NAMES.length; idx++) {
     const afcDivName = DIVISION_NAMES[idx];
     const nfcDivName = DIVISION_NAMES[(idx + 1) % 4];
@@ -549,18 +366,12 @@ function buildLeagueMatchups(seasonYear) {
     }
   }
 
-  // ---------------------------------------------------------------------------
   // 4) Same-conference "extra" rank-based (2 per team, 32 games total)
-  //
-  //   East ↔ South, East ↔ West, North ↔ South, North ↔ West
-  //   Rank-matched inside each pair; host alternates by rank index.
-  // ---------------------------------------------------------------------------
   for (const conf of ["AFC", "NFC"]) {
     for (const divA of DIVISION_NAMES) {
       const teamsA = divisions[conf][divA];
       if (!teamsA || teamsA.length !== 4) continue;
 
-      // Division partnered in the 4-game rotation
       const rotB = getSameConferenceOppDivision(conf, divA);
       const remainingDivs = DIVISION_NAMES.filter(
         (d) => d !== divA && d !== rotB
@@ -572,7 +383,7 @@ function buildLeagueMatchups(seasonYear) {
       const teamsC = divisions[conf][divCName];
       if (!teamsB || !teamsC) continue;
 
-      // Match 1: divA vs divB (rank matched)
+      // divA vs divB
       if (divA < divBName) {
         for (let r = 0; r < 4; r++) {
           const teamA = teamsA[r];
@@ -584,7 +395,7 @@ function buildLeagueMatchups(seasonYear) {
         }
       }
 
-      // Match 2: divA vs divC (rank matched)
+      // divA vs divC
       if (divA < divCName) {
         for (let r = 0; r < 4; r++) {
           const teamA = teamsA[r];
@@ -598,7 +409,6 @@ function buildLeagueMatchups(seasonYear) {
     }
   }
 
-  // ---------------------------------------------------------------------------
   // 5) 17th game cross-conference (1 per team, 16 games total)
   //
   //   AFC East  vs NFC South
@@ -606,8 +416,6 @@ function buildLeagueMatchups(seasonYear) {
   //   AFC South vs NFC East
   //   AFC West  vs NFC North
   //
-  // Host conference alternates by seasonYear parity.
-  // ---------------------------------------------------------------------------
   for (let idx = 0; idx < DIVISION_NAMES.length; idx++) {
     const afcDivName = DIVISION_NAMES[idx];
     const nfcDivName = DIVISION_NAMES[(idx + 2) % 4];
@@ -638,15 +446,14 @@ function buildLeagueMatchups(seasonYear) {
   return games;
 }
 
+
 /**
  * getTeamOpponents(seasonYear)
  *
  * Returns a dictionary:
  *   { teamCode: [ { opponentCode, type } ... 17 entries ... ] }
  *
- * This is derived directly from buildLeagueMatchups, ignoring weeks,
- * byes and home/away perspective, so it always matches the formula
- * used by the actual schedule generation.
+ * This is derived directly from buildLeagueMatchups (ignoring weeks/home/away).
  */
 export function getTeamOpponents(seasonYear = new Date().getFullYear()) {
   const games = buildLeagueMatchups(seasonYear);
@@ -663,7 +470,6 @@ export function getTeamOpponents(seasonYear = new Date().getFullYear()) {
     byTeam[awayTeam].push({ opponentCode: homeTeam, type });
   }
 
-  // Validation: each team should have exactly 17 game entries
   for (const [team, opps] of Object.entries(byTeam)) {
     if (opps.length !== GAMES_PER_TEAM) {
       console.warn(
@@ -675,15 +481,58 @@ export function getTeamOpponents(seasonYear = new Date().getFullYear()) {
   return byTeam;
 }
 
+
 // -----------------------------------------------------------------------------
-// Week assignment helper (improved realism)
+// Bye week allocation (Weeks 5–14, even counts where > 0)
+// -----------------------------------------------------------------------------
+
+/**
+ * Assigns one bye per team between Weeks 5–14 (NFL-like window).
+ * Pattern: [4,2,2,6,4,4,2,4,0,4] → 32 byes total.
+ * All non-zero entries are even.
+ *
+ * @returns {Object.<string, number>} teamCode -> byeWeek
+ */
+function createRandomByeWeeks() {
+  const teams = getAllTeamCodes();
+  const byeWeeks = {};
+
+  const baseWeeks = [5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
+  const byePattern = [4, 2, 2, 6, 4, 4, 2, 4, 0, 4];
+
+  const shuffledTeams = [...teams];
+  shuffleInPlace(shuffledTeams);
+
+  let cursor = 0;
+  for (let i = 0; i < baseWeeks.length; i++) {
+    const w = baseWeeks[i];
+    const count = byePattern[i];
+    for (let j = 0; j < count && cursor < shuffledTeams.length; j++) {
+      const team = shuffledTeams[cursor++];
+      byeWeeks[team] = w;
+    }
+  }
+
+  // Safety: any unassigned teams (shouldn't happen) get a random 5–14 slot.
+  for (const t of teams) {
+    if (!byeWeeks[t]) {
+      byeWeeks[t] = baseWeeks[Math.floor(Math.random() * baseWeeks.length)];
+    }
+  }
+
+  return byeWeeks;
+}
+
+
+// -----------------------------------------------------------------------------
+// Week assignment helper (reused core, but fed by team-first iteration)
 // -----------------------------------------------------------------------------
 
 /**
  * Pick an appropriate week for a game.
  * Ensures: no bye conflict, no team double-bookings, and balanced weekly load.
  *
- * @param {LeagueGame} game
+ * @param {LeagueGame & { homeTeam: string, awayTeam: string }} game
  * @param {number[]} candidateWeeks - preferred range to try first
  * @param {Object.<string, number>} byeWeeks - team → bye week
  * @param {Object.<string, Set<number>>} bookedWeeks - team → played weeks
@@ -694,19 +543,18 @@ function pickWeekForGame(game, candidateWeeks, byeWeeks, bookedWeeks, weeklyGame
   const home = game.homeTeam;
   const away = game.awayTeam;
 
-  // 1. Shuffle candidates for organic variety
   const primary = candidateWeeks.slice();
   shuffleInPlace(primary);
 
-  // 2. Try preferred range (keeping weekly load even)
+  // Preferred range
   for (const w of primary) {
     if (w === byeWeeks[home] || w === byeWeeks[away]) continue;
     if (bookedWeeks[home].has(w) || bookedWeeks[away].has(w)) continue;
-    if ((weeklyGameCount[w] ?? 0) >= 16) continue; // avoid >16 games per week
+    if ((weeklyGameCount[w] ?? 0) >= 16) continue; // avoid >16 games in any week
     return w;
   }
 
-  // 3. Broaden search (weeks 1–18)
+  // Broader search (1–18)
   const allWeeks = Array.from({ length: REGULAR_SEASON_WEEKS }, (_, i) => i + 1);
   shuffleInPlace(allWeeks);
   for (const w of allWeeks) {
@@ -716,7 +564,7 @@ function pickWeekForGame(game, candidateWeeks, byeWeeks, bookedWeeks, weeklyGame
     return w;
   }
 
-  // 4. Emergency fallback – avoid bye conflicts at least
+  // Emergency fallback – avoid bye conflicts at least
   for (let w = 1; w <= REGULAR_SEASON_WEEKS; w++) {
     if (w !== byeWeeks[home] && w !== byeWeeks[away]) return w;
   }
@@ -725,144 +573,257 @@ function pickWeekForGame(game, candidateWeeks, byeWeeks, bookedWeeks, weeklyGame
   return 1;
 }
 
+
 // -----------------------------------------------------------------------------
-// Perfect NFL-style schedule builder (robust)
+// Step 1+2: From per-team opponent lists → league games with home/away
 // -----------------------------------------------------------------------------
 
-export function generatePerfectLeagueSchedule(seasonYear) {
-  // Step 1: Build the raw matchup list (272 total)
-  const allGames = buildLeagueMatchups(seasonYear);
+/**
+ * Build a league-wide game list from per-team opponent lists:
+ *  - First, create canonical pairs (teamA < teamB) with correct multiplicity
+ *    (2x for divisional, 1x otherwise).
+ *  - Then assign home/away:
+ *      • For division pairs with 2 games → one home each.
+ *      • For others → balance to target 8/9 home games using conference parity.
+ *
+ * @param {number} seasonYear
+ * @returns {LeagueGame[]} games with homeTeam, awayTeam, type, week=0
+ */
+function buildLeagueGamesFromTeamOpponents(seasonYear) {
+  const opponentsByTeam = getTeamOpponents(seasonYear);
+  const teams = getAllTeamCodes().slice().sort(); // alphabetical (starts with ARI)
 
-  // Step 2: Assign byes (Weeks 5–14, NFL-like pattern)
-  const byeWeeks = createRandomByeWeeks();
+  /** @type {LeagueGame[]} */
+  const games = [];
 
-  // Step 3: Initialize week containers and trackers
+  // 1) Build canonical pairs with multiplicity
+  const pairToIndices = new Map(); // "A-B" -> [indices into games]
+
+  for (const team of teams) {
+    const oppEntries = opponentsByTeam[team] || [];
+    /** @type {Map<string, {count: number, type: string}>} */
+    const counts = new Map();
+
+    for (const { opponentCode, type } of oppEntries) {
+      if (!opponentCode) continue;
+      const existing = counts.get(opponentCode);
+      if (!existing) {
+        counts.set(opponentCode, { count: 1, type });
+      } else {
+        existing.count += 1;
+        if (existing.type !== type) {
+          console.warn(
+            "[league_schedule] Mixed game types for pair",
+            team,
+            opponentCode,
+            existing.type,
+            type
+          );
+        }
+      }
+    }
+
+    for (const [opp, info] of counts.entries()) {
+      const a = team;
+      const b = opp;
+      if (a >= b) continue; // only process canonical pair once
+
+      const type = info.type || "nonconference";
+      const count = info.count || 1;
+
+      for (let i = 0; i < count; i++) {
+        const index = games.length;
+        games.push({
+          week: 0,
+          homeTeam: "",   // filled later
+          awayTeam: "",
+          type,
+          kickoffIso: null,
+          status: "scheduled",
+          homeScore: null,
+          awayScore: null
+        });
+
+        const key = `${a}-${b}`;
+        if (!pairToIndices.has(key)) pairToIndices.set(key, []);
+        pairToIndices.get(key).push(index);
+      }
+    }
+  }
+
+  // 2) Assign home/away
+  const homeCount = {};
+  const desiredHomeCount = {};
+  const hostConference = seasonYear % 2 === 0 ? "AFC" : "NFC";
+
+  for (const t of teams) {
+    const meta = getTeamMeta(t);
+    const conf = meta ? meta.conference : "AFC";
+    homeCount[t] = 0;
+    desiredHomeCount[t] = (conf === hostConference) ? 9 : 8;
+  }
+
+  // 2a) Division pairs with 2 games → one home each
+  for (const [key, idxList] of pairToIndices.entries()) {
+    const [a, b] = key.split("-");
+    const indices = idxList.slice();
+    const firstGame = games[indices[0]];
+    if (!firstGame) continue;
+
+    const isDivision = firstGame.type === "division";
+    if (!isDivision) continue;
+    if (indices.length !== 2) {
+      console.warn(
+        "[league_schedule] Division pair with != 2 games:",
+        key,
+        "count=",
+        indices.length
+      );
+      // fall through and let generic logic handle it
+      continue;
+    }
+
+    const g1 = games[indices[0]];
+    const g2 = games[indices[1]];
+
+    g1.homeTeam = a; g1.awayTeam = b;
+    g2.homeTeam = b; g2.awayTeam = a;
+
+    homeCount[a] += 1;
+    homeCount[b] += 1;
+  }
+
+  // 2b) All remaining games (non-division + any weird leftovers)
+  for (const [key, idxList] of pairToIndices.entries()) {
+    const [a, b] = key.split("-");
+    for (const idx of idxList) {
+      const g = games[idx];
+      if (!g) continue;
+      if (g.homeTeam && g.awayTeam) continue; // already assigned
+
+      const needA = (desiredHomeCount[a] ?? 8) - (homeCount[a] ?? 0);
+      const needB = (desiredHomeCount[b] ?? 8) - (homeCount[b] ?? 0);
+
+      let home;
+      if (needA > 0 && needB <= 0) {
+        home = a;
+      } else if (needB > 0 && needA <= 0) {
+        home = b;
+      } else if (needA > needB) {
+        home = a;
+      } else if (needB > needA) {
+        home = b;
+      } else {
+        // tie-breaker: alphabetical
+        home = a < b ? a : b;
+      }
+
+      const away = home === a ? b : a;
+      g.homeTeam = home;
+      g.awayTeam = away;
+      homeCount[home] = (homeCount[home] ?? 0) + 1;
+    }
+  }
+
+  // Sanity check: every game must now have home/away
+  for (const g of games) {
+    if (!g.homeTeam || !g.awayTeam) {
+      console.warn("[league_schedule] Game without home/away after assignment:", g);
+    }
+  }
+
+  return games;
+}
+
+
+// -----------------------------------------------------------------------------
+// Step 3+4: assign byes, then weeks via team-by-team iteration
+// -----------------------------------------------------------------------------
+
+/**
+ * Assign weeks to each game:
+ *  - One bye per team (precomputed).
+ *  - No team doubleheaders.
+ *  - Uses candidate week ranges based on game type:
+ *      • division → late + mid
+ *      • nonconference → early + mid
+ *      • conference/extra → mid-biased
+ *
+ * Games are processed team-by-team in alphabetical order (starting with ARI).
+ *
+ * @param {LeagueGame[]} games
+ * @param {Object.<string, number>} byeWeeks
+ * @returns {LeagueGame[][]} weeks[0..17] each an array of LeagueGame
+ */
+function assignWeeksTeamFirst(games, byeWeeks) {
+  const teams = getAllTeamCodes();
+  const teamsSorted = teams.slice().sort(); // starts with ARI
+
   /** @type {LeagueGame[][]} */
   const weeks = Array.from({ length: REGULAR_SEASON_WEEKS }, () => []);
+
   /** @type {Object.<string, Set<number>>} */
   const bookedWeeks = {};
   /** @type {Object.<number, number>} */
   const weeklyGameCount = {};
-  for (const t of getAllTeamCodes()) bookedWeeks[t] = new Set();
+
+  for (const t of teams) {
+    bookedWeeks[t] = new Set();
+  }
+
+  // Index games by team for quick team-first iteration
+  /** @type {Record<string, number[]>} */
+  const gamesByTeam = {};
+  for (const t of teams) gamesByTeam[t] = [];
+
+  games.forEach((g, idx) => {
+    gamesByTeam[g.homeTeam].push(idx);
+    gamesByTeam[g.awayTeam].push(idx);
+  });
 
   const earlyWeeks = [1, 2, 3, 4];
   const midWeeks   = [5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
   const lateWeeks  = [15, 16, 17, 18];
 
-  // Step 4: Split by type for better distribution
-  const divisionGames = allGames.filter((g) => g.type === "division");
-  const others        = allGames.filter((g) => g.type !== "division");
-  shuffleInPlace(divisionGames);
-  shuffleInPlace(others);
+  for (const team of teamsSorted) {
+    const idxList = gamesByTeam[team] || [];
+    const seen = new Set();
 
-  // Step 5: Place division-heavy games later
-  for (const g of divisionGames) {
-    const preferLate = Math.random() < 0.65;
-    const candidates = preferLate ? lateWeeks : midWeeks;
-    const week = pickWeekForGame(g, candidates, byeWeeks, bookedWeeks, weeklyGameCount);
-    g.week = week;
-    weeks[week - 1].push(g);
-    bookedWeeks[g.homeTeam].add(week);
-    bookedWeeks[g.awayTeam].add(week);
-    weeklyGameCount[week] = (weeklyGameCount[week] ?? 0) + 1;
-  }
+    for (const idx of idxList) {
+      if (seen.has(idx)) continue;
+      seen.add(idx);
 
-  // Step 6: Fill early & mid weeks with remaining matchups
-  for (const g of others) {
-    const earlyBias = g.type === "nonconference" || g.type === "conference";
-    const pool = earlyBias ? earlyWeeks.concat(midWeeks) : midWeeks;
-    const week = pickWeekForGame(g, pool, byeWeeks, bookedWeeks, weeklyGameCount);
-    g.week = week;
-    weeks[week - 1].push(g);
-    bookedWeeks[g.homeTeam].add(week);
-    bookedWeeks[g.awayTeam].add(week);
-    weeklyGameCount[week] = (weeklyGameCount[week] ?? 0) + 1;
-  }
+      const g = games[idx];
+      if (g.week && g.week !== 0) continue; // opponent already assigned this
 
-  // Step 7: Assign realistic kickoff times
-  assignTimesToWeeks(weeks, seasonYear);
+      let candidateWeeks;
+      if (g.type === "division") {
+        candidateWeeks = lateWeeks.concat(midWeeks);
+      } else if (g.type === "nonconference") {
+        candidateWeeks = earlyWeeks.concat(midWeeks);
+      } else {
+        candidateWeeks = midWeeks.concat(earlyWeeks, lateWeeks);
+      }
 
-  // Step 8: Construct byWeek / byTeam structures
-  /** @type {Record<number, LeagueGame[]>} */
-  const byWeek = {};
-  for (let w = 1; w <= REGULAR_SEASON_WEEKS; w++) {
-    byWeek[w] = weeks[w - 1].map((g) => ({ ...g, week: w }));
-  }
+      const week = pickWeekForGame(
+        g,
+        candidateWeeks,
+        byeWeeks,
+        bookedWeeks,
+        weeklyGameCount
+      );
 
-  /** @type {Record<string, TeamGame[]>} */
-  const byTeam = {};
-  for (const team of getAllTeamCodes()) byTeam[team] = [];
-
-  // Populate per-team schedules
-  for (const [weekStr, games] of Object.entries(byWeek)) {
-    const w = Number(weekStr);
-    for (const g of games) {
-      const { homeTeam, awayTeam } = g;
-      byTeam[homeTeam].push({
-        index: 0,
-        seasonWeek: w,
-        teamCode: homeTeam,
-        opponentCode: awayTeam,
-        isHome: true,
-        type: g.type,
-        kickoffIso: g.kickoffIso,
-        status: g.status,
-        teamScore: g.homeScore,
-        opponentScore: g.awayScore
-      });
-      byTeam[awayTeam].push({
-        index: 0,
-        seasonWeek: w,
-        teamCode: awayTeam,
-        opponentCode: homeTeam,
-        isHome: false,
-        type: g.type,
-        kickoffIso: g.kickoffIso,
-        status: g.status,
-        teamScore: g.awayScore,
-        opponentScore: g.homeScore
-      });
+      g.week = week;
+      weeks[week - 1].push(g);
+      bookedWeeks[g.homeTeam].add(week);
+      bookedWeeks[g.awayTeam].add(week);
+      weeklyGameCount[week] = (weeklyGameCount[week] ?? 0) + 1;
     }
   }
 
-  // Step 9: Add bye placeholders properly (team-level view only)
-  for (const team of getAllTeamCodes()) {
-    const byeW = byeWeeks[team];
-    byTeam[team].push({
-      index: 0,
-      seasonWeek: byeW,
-      teamCode: team,
-      opponentCode: "BYE",
-      isHome: false,
-      type: "bye",
-      kickoffIso: null,
-      status: "scheduled",
-      teamScore: null,
-      opponentScore: null
-    });
-  }
-
-  // Step 10: Sort and index each team’s schedule
-  for (const team of getAllTeamCodes()) {
-    const arr = byTeam[team].sort((a, b) => a.seasonWeek - b.seasonWeek);
-    arr.forEach((g, i) => (g.index = i));
-  }
-
-  const schedule = {
-    seasonYear,
-    schemaVersion: SCHEDULE_SCHEMA_VERSION,
-    byTeam,
-    byWeek
-  };
-
-  // Optional: detailed debug summary + validation
-  if (SCHEDULE_DEBUG) {
-    debugPrintScheduleSummary(schedule);
-    validateLeagueSchedule(schedule);
-  }
-
-  return schedule;
+  return weeks;
 }
+
 
 // -----------------------------------------------------------------------------
 // Assign kickoff times (TNF / SNF / MNF + Sunday windows + occasional London)
@@ -871,14 +832,12 @@ export function generatePerfectLeagueSchedule(seasonYear) {
 function assignTimesToWeeks(weeks, seasonYear) {
   const baseDate = getSeasonStartDateLocal(seasonYear);
 
-  // Track which teams have already appeared in each PRIME slot type
   const primeUsage = {
     THU: new Set(), // Thursday night
     SNF: new Set(), // Sunday night
     MNF: new Set()  // Monday night
   };
 
-  // Helper: stamp a game with slot + Eastern time ISO
   function scheduleGameAtSlot(game, weekIndex, slotDef, slotId) {
     if (!game) return;
 
@@ -886,7 +845,6 @@ function assignTimesToWeeks(weeks, seasonYear) {
     kickoff.setDate(baseDate.getDate() + weekIndex * 7 + slotDef.dayOffset);
     kickoff.setHours(slotDef.hour, slotDef.minute, 0, 0);
 
-    // Convert to Eastern for display, then serialize
     const eastern = new Date(
       kickoff.toLocaleString("en-US", { timeZone: "America/New_York" })
     );
@@ -896,7 +854,6 @@ function assignTimesToWeeks(weeks, seasonYear) {
     if (!game.status) game.status = "scheduled";
   }
 
-  // Prefer teams who haven’t been in this prime slot yet
   function pickPrimeGame(pool, usageSet) {
     for (let i = 0; i < pool.length; i++) {
       const g = pool[i];
@@ -907,7 +864,6 @@ function assignTimesToWeeks(weeks, seasonYear) {
         return g;
       }
     }
-    // Fallback if everyone has been used: just pop one
     const g = pool.pop();
     if (!g) return null;
     usageSet.add(g.homeTeam);
@@ -919,14 +875,12 @@ function assignTimesToWeeks(weeks, seasonYear) {
     const games = weeks[week - 1];
     if (!games.length) continue;
 
-    // Work on a shuffled copy so we don't bias any particular team
     const pool = games.slice();
     shuffleInPlace(pool);
 
     // Optional London / international game (Weeks 5–8)
     let londonGame = null;
     if (week >= 5 && week <= 8 && pool.length && Math.random() < 0.25) {
-      // Prefer a non–West-coast host for the London 9:30 AM ET kick
       let idx = -1;
       for (let i = 0; i < pool.length; i++) {
         const g = pool[i];
@@ -935,23 +889,18 @@ function assignTimesToWeeks(weeks, seasonYear) {
           break;
         }
       }
-      if (idx === -1) idx = 0; // fallback
+      if (idx === -1) idx = 0;
       londonGame = pool.splice(idx, 1)[0];
       scheduleGameAtSlot(londonGame, week - 1, SLOT_DEFS.SUN_930, "SUN_930");
     }
 
-    // Prime-time selection: TNF, SNF, MNF
-    const tnf = pickPrimeGame(pool, primeUsage.THU); // Thursday
-    const snf = pickPrimeGame(pool, primeUsage.SNF); // Sunday night
-    const mnf = pickPrimeGame(pool, primeUsage.MNF); // Monday night
+    const tnf = pickPrimeGame(pool, primeUsage.THU);
+    const snf = pickPrimeGame(pool, primeUsage.SNF);
+    const mnf = pickPrimeGame(pool, primeUsage.MNF);
 
-    // Thursday night – fixed slot
     scheduleGameAtSlot(tnf, week - 1, SLOT_DEFS.THU, "THU");
-
-    // Sunday night – fixed slot
     scheduleGameAtSlot(snf, week - 1, SLOT_DEFS.SUN_820, "SUN_820");
 
-    // Monday night – randomly early or late
     if (mnf) {
       const mondayDef =
         Math.random() < 0.5 ? SLOT_DEFS.MON_700 : SLOT_DEFS.MON_1000;
@@ -960,14 +909,12 @@ function assignTimesToWeeks(weeks, seasonYear) {
       scheduleGameAtSlot(mnf, week - 1, mondayDef, mondayId);
     }
 
-    // Remaining Sunday games (1:00 and late windows)
     const remaining = games.filter((g) => !g.kickoffIso);
 
     for (const g of remaining) {
       let slotDef;
       let slotId;
 
-      // West/Mountain hosts lean heavily toward the late window
       const isLateHost = LATE_HOSTS.has(g.homeTeam) && Math.random() < 0.7;
       if (isLateHost) {
         const lateChoices = [
@@ -987,6 +934,120 @@ function assignTimesToWeeks(weeks, seasonYear) {
   }
 }
 
+
+// -----------------------------------------------------------------------------
+// Perfect NFL-style schedule builder (new pipeline)
+// -----------------------------------------------------------------------------
+
+export function generatePerfectLeagueSchedule(seasonYear) {
+  // Step 1+2: build league games from per-team opponent lists, with home/away
+  const games = buildLeagueGamesFromTeamOpponents(seasonYear);
+
+  // Step 3: assign byes
+  const byeWeeks = createRandomByeWeeks();
+
+  // Step 4: assign weeks team-by-team (alphabetical)
+  const weeks = assignWeeksTeamFirst(games, byeWeeks);
+
+  // Step 5: assign kickoff times / slots
+  assignTimesToWeeks(weeks, seasonYear);
+
+  // Step 6: build byWeek / byTeam structures expected by schedule.js & grid
+  /** @type {Record<number, LeagueGame[]>} */
+  const byWeek = {};
+  for (let w = 1; w <= REGULAR_SEASON_WEEKS; w++) {
+    const weekGames = weeks[w - 1] || [];
+    byWeek[w] = weekGames.map((g) => ({
+      week: w,
+      homeTeam: g.homeTeam,
+      awayTeam: g.awayTeam,
+      type: g.type,
+      kickoffIso: g.kickoffIso,
+      status: g.status || "scheduled",
+      homeScore: g.homeScore ?? null,
+      awayScore: g.awayScore ?? null,
+      slotId: g.slotId
+    }));
+  }
+
+  /** @type {Record<string, TeamGame[]>} */
+  const byTeam = {};
+  for (const t of getAllTeamCodes()) byTeam[t] = [];
+
+  for (const [weekStr, gamesForWeek] of Object.entries(byWeek)) {
+    const w = Number(weekStr);
+    for (const g of gamesForWeek) {
+      const { homeTeam, awayTeam } = g;
+
+      byTeam[homeTeam].push({
+        index: 0,
+        seasonWeek: w,
+        teamCode: homeTeam,
+        opponentCode: awayTeam,
+        isHome: true,
+        type: g.type,
+        kickoffIso: g.kickoffIso,
+        status: g.status,
+        teamScore: g.homeScore,
+        opponentScore: g.awayScore
+      });
+
+      byTeam[awayTeam].push({
+        index: 0,
+        seasonWeek: w,
+        teamCode: awayTeam,
+        opponentCode: homeTeam,
+        isHome: false,
+        type: g.type,
+        kickoffIso: g.kickoffIso,
+        status: g.status,
+        teamScore: g.awayScore,
+        opponentScore: g.homeScore
+      });
+    }
+  }
+
+  // Step 7: insert explicit bye objects into team schedules
+  for (const team of getAllTeamCodes()) {
+    const byeW = byeWeeks[team];
+    byTeam[team].push({
+      index: 0,
+      seasonWeek: byeW,
+      teamCode: team,
+      opponentCode: "BYE",
+      isHome: false,
+      type: "bye",
+      kickoffIso: null,
+      status: "scheduled",
+      teamScore: null,
+      opponentScore: null
+    });
+  }
+
+  // Step 8: sort each team’s schedule and set index
+  for (const team of getAllTeamCodes()) {
+    const arr = byTeam[team].sort((a, b) => (a.seasonWeek || 0) - (b.seasonWeek || 0));
+    arr.forEach((g, i) => {
+      g.index = i;
+    });
+  }
+
+  const schedule = {
+    seasonYear,
+    schemaVersion: SCHEDULE_SCHEMA_VERSION,
+    byTeam,
+    byWeek
+  };
+
+  if (SCHEDULE_DEBUG) {
+    debugPrintScheduleSummary(schedule);
+    validateLeagueSchedule(schedule);
+  }
+
+  return schedule;
+}
+
+
 // -----------------------------------------------------------------------------
 // Public helpers for other modules
 // -----------------------------------------------------------------------------
@@ -999,39 +1060,24 @@ function assignTimesToWeeks(weeks, seasonYear) {
  * @param {number} seasonYear
  * @returns {LeagueSchedule}
  */
- export async function ensureLeagueScheduleObject(leagueState, seasonYear) {
-    if (!leagueState) {
-      throw new Error("leagueState is required for ensureLeagueScheduleObject");
-    }
-  
-    const existing = leagueState.schedule;
-    if (
-      existing &&
-      existing.seasonYear === seasonYear &&
-      existing.schemaVersion === SCHEDULE_SCHEMA_VERSION
-    ) {
-      return existing;
-    }
-  
-    // --- Try CSV first ---
-    const csvData = await loadScheduleCsv();
-    const csvSeason = resolveCsvSeason(seasonYear);
-    const rows = csvData[csvSeason];
-  
-    if (rows && rows.length) {
-      console.log(`[league_schedule] Using CSV schedule for season ${csvSeason}`);
-      const schedule = buildScheduleFromCsv(rows, seasonYear);
-      leagueState.schedule = schedule;
-      return schedule;
-    }
-  
-    // --- Fallback to generator ---
-    console.warn("[league_schedule] CSV unavailable – falling back to generator");
-    const fresh = generatePerfectLeagueSchedule(seasonYear);
-    leagueState.schedule = fresh;
-    return fresh;
+export function ensureLeagueScheduleObject(leagueState, seasonYear) {
+  if (!leagueState) {
+    throw new Error("leagueState is required for ensureLeagueScheduleObject");
   }
-  
+
+  const existing = leagueState.schedule;
+  if (
+    existing &&
+    existing.seasonYear === seasonYear &&
+    existing.schemaVersion === SCHEDULE_SCHEMA_VERSION
+  ) {
+    return existing;
+  }
+
+  const fresh = generatePerfectLeagueSchedule(seasonYear);
+  leagueState.schedule = fresh;
+  return fresh;
+}
 
 /**
  * Return the per-team schedule (TeamGame[]) for a given team & season.
@@ -1041,8 +1087,8 @@ function assignTimesToWeeks(weeks, seasonYear) {
  * @param {number} seasonYear
  * @returns {TeamGame[]}
  */
-export async function ensureTeamSchedule(leagueState, teamCode, seasonYear) {
-  const schedule = await ensureLeagueScheduleObject(leagueState, seasonYear);
+export function ensureTeamSchedule(leagueState, teamCode, seasonYear) {
+  const schedule = ensureLeagueScheduleObject(leagueState, seasonYear);
   if (!schedule.byTeam[teamCode]) {
     schedule.byTeam[teamCode] = [];
   }
@@ -1056,9 +1102,8 @@ export async function ensureTeamSchedule(leagueState, teamCode, seasonYear) {
  * @param {number} seasonYear
  * @returns {LeagueSchedule}
  */
-export async function ensureAllTeamSchedules(leagueState, seasonYear) {
-  const schedule = await ensureLeagueScheduleObject(leagueState, seasonYear);
-  return schedule;
+export function ensureAllTeamSchedules(leagueState, seasonYear) {
+  return ensureLeagueScheduleObject(leagueState, seasonYear);
 }
 
 /**
@@ -1112,9 +1157,7 @@ export function debugPrintScheduleSummary(schedule) {
     `[league_schedule] Schedule summary – season ${schedule.seasonYear}`
   );
 
-  // ----------------------------
-  // Per-week summary
-  // ----------------------------
+  // Per-week
   console.groupCollapsed("By week (games & byes)");
   for (let w = 1; w <= REGULAR_SEASON_WEEKS; w++) {
     const games = schedule.byWeek[w] || [];
@@ -1135,16 +1178,13 @@ export function debugPrintScheduleSummary(schedule) {
   }
   console.groupEnd();
 
-  // ----------------------------
-  // Per-team summary
-  // ----------------------------
+  // Per-team
   console.groupCollapsed("By team (game counts, bye, doubleheaders)");
   for (const team of teams) {
     const games = schedule.byTeam[team] || [];
     const bye = games.find((g) => g.type === "bye") || null;
     const nonBye = games.filter((g) => g.type !== "bye");
 
-    // Track how many non-bye games in each week for this team
     const perWeekCounts = new Map();
     for (const g of nonBye) {
       const w = g.seasonWeek;
@@ -1181,7 +1221,6 @@ export function validateLeagueSchedule(schedule) {
   const seenMatchups = new Set();
   let totalGames = 0;
 
-  // Per team: 17 non-bye games + exactly 1 bye between 5–14
   for (const team of teams) {
     const games = schedule.byTeam[team] || [];
     const nonBye = games.filter((g) => g.type !== "bye");
@@ -1201,7 +1240,6 @@ export function validateLeagueSchedule(schedule) {
     }
   }
 
-  // League-wide: total games and duplicate matchups
   for (let w = 1; w <= REGULAR_SEASON_WEEKS; w++) {
     const games = schedule.byWeek[w] || [];
     for (const g of games) {
@@ -1247,5 +1285,5 @@ export function getTeamPrimeTimeCount(schedule, teamCode) {
 }
 
 // Backwards compatibility: if anything imports generateLeagueSchedule, give them
-// the perfect schedule builder.
+// the “perfect” schedule builder.
 export { generatePerfectLeagueSchedule as generateLeagueSchedule };
