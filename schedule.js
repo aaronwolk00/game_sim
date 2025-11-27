@@ -313,21 +313,19 @@ function renderScopeToggle() {
   const myBtn = getEl("tab-my-team");
   const leagueBtn = getEl("tab-league");
 
+  const isTeam = currentScope === "team";
+
   if (myBtn) {
-    const isTeam = currentScope === "team";
     myBtn.dataset.active = isTeam ? "true" : "false";
     myBtn.setAttribute("aria-pressed", isTeam ? "true" : "false");
   }
 
-if (leagueBtn) {
-  leagueBtn.addEventListener("click", () => {
-    if (currentScope === "league") return;
-    currentScope = "league";
-    renderScopeToggle();
-    renderLeagueWeekList(); // detail updates when user clicks a week
-  });
+  if (leagueBtn) {
+    leagueBtn.dataset.active = !isTeam ? "true" : "false";
+    leagueBtn.setAttribute("aria-pressed", !isTeam ? "true" : "false");
   }
 }
+
 
 
 // Treat any synthetic bye objects as bye weeks.
@@ -348,7 +346,10 @@ function isByeGame(game) {
  * Render left-hand week list based on currentScope.
  * For now, league scope is a stub: we keep showing the team schedule but indicate the mode.
  */
- function renderWeekList() {
+/**
+ * Render left-hand week list based on currentTeamSchedule.
+ */
+function renderWeekList() {
   const listEl = getEl("week-list");
   const emptyEl = getEl("week-list-empty");
   if (!listEl || !emptyEl) return;
@@ -365,12 +366,12 @@ function isByeGame(game) {
   emptyEl.hidden = true;
   listEl.hidden = false;
 
-  // --- Sort weeks in ascending order ---
+  // Sort by week
   const sortedWeeks = [...schedule].sort(
     (a, b) => (a.seasonWeek || 0) - (b.seasonWeek || 0)
   );
 
-  // --- Deduplicate by week number + opponent + home/away flag ---
+  // Deduplicate by week + opponent + home/away
   const uniqueMap = new Map();
   for (const g of sortedWeeks) {
     const key = `${g.seasonWeek}-${g.opponentCode}-${g.isHome ? "H" : "A"}`;
@@ -380,51 +381,100 @@ function isByeGame(game) {
   }
   const dedupedWeeks = Array.from(uniqueMap.values());
 
-  // --- Render each week row ---
   for (const game of dedupedWeeks) {
-    const item = document.createElement("div");
-    item.className = "week-list-item";
-
     const wk = game.seasonWeek || "?";
-    const oppName = game.opponentName || "Opponent";
-    const homeAway = game.isHome ? "vs" : "@";
+    const isBye =
+      game.type === "bye" ||
+      game.opponentCode === "BYE" ||
+      !game.opponentCode;
+
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "week-row";
+
+    // Home / away / bye styling
+    if (isBye) {
+      item.classList.add("week-row--bye");
+    } else if (game.isHome) {
+      item.classList.add("week-row--home");
+    } else {
+      item.classList.add("week-row--away");
+    }
+
+    // Label pieces
+    let opponentLabel = "BYE WEEK";
+    let matchupMeta = "Bye week";
+
+    if (!isBye) {
+      const oppName = getTeamDisplayName(game.opponentCode);
+      const homeAway = game.isHome ? "vs" : "@";
+      opponentLabel = `Week ${wk} • ${homeAway} ${oppName}`;
+
+      const typeText =
+        game.type === "division"
+          ? "Division matchup"
+          : game.type === "conference"
+          ? "Conference game"
+          : game.type === "nonconference"
+          ? "Interconference game"
+          : "Conference matchup";
+
+      const kickoffText = formatIsoToNice(game.kickoffIso);
+      matchupMeta = `${kickoffText} • ${typeText}`;
+    }
 
     const status = game.status || "scheduled";
-    const scoreDisplay =
-      status === "final"
-        ? `${game.homeScore ?? 0}–${game.awayScore ?? 0}`
-        : "";
+    const isFinal =
+      status === "final" &&
+      game.teamScore != null &&
+      game.opponentScore != null;
+
+    const scoreText = isFinal
+      ? `${game.teamScore}–${game.opponentScore}`
+      : status === "in_progress"
+      ? "In progress"
+      : "";
 
     const selected =
       typeof selectedWeekIndex === "number" &&
       selectedWeekIndex + 1 === wk;
 
     item.innerHTML = `
-      <div class="week-meta">
-        <span class="week-num">Week ${wk}</span>
-        <span class="week-matchup">${homeAway} ${oppName}</span>
+      <div class="week-row-topline">
+        <span class="week-row-opponent">${opponentLabel}</span>
+        <span class="week-row-score">${scoreText}</span>
       </div>
-      <div class="week-score ${status}">
-        ${scoreDisplay || ""}
+      <div class="week-row-meta">
+        <span>${matchupMeta}</span>
       </div>
     `;
 
-    if (selected) item.classList.add("selected");
-    if (status === "final") item.classList.add("final");
-    if (status === "in_progress") item.classList.add("in-progress");
+    if (selected) {
+      item.dataset.selected = "true";
+    } else {
+      item.dataset.selected = "false";
+    }
 
     item.addEventListener("click", () => {
+      // Week index is 0-based
       selectedWeekIndex = wk - 1;
-      renderScheduleDetails(wk);
+      renderWeekDetail();
+
+      // Clear previous selection
       document
-        .querySelectorAll(".week-list-item.selected")
-        .forEach((el) => el.classList.remove("selected"));
-      item.classList.add("selected");
+        .querySelectorAll(".week-row[data-selected='true']")
+        .forEach((el) => {
+          el.dataset.selected = "false";
+        });
+
+      item.dataset.selected = "true";
     });
 
     listEl.appendChild(item);
   }
 }
+
+
 
 
 
@@ -552,28 +602,24 @@ function renderWeekDetail() {
 
 function bindScopeToggle() {
   const myBtn = getEl("tab-my-team");
-  const leagueBtn = getEl("tab-league");
 
   if (myBtn) {
-    myBtn.addEventListener("click", () => {
-      if (currentScope === "team") return;
-      currentScope = "team";
-      renderScopeToggle();
-      renderWeekList();
-      renderWeekDetail();
-    });
-  }
-
-  if (leagueBtn) {
-    leagueBtn.addEventListener("click", () => {
-      if (currentScope === "league") return;
-      currentScope = "league";
-      renderScopeToggle();
-      renderLeagueWeekList();
-      renderLeagueWeekDetail(1);
+    myBtn.addEventListener("click", (e) => {
+      e.preventDefault(); // already on this view
+      // Nothing else to do; My Team view is the only scope on this page.
     });
   }
 }
+
+function bindLeagueSlateButton() {
+  const btn = getEl("btn-view-league-slate");
+  if (!btn) return;
+
+  btn.addEventListener("click", () => {
+    window.location.href = "schedule_grid.html";
+  });
+}
+
 
 
 
@@ -714,6 +760,7 @@ async function initSchedulePage() {
   renderWeekList();
   renderWeekDetail();
   bindScopeToggle();
+  bindLeagueSlateButton(); 
   bindBackButton();
   bindJumpToCurrentWeek();
 }
