@@ -4,6 +4,8 @@
   <meta charset="UTF-8" />
   <title>Franchise GM – Team View & Depth Chart</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Simple inline favicon to avoid 404 noise -->
+  <link rel="icon" href="data:,">
   <style>
     :root {
       --bg: #020617;
@@ -20,11 +22,11 @@
       --danger-soft: rgba(248,113,113,0.18);
       --warn: #fbbf24;
       --warn-soft: rgba(251,191,36,0.18);
-      --radius-lg: 18px;
-      --radius-md: 12px;
+      --radius-lg: 16px;
+      --radius-md: 10px;
       --radius-pill: 999px;
-      --shadow-soft: 0 22px 45px rgba(0,0,0,0.65);
-      --shadow-sm: 0 10px 24px rgba(0,0,0,0.55);
+      --shadow-soft: 0 18px 35px rgba(0,0,0,0.6);
+      --shadow-sm: 0 10px 22px rgba(0,0,0,0.55);
       --font: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
               "Segoe UI", Roboto, sans-serif;
     }
@@ -53,8 +55,8 @@
       flex: 1;
       display: flex;
       flex-direction: column;
-      padding: 24px 40px 28px;
-      max-width: 1280px;
+      padding: 20px 28px 22px;
+      max-width: 1200px;
       margin: 0 auto;
       position: relative;
       overflow-x: hidden;
@@ -66,7 +68,7 @@
       position: fixed;
       inset: -40%;
       background:
-        radial-gradient(circle at 0% 0%, rgba(56,189,248,0.14), transparent 55%),
+        radial-gradient(circle at 0% 0%, rgba(56,189,248,0.16), transparent 55%),
         radial-gradient(circle at 100% 100%, rgba(34,197,94,0.12), transparent 60%);
       opacity: 0.85;
       mix-blend-mode: screen;
@@ -84,60 +86,61 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 16px;
-      margin-bottom: 16px;
+      gap: 12px;
+      margin-bottom: 12px;
     }
 
     .header-left {
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 2px;
     }
 
     #team-header-name {
-      font-size: 1.3rem;
+      font-size: 1.2rem;
       font-weight: 700;
-      letter-spacing: 0.12em;
+      letter-spacing: 0.14em;
       text-transform: uppercase;
     }
 
     #team-header-subline {
-      font-size: 0.86rem;
+      font-size: 0.8rem;
       color: var(--muted);
     }
 
     .header-right {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
       flex-wrap: wrap;
       justify-content: flex-end;
     }
 
     .pill-record {
       border-radius: var(--radius-pill);
-      border: 1px solid rgba(34,197,94,0.8);
-      padding: 6px 14px;
-      font-size: 0.84rem;
-      background: linear-gradient(135deg, rgba(22,163,74,0.18), rgba(15,23,42,0.96));
+      border: 1px solid rgba(34,197,94,0.9);
+      padding: 4px 10px;
+      font-size: 0.78rem;
+      background: linear-gradient(135deg, rgba(22,163,74,0.2), rgba(15,23,42,0.98));
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      box-shadow: 0 10px 22px rgba(22,163,74,0.35);
+      box-shadow: 0 10px 20px rgba(22,163,74,0.3);
+      white-space: nowrap;
     }
 
     .pill-record-dot {
-      width: 8px;
-      height: 8px;
+      width: 7px;
+      height: 7px;
       border-radius: 999px;
       background: var(--accent);
-      box-shadow: 0 0 0 4px rgba(34,197,94,0.18);
+      box-shadow: 0 0 0 3px rgba(34,197,94,0.18);
     }
 
     .pill-record-label {
       text-transform: uppercase;
       letter-spacing: 0.18em;
-      font-size: 0.7rem;
+      font-size: 0.65rem;
       color: rgba(209,250,229,0.88);
     }
 
@@ -147,13 +150,14 @@
 
     .pill-lock {
       border-radius: var(--radius-pill);
-      border: 1px solid rgba(148,163,184,0.6);
-      padding: 5px 12px;
-      font-size: 0.78rem;
+      border: 1px solid rgba(148,163,184,0.7);
+      padding: 4px 10px;
+      font-size: 0.75rem;
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      background: rgba(15,23,42,0.95);
+      background: rgba(15,23,42,0.98);
+      white-space: nowrap;
     }
 
     .pill-lock--locked {
@@ -168,33 +172,27 @@
       color: #bbf7d0;
     }
 
-    .unit-tab:hover:not(.unit-tab--active) {
-        background: rgba(31,41,55,0.95);
-        color: var(--text);
-    }
-
-
     main {
       flex: 1;
       display: flex;
       flex-direction: column;
-      gap: 14px;
+      gap: 10px;
     }
 
-    /* Layout */
+    /* Layout: more compact, two main columns */
     .layout-grid {
       display: grid;
-      grid-template-columns: minmax(0, 2.1fr) minmax(0, 1.1fr);
-      gap: 14px;
+      grid-template-columns: minmax(0, 1.8fr) minmax(0, 1.2fr);
+      gap: 10px;
       align-items: flex-start;
     }
 
     .card {
       border-radius: var(--radius-lg);
       border: 1px solid var(--card-border);
-      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.75), rgba(15,23,42,0.98));
+      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.7), rgba(15,23,42,0.98));
       box-shadow: var(--shadow-soft);
-      padding: 14px 16px 12px;
+      padding: 10px 12px 10px;
       position: relative;
       overflow: hidden;
     }
@@ -202,13 +200,13 @@
     .card-header {
       display: flex;
       justify-content: space-between;
-      align-items: baseline;
+      align-items: center;
       gap: 8px;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
     }
 
     .card-title {
-      font-size: 0.88rem;
+      font-size: 0.78rem;
       text-transform: uppercase;
       letter-spacing: 0.2em;
       color: var(--muted);
@@ -219,15 +217,22 @@
     }
 
     .card-subtitle {
-      font-size: 0.74rem;
+      font-size: 0.72rem;
       color: var(--muted);
+      margin-top: 2px;
+    }
+
+    .card-header-main {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
     }
 
     .card-body {
-      font-size: 0.84rem;
+      font-size: 0.82rem;
     }
 
-    /* Tabs */
+    /* Unit tabs */
     .unit-tabs {
       display: inline-flex;
       border-radius: var(--radius-pill);
@@ -235,67 +240,162 @@
       background: rgba(15,23,42,0.98);
       padding: 2px;
       gap: 2px;
+      box-shadow: var(--shadow-sm);
     }
 
     .unit-tab {
       border-radius: var(--radius-pill);
       border: none;
-      padding: 6px 12px;
-      font-size: 0.8rem;
+      padding: 4px 9px;
+      font-size: 0.72rem;
       text-transform: uppercase;
-      letter-spacing: 0.12em;
+      letter-spacing: 0.14em;
       color: var(--muted);
       background: transparent;
       cursor: pointer;
+      white-space: nowrap;
     }
 
     .unit-tab--active {
-      background: linear-gradient(135deg, rgba(56,189,248,0.32), rgba(37,99,235,0.6));
+      background: linear-gradient(135deg, rgba(56,189,248,0.34), rgba(37,99,235,0.7));
       color: #0b1120;
     }
 
-    /* Depth chart */
-    .depth-chart-container {
+    .unit-tab:hover:not(.unit-tab--active) {
+      background: rgba(31,41,55,0.95);
+      color: var(--text);
+    }
+
+    /* Depth chart area */
+    .depth-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+      gap: 8px;
+      align-items: flex-start;
+    }
+
+    /* Formation board (visual positional layout) */
+    .formation-board {
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(31,41,55,0.95);
+      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.9), rgba(15,23,42,1));
+      padding: 8px 8px 6px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .formation-header {
       display: flex;
-      flex-direction: column;
-      gap: 10px;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .formation-grid {
+      display: grid;
+      grid-template-rows: repeat(4, minmax(0, 1fr));
+      gap: 4px;
+      font-size: 0.68rem;
+      position: relative;
+    }
+
+    .formation-row {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 2px;
+      align-items: center;
+      justify-items: center;
+    }
+
+    .formation-slot {
+      min-height: 24px;
+      min-width: 30px;
+      border-radius: 999px;
+      border: 1px solid rgba(55,65,81,0.9);
+      background: rgba(15,23,42,0.98);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2px 6px;
+      cursor: pointer;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .formation-slot[data-empty="true"] {
+      border-style: dashed;
+      color: var(--muted);
+      font-size: 0.66rem;
+    }
+
+    .formation-slot[data-starter="true"] {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px rgba(34,197,94,0.3);
+    }
+
+    .formation-slot[data-focus="true"] {
+      border-color: var(--accent-alt);
+      box-shadow: 0 0 0 1px rgba(56,189,248,0.3);
+    }
+
+    .formation-caption {
       margin-top: 4px;
+      font-size: 0.68rem;
+      color: var(--muted);
+    }
+
+    /* Depth chart list – compact grid of position cards */
+    .depth-chart-container {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+      gap: 6px;
+      margin-top: 2px;
+      max-height: 400px;
+      overflow-y: auto;
     }
 
     .pos-group {
       border-radius: var(--radius-md);
       border: 1px solid rgba(31,41,55,0.95);
-      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.9), rgba(15,23,42,0.98));
-      padding: 8px 10px 8px;
+      background: linear-gradient(145deg, rgba(15,23,42,0.98), rgba(15,23,42,0.9));
+      padding: 6px 7px 4px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
     }
 
     .pos-group-header {
       display: flex;
       justify-content: space-between;
-      align-items: baseline;
-      gap: 6px;
-      margin-bottom: 6px;
+      align-items: center;
+      gap: 4px;
+      margin-bottom: 2px;
     }
 
     .pos-group-label {
-      font-size: 0.8rem;
+      font-size: 0.72rem;
       text-transform: uppercase;
-      letter-spacing: 0.18em;
+      letter-spacing: 0.16em;
       color: var(--muted);
     }
 
     .pos-group-sub {
-      font-size: 0.74rem;
+      font-size: 0.7rem;
       color: var(--muted);
+      text-align: right;
     }
 
     .slot-row {
       display: grid;
-      grid-template-columns: 80px minmax(0, 1fr) auto;
-      gap: 6px;
+      grid-template-columns: 55px minmax(0, 1fr);
+      gap: 4px;
       align-items: center;
-      padding: 4px 0;
-      border-top: 1px solid rgba(31,41,55,0.8);
+      padding: 2px 0;
+      border-top: 1px solid rgba(31,41,55,0.9);
     }
 
     .slot-row:first-of-type {
@@ -304,7 +404,7 @@
     }
 
     .slot-row-label {
-      font-size: 0.74rem;
+      font-size: 0.7rem;
       text-transform: uppercase;
       letter-spacing: 0.12em;
       color: var(--muted);
@@ -313,15 +413,15 @@
     .slot-player-pill {
       border-radius: var(--radius-pill);
       border: 1px solid rgba(148,163,184,0.7);
-      padding: 5px 10px;
-      min-height: 30px;
+      padding: 4px 7px;
+      min-height: 26px;
       display: flex;
-      flex-direction: column;
-      justify-content: center;
-      gap: 2px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 4px;
       background: rgba(15,23,42,0.96);
       cursor: pointer;
-      color: var(--text); /* ensure text isn’t black when this is a button */
+      color: var(--text);
       transition:
         background-color 120ms ease-out,
         border-color 120ms ease-out,
@@ -330,7 +430,7 @@
 
     .slot-player-pill:hover {
       background: rgba(31,41,55,0.98);
-      border-color: rgba(226,232,240,0.8);
+      border-color: rgba(226,232,240,0.85);
       transform: translateY(-0.5px);
     }
 
@@ -338,32 +438,43 @@
       border-style: dashed;
       border-color: rgba(75,85,99,0.9);
       color: var(--muted);
-      font-size: 0.78rem;
+      font-size: 0.72rem;
+      justify-content: flex-start;
+    }
+
+    .slot-player-main {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      min-width: 0;
     }
 
     .slot-player-name {
-      font-size: 0.82rem;
+      font-size: 0.78rem;
       font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .slot-player-meta {
-      font-size: 0.72rem;
+      font-size: 0.68rem;
       color: var(--muted);
     }
 
     .slot-badge-row {
       display: flex;
-      flex-wrap: wrap;
-      gap: 4px;
-      justify-content: flex-end;
+      align-items: center;
+      gap: 2px;
     }
 
     .slot-badge {
       border-radius: 999px;
       border: 1px solid rgba(148,163,184,0.7);
-      padding: 2px 7px;
-      font-size: 0.7rem;
+      padding: 1px 5px;
+      font-size: 0.65rem;
       color: var(--muted);
+      white-space: nowrap;
     }
 
     .slot-badge--risk {
@@ -384,35 +495,58 @@
       color: #bbf7d0;
     }
 
+    /* Depth chart lock banner */
+    .lock-banner {
+      margin-bottom: 6px;
+      border-radius: var(--radius-md);
+      padding: 5px 7px;
+      font-size: 0.72rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+    }
+
+    .lock-banner--warning {
+      border: 1px solid var(--warn);
+      background: var(--warn-soft);
+      color: #fef3c7;
+    }
+
+    .lock-banner--locked {
+      border: 1px solid var(--danger);
+      background: var(--danger-soft);
+      color: #fee2e2;
+    }
+
     /* Roster panel */
     .roster-search-row {
       display: flex;
-      gap: 8px;
+      gap: 6px;
       align-items: center;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
       flex-wrap: wrap;
     }
 
     .roster-search-input {
-      flex: 1 1 160px;
+      flex: 1 1 150px;
       border-radius: var(--radius-pill);
       border: 1px solid rgba(55,65,81,0.9);
       background: rgba(15,23,42,0.96);
-      padding: 6px 10px;
-      font-size: 0.82rem;
+      padding: 5px 9px;
+      font-size: 0.8rem;
       color: var(--text);
     }
 
     .roster-search-input::placeholder {
-      color: rgba(148,163,184,0.85);
+      color: rgba(148,163,184,0.9);
     }
 
-    .roster-filter-select {
+    .roster-filter-pos {
       border-radius: var(--radius-pill);
       border: 1px solid rgba(55,65,81,0.9);
       background: rgba(15,23,42,0.96);
-      padding: 6px 10px;
-      font-size: 0.82rem;
+      padding: 5px 9px;
+      font-size: 0.8rem;
       color: var(--text);
     }
 
@@ -426,14 +560,14 @@
 
     .roster-row {
       display: grid;
-      grid-template-columns: minmax(0, 1.4fr) 60px minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1.5fr) 50px minmax(0, 0.9fr) auto;
       gap: 6px;
-      padding: 6px 9px;
-      font-size: 0.8rem;
-      align-items: baseline;
+      padding: 5px 8px;
+      font-size: 0.78rem;
+      align-items: center;
       border-bottom: 1px solid rgba(31,41,55,0.9);
       cursor: default;
-      color: var(--text); /* global text color for names/roles */
+      color: var(--text);
     }
 
     .roster-row:last-child {
@@ -441,27 +575,53 @@
     }
 
     .roster-row:hover {
-      background: rgba(31,41,55,0.85);
+      background: rgba(31,41,55,0.9);
+    }
+
+    .roster-row-main {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      min-width: 0;
     }
 
     .roster-row-name {
       font-weight: 500;
-      color: var(--text); /* explicit fix for black names */
+      font-size: 0.8rem;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .roster-row-meta {
+      font-size: 0.7rem;
+      color: var(--muted);
     }
 
     .roster-row-pos {
-      font-size: 0.78rem;
+      font-size: 0.74rem;
       color: var(--muted);
       text-align: center;
+      white-space: nowrap;
     }
 
     .roster-row-role {
-      font-size: 0.76rem;
+      font-size: 0.74rem;
       color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .roster-row-actions {
+      display: inline-flex;
+      gap: 4px;
+      justify-content: flex-end;
     }
 
     .roster-row--unassigned {
-      background: rgba(24,24,27,0.9);
+      background: rgba(24,24,27,0.95);
     }
 
     .roster-row-highlight {
@@ -469,12 +629,36 @@
     }
 
     .roster-empty {
-      padding: 10px;
-      font-size: 0.8rem;
+      padding: 8px;
+      font-size: 0.78rem;
       color: var(--muted);
     }
 
-    /* Shared scrollbars for depth chart & roster list */
+    /* Tiny action pills under each player row – GM actions */
+    .action-pill {
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(148,163,184,0.6);
+      background: rgba(15,23,42,0.98);
+      padding: 2px 7px;
+      font-size: 0.68rem;
+      color: var(--muted);
+      cursor: pointer;
+      white-space: nowrap;
+      transition:
+        background-color 120ms ease-out,
+        border-color 120ms ease-out,
+        color 120ms ease-out,
+        transform 120ms ease-out;
+    }
+
+    .action-pill:hover {
+      background: rgba(31,41,55,0.98);
+      border-color: rgba(226,232,240,0.9);
+      color: var(--text);
+      transform: translateY(-0.5px);
+    }
+
+    /* Shared scrollbars */
     .roster-list,
     .depth-chart-container {
       scrollbar-width: thin;
@@ -483,8 +667,8 @@
 
     .roster-list::-webkit-scrollbar,
     .depth-chart-container::-webkit-scrollbar {
-      width: 10px;
-      height: 10px;
+      width: 8px;
+      height: 8px;
     }
 
     .roster-list::-webkit-scrollbar-track,
@@ -503,8 +687,8 @@
     .btn {
       border-radius: var(--radius-pill);
       border: none;
-      padding: 8px 18px;
-      font-size: 0.86rem;
+      padding: 7px 15px;
+      font-size: 0.78rem;
       font-weight: 600;
       letter-spacing: 0.14em;
       text-transform: uppercase;
@@ -525,12 +709,12 @@
       background: linear-gradient(135deg, #22c55e, #16a34a);
       color: #020617;
       border: 1px solid rgba(22,163,74,0.9);
-      box-shadow: 0 10px 24px rgba(22,163,74,0.45);
+      box-shadow: 0 10px 22px rgba(22,163,74,0.45);
     }
 
     .btn-primary:hover:enabled {
       transform: translateY(-1px);
-      box-shadow: 0 16px 32px rgba(22,163,74,0.6);
+      box-shadow: 0 14px 26px rgba(22,163,74,0.6);
     }
 
     .btn-primary:disabled {
@@ -542,10 +726,10 @@
     .btn-ghost {
       border-radius: var(--radius-pill);
       border: 1px solid rgba(148,163,184,0.4);
-      background: rgba(15,23,42,0.95);
+      background: rgba(15,23,42,0.96);
       color: var(--text);
-      font-size: 0.8rem;
-      padding: 6px 12px;
+      font-size: 0.76rem;
+      padding: 5px 11px;
     }
 
     .btn-ghost:hover {
@@ -555,56 +739,33 @@
 
     button:focus-visible,
     .roster-search-input:focus-visible,
-    .roster-filter-select:focus-visible {
+    .roster-filter-pos:focus-visible {
       outline: 2px solid var(--accent);
-      outline-offset: 3px;
-    }
-
-    /* Lock banner */
-    .lock-banner {
-      margin-top: 6px;
-      border-radius: var(--radius-md);
-      padding: 6px 10px;
-      font-size: 0.78rem;
-      display: flex;
-      align-items: flex-start;
-      gap: 8px;
-    }
-
-    .lock-banner--warning {
-      border: 1px solid var(--warn);
-      background: var(--warn-soft);
-      color: #fef3c7;
-    }
-
-    .lock-banner--locked {
-      border: 1px solid var(--danger);
-      background: var(--danger-soft);
-      color: #fee2e2;
+      outline-offset: 2px;
     }
 
     /* No-franchise state */
     .no-franchise-state {
-      margin-top: 40px;
+      margin-top: 16px;
       border-radius: var(--radius-lg);
       border: 1px solid var(--card-border-strong);
       background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.7), rgba(15,23,42,0.98));
-      padding: 20px 20px 18px;
+      padding: 16px 16px 14px;
       text-align: left;
-      max-width: 520px;
+      max-width: 480px;
       box-shadow: var(--shadow-soft);
     }
 
     .no-franchise-title {
-      font-size: 1rem;
+      font-size: 0.96rem;
       font-weight: 600;
       margin-bottom: 6px;
     }
 
     .no-franchise-text {
-      font-size: 0.86rem;
+      font-size: 0.8rem;
       color: var(--muted);
-      margin-bottom: 12px;
+      margin-bottom: 10px;
     }
 
     .no-franchise-actions {
@@ -614,21 +775,25 @@
     }
 
     footer {
-      margin-top: 10px;
-      font-size: 0.78rem;
+      margin-top: 8px;
+      font-size: 0.76rem;
       color: var(--muted);
       display: flex;
       justify-content: space-between;
-      gap: 8px;
+      gap: 6px;
       flex-wrap: wrap;
     }
 
     @media (max-width: 1024px) {
       .page {
-        padding: 20px 18px 24px;
+        padding: 16px 14px 20px;
       }
 
       .layout-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .depth-layout {
         grid-template-columns: minmax(0, 1fr);
       }
     }
@@ -644,13 +809,15 @@
         justify-content: flex-start;
       }
 
-      .slot-row {
-        grid-template-columns: 70px minmax(0, 1fr);
+      .roster-row {
+        grid-template-columns: minmax(0, 1.5fr) 45px minmax(0, 0.9fr);
+        grid-auto-rows: auto;
       }
 
-      .slot-badge-row {
-        margin-top: 4px;
+      .roster-row-actions {
+        margin-top: 3px;
         justify-content: flex-start;
+        grid-column: 1 / -1;
       }
     }
   </style>
@@ -679,15 +846,15 @@
 
     <main id="team-main">
       <div class="layout-grid">
-        <!-- Left: Depth chart -->
+        <!-- Left: Formation + Depth chart -->
         <section class="card" id="card-depth-chart" aria-labelledby="card-depth-chart-title">
           <div class="card-header">
-            <div>
+            <div class="card-header-main">
               <div class="card-title" id="card-depth-chart-title">
                 <strong>Depth Chart</strong>
               </div>
               <div class="card-subtitle">
-                Set starters, backups, and special teams roles.
+                Compact view of starters, backups, and formation.
               </div>
             </div>
             <div class="unit-tabs" role="tablist">
@@ -707,21 +874,78 @@
           </div>
           <div class="card-body">
             <div id="lock-banner-container"></div>
-            <div class="depth-chart-container" id="depth-chart-container">
-              <!-- Populated by JS -->
+
+            <div class="depth-layout">
+              <!-- Formation board – JS can wire focus/highlight to depth chart selections -->
+              <div class="formation-board" id="formation-board">
+                <div class="formation-header">
+                  <span>Positional View</span>
+                  <span>Tap a slot to focus</span>
+                </div>
+                <div class="formation-grid">
+                  <!-- WR / outside -->
+                  <div class="formation-row" data-row="skill">
+                    <div class="formation-slot" data-pos="WR-L" data-empty="true">WR</div>
+                    <div></div>
+                    <div></div>
+                    <div class="formation-slot" data-pos="TE" data-empty="true">TE</div>
+                    <div></div>
+                    <div></div>
+                    <div class="formation-slot" data-pos="WR-R" data-empty="true">WR</div>
+                  </div>
+                  <!-- OL in front of QB -->
+                  <div class="formation-row" data-row="ol">
+                    <div class="formation-slot" data-pos="LT" data-empty="true">LT</div>
+                    <div class="formation-slot" data-pos="LG" data-empty="true">LG</div>
+                    <div class="formation-slot" data-pos="C" data-empty="true">C</div>
+                    <div class="formation-slot" data-pos="RG" data-empty="true">RG</div>
+                    <div class="formation-slot" data-pos="RT" data-empty="true">RT</div>
+                    <div></div>
+                    <div></div>
+                  </div>
+                  <!-- QB / RB backfield -->
+                  <div class="formation-row" data-row="backfield">
+                    <div></div>
+                    <div></div>
+                    <div class="formation-slot" data-pos="QB" data-empty="true">QB</div>
+                    <div></div>
+                    <div class="formation-slot" data-pos="RB" data-empty="true">RB</div>
+                    <div></div>
+                    <div></div>
+                  </div>
+                  <!-- Extra utility row (FB / slot / flex) -->
+                  <div class="formation-row" data-row="flex">
+                    <div></div>
+                    <div class="formation-slot" data-pos="FB" data-empty="true">FB</div>
+                    <div></div>
+                    <div class="formation-slot" data-pos="WR-S" data-empty="true">Slot</div>
+                    <div></div>
+                    <div></div>
+                    <div></div>
+                  </div>
+                </div>
+                <div class="formation-caption">
+                  This board mirrors your current depth chart for the selected unit.
+                </div>
+              </div>
+
+              <!-- Depth chart list – JS still renders into this container -->
+              <div class="depth-chart-container" id="depth-chart-container">
+                <!-- Populated by team_view.js -->
+              </div>
             </div>
           </div>
         </section>
 
-        <!-- Right: Roster & meta -->
+        <!-- Right: Roster & GM actions -->
         <section class="card" id="card-roster" aria-labelledby="card-roster-title">
           <div class="card-header">
-            <div>
+            <div class="card-header-main">
               <div class="card-title" id="card-roster-title">
                 <strong>Roster</strong>
               </div>
               <div class="card-subtitle" id="card-roster-subtitle">
-                All players currently on this team.
+                Compact list with quick GM actions.
               </div>
             </div>
             <button type="button" class="btn-ghost" id="btn-sync-default-depth">
@@ -737,7 +961,7 @@
                 placeholder="Search by name or position"
                 autocomplete="off"
               />
-              <select id="roster-filter-pos" class="roster-filter-select">
+              <select id="roster-filter-pos" class="roster-filter-pos">
                 <option value="">All positions</option>
                 <option value="QB">QB</option>
                 <option value="RB">RB</option>
@@ -762,6 +986,14 @@
               <div class="roster-empty" id="roster-empty-msg">
                 Loading roster…
               </div>
+              <!-- JS will render .roster-row here.
+                   You can later add action buttons like:
+                   <div class="roster-row-actions">
+                     <button class="action-pill" data-action="meet">Meet</button>
+                     <button class="action-pill" data-action="contract">Contract</button>
+                     <button class="action-pill" data-action="trade">Trade</button>
+                   </div>
+              -->
             </div>
           </div>
         </section>
@@ -787,6 +1019,7 @@
     </footer>
   </div>
 
+  <!-- Keep the same JS entry point so your hooks continue to work -->
   <script src="team_view.js"></script>
 </body>
 </html>
