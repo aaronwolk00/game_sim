@@ -1,250 +1,197 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>Franchise GM – League Stats &amp; Leaders</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <style>
-    :root {
-      --bg: #020617;
-      --panel: #020617;
-      --card: #020617;
-      --card-border: #1e293b;
-      --card-border-strong: #4b5563;
-      --text: #e5e7eb;
-      --muted: #9ca3af;
-      --accent: #22c55e;
-      --accent-soft: rgba(34,197,94,0.18);
-      --accent-alt: #38bdf8;
-      --danger: #f97373;
-      --danger-soft: rgba(248,113,113,0.18);
-      --radius-lg: 16px;
-      --radius-md: 12px;
-      --radius-pill: 999px;
-      --shadow-soft: 0 18px 45px rgba(15,23,42,0.75);
-      --shadow-subtle: 0 1px 3px rgba(15,23,42,0.7);
-      --border-subtle: rgba(31,41,55,0.9);
-    }
-
-    * { box-sizing: border-box; }
-
-    html,
-    body {
-      margin: 0;
-      padding: 0;
-      background: radial-gradient(circle at 0% 0%, #0b1120 0, #020617 48%, #000 100%);
-      color: var(--text);
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
-        "Segoe UI", sans-serif;
-      -webkit-font-smoothing: antialiased;
-    }
-
-    body {
-      display: flex;
-      min-height: 100vh;
-      flex-direction: column;
-    }
-
-    .page {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      padding: 24px 40px 28px;
-      max-width: 1960px;
-      margin: 0 auto;
-      position: relative;
-    }
-
-    .page::before {
-      content: "";
-      position: fixed;
-      inset: -40%;
-      background:
-        radial-gradient(circle at 0% 0%, rgba(56,189,248,0.14), transparent 55%),
-        radial-gradient(circle at 100% 100%, rgba(34,197,94,0.12), transparent 60%);
-      opacity: 0.85;
-      mix-blend-mode: screen;
-      pointer-events: none;
-      z-index: -2;
-      animation: ambientShift 26s ease-in-out infinite alternate;
-    }
-
-    @keyframes ambientShift {
-      0% { transform: translate3d(0,0,0) scale(1); }
-      100% { transform: translate3d(-3%, -2%, 0) scale(1.02); }
-    }
-
-    .stats-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 16px;
-      margin-bottom: 18px;
-      position: relative;
-      z-index: 1;
-    }
-
-    .header-left {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-
-    #stats-header-name {
-      font-size: 1.2rem;
-      font-weight: 600;
-      letter-spacing: 0.03em;
-    }
-
-    #stats-header-subline {
-      font-size: 0.86rem;
-      color: var(--muted);
-    }
-
-    .header-right {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-    }
-
-    .pill-record {
-      border-radius: var(--radius-pill);
-      border: 1px solid rgba(34,197,94,0.8);
-      padding: 6px 14px;
-      font-size: 0.84rem;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      background: radial-gradient(circle at 0% 0%, rgba(34,197,94,0.16), rgba(15,23,42,0.98));
-      box-shadow: var(--shadow-subtle);
-      white-space: nowrap;
-    }
-
-    .pill-record-dot {
-      width: 7px;
-      height: 7px;
-      border-radius: 999px;
-      background: #22c55e;
-      box-shadow: 0 0 0 4px rgba(34,197,94,0.25);
-    }
-
-    .pill-record-label {
-      text-transform: uppercase;
-      letter-spacing: 0.16em;
-      font-size: 0.68rem;
-      color: rgba(187,247,208,0.95);
-    }
-
-    .pill-record-value {
-      font-variant-numeric: tabular-nums;
-      font-weight: 600;
-    }
-
-    .btn-ghost {
-      border-radius: var(--radius-pill);
-      border: 1px solid rgba(148,163,184,0.7);
-      background: rgba(15,23,42,0.85);
-      color: var(--text);
-      font-size: 0.84rem;
-      padding: 6px 14px;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      cursor: pointer;
-      box-shadow: var(--shadow-subtle);
-      text-decoration: none;
-    }
-
-    .btn-ghost:hover {
-      background: rgba(30,64,175,0.7);
-      border-color: rgba(129,140,248,0.9);
-    }
-
-    .btn-ghost:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 3px;
-    }
-
-    /* ... all the rest of your styles from previous version stay unchanged ... */
-
-    /* Utilities and media queries remain here */
-    [hidden] {
-      display: none !important;
-    }
-
-    @media (max-width: 1100px) {
-      .layout-leaders-grid {
-        grid-template-columns: minmax(0, 1fr);
-      }
-
-      .team-stats-layout {
-        grid-template-columns: minmax(0, 1fr);
-      }
-
-      .scope-summary {
-        display: none;
-      }
-
-      .page {
-        padding: 18px 18px 24px;
-      }
-    }
-
-    @media (max-width: 640px) {
-      .stats-header {
-        flex-direction: column;
-        align-items: flex-start;
-      }
-
-      .scope-bar {
-        flex-direction: column;
-        align-items: flex-start;
-      }
-
-      .scope-summary {
-        align-self: flex-start;
-        margin-left: 0;
-      }
-    }
-  </style>
-</head>
-<body>
-  <div class="page" id="stats-page-root">
-    <header class="stats-header">
-      <div class="header-left">
-        <div id="stats-header-name">Franchise Team</div>
-        <div id="stats-header-subline">Season — • League Stats &amp; Leaders</div>
+<main role="main" aria-label="League stats and leaders">
+  <!-- Scope bar -->
+  <section class="scope-bar" aria-label="Stats scope selection">
+    <div class="scope-controls">
+      <div class="scope-control-group">
+        <label for="scope-mode-select">View</label>
+        <select id="scope-mode-select">
+          <option value="season">Season to date</option>
+          <option value="week">Single week</option>
+          <option value="range">Week range</option>
+        </select>
       </div>
-      <div class="header-right">
-        <div class="pill-record" id="stats-record-pill">
-          <span class="pill-record-dot" aria-hidden="true"></span>
-          <span class="pill-record-label">Record</span>
-          <span class="pill-record-value" id="stats-record-value">0–0</span>
-        </div>
-        <!-- New: back to Schedule -->
-        <a href="schedule.html" class="btn-ghost" id="btn-stats-back-schedule">
-          Back to schedule
-        </a>
-        <!-- Existing: JS-wired back to Hub -->
-        <a href="franchise.html" class="btn-ghost" id="btn-stats-back">
-            Back to hub
-          </a>
+
+      <div class="scope-control-group" id="scope-week-wrapper" hidden>
+        <label for="scope-week-select">Week</label>
+        <select id="scope-week-select"></select>
       </div>
-    </header>
 
-    <!-- everything below here stays the same as the earlier stats.html:
-         scope bar, tabs, panels, no-franchise state, script include, etc. -->
+      <div class="scope-control-group" id="scope-range-from-wrapper" hidden>
+        <label for="scope-range-from-select">From</label>
+        <select id="scope-range-from-select"></select>
+      </div>
 
-    <!-- ... keep your existing main / sections / footer from the previous file ... -->
+      <div class="scope-control-group" id="scope-range-to-wrapper" hidden>
+        <label for="scope-range-to-select">To</label>
+        <select id="scope-range-to-select"></select>
+      </div>
+    </div>
 
-    <main role="main" aria-label="League stats and leaders">
-      <!-- Scope bar, tabs, panels, etc. from previous version -->
-      <!-- (not repeating here to keep this focused, but no changes are needed below the header) -->
-    </main>
-  </div>
+    <div class="scope-summary" id="scope-summary-text">
+      Season to date.
+    </div>
+  </section>
 
-  <script type="module" src="stats.js"></script>
-</body>
-</html>
+  <!-- Tabs -->
+  <section class="stats-tabs-wrapper">
+    <div class="stats-tabs" role="tablist" aria-label="Stats views">
+      <button
+        type="button"
+        class="stats-tab"
+        id="tab-leaders"
+        data-panel-id="panel-leaders"
+        data-active="true"
+        aria-selected="true"
+      >
+        Player Leaders
+      </button>
+      <button
+        type="button"
+        class="stats-tab"
+        id="tab-team"
+        data-panel-id="panel-team-stats"
+        data-active="false"
+        aria-selected="false"
+      >
+        Team Stats
+      </button>
+    </div>
+  </section>
+
+  <!-- Player leaders panel -->
+  <section
+    id="panel-leaders"
+    class="stats-panel"
+    aria-labelledby="tab-leaders"
+  >
+    <div class="layout-leaders-grid">
+      <!-- Passing -->
+      <article class="leader-card">
+        <header class="leader-card-header">
+          <h2>Passing</h2>
+          <button
+            type="button"
+            class="leader-expand-btn"
+            id="btn-expand-passing"
+            data-expanded="false"
+          >
+            Show top 25
+          </button>
+        </header>
+        <ul id="leader-list-passing" class="leader-list"></ul>
+      </article>
+
+      <!-- Rushing -->
+      <article class="leader-card">
+        <header class="leader-card-header">
+          <h2>Rushing</h2>
+          <button
+            type="button"
+            class="leader-expand-btn"
+            id="btn-expand-rushing"
+            data-expanded="false"
+          >
+            Show top 25
+          </button>
+        </header>
+        <ul id="leader-list-rushing" class="leader-list"></ul>
+      </article>
+
+      <!-- Receiving -->
+      <article class="leader-card">
+        <header class="leader-card-header">
+          <h2>Receiving</h2>
+          <button
+            type="button"
+            class="leader-expand-btn"
+            id="btn-expand-receiving"
+            data-expanded="false"
+          >
+            Show top 25
+          </button>
+        </header>
+        <ul id="leader-list-receiving" class="leader-list"></ul>
+      </article>
+
+      <!-- Kicking -->
+      <article class="leader-card">
+        <header class="leader-card-header">
+          <h2>Kicking</h2>
+          <button
+            type="button"
+            class="leader-expand-btn"
+            id="btn-expand-kicking"
+            data-expanded="false"
+          >
+            Show top 25
+          </button>
+        </header>
+        <ul id="leader-list-kicking" class="leader-list"></ul>
+      </article>
+    </div>
+  </section>
+
+  <!-- Team stats panel -->
+  <section
+    id="panel-team-stats"
+    class="stats-panel"
+    aria-labelledby="tab-team"
+    hidden
+  >
+    <div class="team-stats-header">
+      <div class="team-stats-pills" role="tablist">
+        <button
+          type="button"
+          class="team-stats-pill"
+          id="pill-team-offense"
+          data-active="true"
+          aria-selected="true"
+        >
+          Offense
+        </button>
+        <button
+          type="button"
+          class="team-stats-pill"
+          id="pill-team-defense"
+          data-active="false"
+          aria-selected="false"
+        >
+          Defense
+        </button>
+      </div>
+    </div>
+
+    <div class="team-stats-table-wrapper">
+      <table class="team-stats-table">
+        <thead>
+          <tr>
+            <th>Team</th>
+            <th>GP</th>
+            <th>PPG</th>
+            <th>Yds/G</th>
+            <th>Pass Yds/G</th>
+            <th>Rush Yds/G</th>
+          </tr>
+        </thead>
+        <tbody id="team-rankings-tbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- No-franchise state -->
+  <section id="stats-no-franchise" class="no-franchise-state" hidden>
+    <h2 class="no-franchise-title">No active franchise found</h2>
+    <p class="no-franchise-text">
+      There’s no active franchise in this slot. Start a new franchise or
+      continue an existing one.
+    </p>
+    <div class="no-franchise-actions">
+      <button type="button" class="no-franchise-btn" id="btn-no-franchise-start">
+        Start a franchise
+      </button>
+      <button type="button" class="no-franchise-btn" id="btn-no-franchise-landing">
+        Back to landing
+      </button>
+    </div>
+  </section>
+</main>
