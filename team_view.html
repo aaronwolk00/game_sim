@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <title>Franchise GM – Team View & Depth Chart</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <!-- Simple inline favicon to avoid 404 noise -->
+  <!-- Prevent favicon 404 spam -->
   <link rel="icon" href="data:,">
   <style>
     :root {
@@ -25,8 +25,8 @@
       --radius-lg: 16px;
       --radius-md: 10px;
       --radius-pill: 999px;
-      --shadow-soft: 0 18px 35px rgba(0,0,0,0.6);
-      --shadow-sm: 0 10px 22px rgba(0,0,0,0.55);
+      --shadow-soft: 0 22px 40px rgba(0,0,0,0.65);
+      --shadow-sm: 0 12px 26px rgba(0,0,0,0.55);
       --font: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
               "Segoe UI", Roboto, sans-serif;
     }
@@ -55,12 +55,12 @@
       flex: 1;
       display: flex;
       flex-direction: column;
-      padding: 20px 28px 22px;
-      max-width: 1200px;
+      padding: 20px 32px 24px;
+      max-width: 1960px; /* use almost full 1960px width */
       margin: 0 auto;
       position: relative;
       overflow-x: hidden;
-      overflow-y: auto;
+      overflow-y: auto; /* only page scrolls */
     }
 
     .page::before {
@@ -86,32 +86,32 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 12px;
-      margin-bottom: 12px;
+      gap: 14px;
+      margin-bottom: 14px;
     }
 
     .header-left {
       display: flex;
       flex-direction: column;
-      gap: 2px;
+      gap: 4px;
     }
 
     #team-header-name {
-      font-size: 1.2rem;
-      font-weight: 700;
-      letter-spacing: 0.14em;
+      font-size: 1.35rem;
+      font-weight: 800;
+      letter-spacing: 0.18em;
       text-transform: uppercase;
     }
 
     #team-header-subline {
-      font-size: 0.8rem;
+      font-size: 0.82rem;
       color: var(--muted);
     }
 
     .header-right {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
       flex-wrap: wrap;
       justify-content: flex-end;
     }
@@ -119,39 +119,39 @@
     .pill-record {
       border-radius: var(--radius-pill);
       border: 1px solid rgba(34,197,94,0.9);
-      padding: 4px 10px;
-      font-size: 0.78rem;
-      background: linear-gradient(135deg, rgba(22,163,74,0.2), rgba(15,23,42,0.98));
+      padding: 5px 14px;
+      font-size: 0.8rem;
+      background: linear-gradient(135deg, rgba(22,163,74,0.24), rgba(15,23,42,0.98));
       display: inline-flex;
       align-items: center;
-      gap: 6px;
-      box-shadow: 0 10px 20px rgba(22,163,74,0.3);
+      gap: 7px;
+      box-shadow: 0 12px 26px rgba(22,163,74,0.4);
       white-space: nowrap;
     }
 
     .pill-record-dot {
-      width: 7px;
-      height: 7px;
+      width: 8px;
+      height: 8px;
       border-radius: 999px;
       background: var(--accent);
-      box-shadow: 0 0 0 3px rgba(34,197,94,0.18);
+      box-shadow: 0 0 0 4px rgba(34,197,94,0.18);
     }
 
     .pill-record-label {
       text-transform: uppercase;
       letter-spacing: 0.18em;
-      font-size: 0.65rem;
+      font-size: 0.68rem;
       color: rgba(209,250,229,0.88);
     }
 
     .pill-record-value {
-      font-weight: 600;
+      font-weight: 700;
     }
 
     .pill-lock {
       border-radius: var(--radius-pill);
       border: 1px solid rgba(148,163,184,0.7);
-      padding: 4px 10px;
+      padding: 4px 11px;
       font-size: 0.75rem;
       display: inline-flex;
       align-items: center;
@@ -176,23 +176,15 @@
       flex: 1;
       display: flex;
       flex-direction: column;
-      gap: 10px;
-    }
-
-    /* Layout: more compact, two main columns */
-    .layout-grid {
-      display: grid;
-      grid-template-columns: minmax(0, 1.8fr) minmax(0, 1.2fr);
-      gap: 10px;
-      align-items: flex-start;
+      gap: 12px;
     }
 
     .card {
       border-radius: var(--radius-lg);
       border: 1px solid var(--card-border);
-      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.7), rgba(15,23,42,0.98));
+      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.78), rgba(15,23,42,0.98));
       box-shadow: var(--shadow-soft);
-      padding: 10px 12px 10px;
+      padding: 12px 14px 10px;
       position: relative;
       overflow: hidden;
     }
@@ -201,14 +193,20 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 8px;
-      margin-bottom: 6px;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .card-header-main {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
     }
 
     .card-title {
-      font-size: 0.78rem;
+      font-size: 0.84rem;
       text-transform: uppercase;
-      letter-spacing: 0.2em;
+      letter-spacing: 0.22em;
       color: var(--muted);
     }
 
@@ -217,22 +215,113 @@
     }
 
     .card-subtitle {
-      font-size: 0.72rem;
+      font-size: 0.75rem;
       color: var(--muted);
-      margin-top: 2px;
-    }
-
-    .card-header-main {
-      display: flex;
-      flex-direction: column;
-      gap: 0;
     }
 
     .card-body {
       font-size: 0.82rem;
     }
 
-    /* Unit tabs */
+    /* Top portion of depth card (featured player + unit tabs) */
+    .depth-top-bar {
+      display: grid;
+      grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .player-spotlight {
+      display: grid;
+      grid-template-columns: 96px minmax(0, 1fr);
+      gap: 10px;
+      align-items: center;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(31,41,55,0.95);
+      background: linear-gradient(135deg, rgba(15,23,42,0.98), rgba(8,47,73,0.96));
+      padding: 8px 10px;
+    }
+
+    .player-photo {
+      width: 96px;
+      height: 96px;
+      border-radius: 14px;
+      background: radial-gradient(circle at 30% 0%, #facc15, #b45309);
+      border: 2px solid rgba(15,23,42,0.9);
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.74rem;
+      color: #020617;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .player-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .player-name-row {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .player-name-main {
+      font-size: 1.1rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .player-name-pos {
+      font-size: 0.9rem;
+      color: var(--accent-alt);
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+    }
+
+    .player-submeta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+
+    .player-tag-row {
+      margin-top: 4px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      font-size: 0.7rem;
+    }
+
+    .player-tag {
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(148,163,184,0.7);
+      padding: 2px 7px;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      font-size: 0.65rem;
+      color: var(--muted);
+      background: rgba(15,23,42,0.98);
+    }
+
+    /* Unit tabs + position selector */
+    .depth-controls {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      align-items: flex-end;
+      justify-content: space-between;
+    }
+
     .unit-tabs {
       display: inline-flex;
       border-radius: var(--radius-pill);
@@ -246,7 +335,7 @@
     .unit-tab {
       border-radius: var(--radius-pill);
       border: none;
-      padding: 4px 9px;
+      padding: 5px 11px;
       font-size: 0.72rem;
       text-transform: uppercase;
       letter-spacing: 0.14em;
@@ -257,175 +346,156 @@
     }
 
     .unit-tab--active {
-      background: linear-gradient(135deg, rgba(56,189,248,0.34), rgba(37,99,235,0.7));
+      background: linear-gradient(135deg, rgba(56,189,248,0.36), rgba(37,99,235,0.7));
       color: #0b1120;
     }
 
     .unit-tab:hover:not(.unit-tab--active) {
-      background: rgba(31,41,55,0.95);
+      background: rgba(31,41,55,0.98);
       color: var(--text);
     }
 
-    /* Depth chart area */
-    .depth-layout {
-      display: grid;
-      grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
-      gap: 8px;
-      align-items: flex-start;
+    .pos-filter-label {
+      font-size: 0.7rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
     }
 
-    /* Formation board (visual positional layout) */
-    .formation-board {
+    .pos-filter-select {
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(55,65,81,0.9);
+      background: rgba(15,23,42,0.96);
+      padding: 5px 10px;
+      font-size: 0.78rem;
+      color: var(--text);
+      min-width: 170px;
+    }
+
+    /* Lock banner */
+    .lock-banner {
+      margin-bottom: 6px;
+      border-radius: var(--radius-md);
+      padding: 5px 8px;
+      font-size: 0.72rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+    }
+
+    .lock-banner--warning {
+      border: 1px solid var(--warn);
+      background: var(--warn-soft);
+      color: #fef3c7;
+    }
+
+    .lock-banner--locked {
+      border: 1px solid var(--danger);
+      background: var(--danger-soft);
+      color: #fee2e2;
+    }
+
+    /* Depth chart table-style layout */
+    .depth-table-wrapper {
       border-radius: var(--radius-md);
       border: 1px solid rgba(31,41,55,0.95);
-      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.9), rgba(15,23,42,1));
-      padding: 8px 8px 6px;
-      position: relative;
+      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.98), rgba(15,23,42,1));
       overflow: hidden;
     }
 
-    .formation-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+    .depth-table-header-row {
+      display: grid;
+      grid-template-columns: 40px minmax(0, 2.2fr) 70px repeat(5, minmax(0, 80px));
+      gap: 0;
+      padding: 4px 10px;
       font-size: 0.72rem;
-      color: var(--muted);
-      margin-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      background: linear-gradient(135deg, rgba(15,23,42,0.98), rgba(30,64,175,0.9));
+      border-bottom: 1px solid rgba(30,64,175,0.9);
+      color: rgba(191,219,254,0.96);
     }
 
-    .formation-grid {
-      display: grid;
-      grid-template-rows: repeat(4, minmax(0, 1fr));
-      gap: 4px;
-      font-size: 0.68rem;
-      position: relative;
-    }
-
-    .formation-row {
-      display: grid;
-      grid-template-columns: repeat(7, minmax(0, 1fr));
-      gap: 2px;
-      align-items: center;
-      justify-items: center;
-    }
-
-    .formation-slot {
-      min-height: 24px;
-      min-width: 30px;
-      border-radius: 999px;
-      border: 1px solid rgba(55,65,81,0.9);
-      background: rgba(15,23,42,0.98);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 2px 6px;
-      cursor: pointer;
-      color: var(--text);
+    .depth-header-cell {
       white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
     }
 
-    .formation-slot[data-empty="true"] {
-      border-style: dashed;
-      color: var(--muted);
-      font-size: 0.66rem;
+    .depth-header-cell--right {
+      text-align: right;
     }
 
-    .formation-slot[data-starter="true"] {
-      border-color: var(--accent);
-      box-shadow: 0 0 0 1px rgba(34,197,94,0.3);
-    }
-
-    .formation-slot[data-focus="true"] {
-      border-color: var(--accent-alt);
-      box-shadow: 0 0 0 1px rgba(56,189,248,0.3);
-    }
-
-    .formation-caption {
-      margin-top: 4px;
-      font-size: 0.68rem;
-      color: var(--muted);
-    }
-
-    /* Depth chart list – compact grid of position cards */
     .depth-chart-container {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-      gap: 6px;
-      margin-top: 2px;
-      max-height: 400px;
-      overflow-y: auto;
+      /* JS still fills this; no internal scroll */
     }
 
     .pos-group {
-      border-radius: var(--radius-md);
-      border: 1px solid rgba(31,41,55,0.95);
-      background: linear-gradient(145deg, rgba(15,23,42,0.98), rgba(15,23,42,0.9));
-      padding: 6px 7px 4px;
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
+      border-bottom: 1px solid rgba(31,41,55,0.9);
+    }
+
+    .pos-group:last-child {
+      border-bottom: none;
     }
 
     .pos-group-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 4px;
-      margin-bottom: 2px;
+      padding: 4px 10px 2px;
+      font-size: 0.7rem;
+      color: var(--muted);
     }
 
     .pos-group-label {
-      font-size: 0.72rem;
       text-transform: uppercase;
-      letter-spacing: 0.16em;
-      color: var(--muted);
+      letter-spacing: 0.18em;
+      font-size: 0.7rem;
     }
 
     .pos-group-sub {
-      font-size: 0.7rem;
+      font-size: 0.68rem;
       color: var(--muted);
-      text-align: right;
     }
 
     .slot-row {
       display: grid;
-      grid-template-columns: 55px minmax(0, 1fr);
-      gap: 4px;
+      grid-template-columns: 40px minmax(0, 2.2fr) 70px repeat(5, minmax(0, 80px));
+      padding: 3px 10px;
+      font-size: 0.78rem;
       align-items: center;
-      padding: 2px 0;
-      border-top: 1px solid rgba(31,41,55,0.9);
     }
 
-    .slot-row:first-of-type {
-      border-top: none;
-      padding-top: 0;
+    .slot-row:nth-child(even) {
+      background: rgba(15,23,42,0.96);
+    }
+
+    .slot-row:nth-child(odd) {
+      background: rgba(15,23,42,0.92);
     }
 
     .slot-row-label {
       font-size: 0.7rem;
       text-transform: uppercase;
-      letter-spacing: 0.12em;
+      letter-spacing: 0.14em;
       color: var(--muted);
     }
 
     .slot-player-pill {
       border-radius: var(--radius-pill);
-      border: 1px solid rgba(148,163,184,0.7);
-      padding: 4px 7px;
-      min-height: 26px;
+      border: 1px solid transparent;
+      padding: 3px 8px;
+      min-height: 24px;
       display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 4px;
-      background: rgba(15,23,42,0.96);
+      flex-direction: column;
+      justify-content: center;
+      gap: 1px;
+      background: transparent;
       cursor: pointer;
       color: var(--text);
       transition:
         background-color 120ms ease-out,
         border-color 120ms ease-out,
         transform 120ms ease-out;
+      min-width: 0;
     }
 
     .slot-player-pill:hover {
@@ -439,18 +509,17 @@
       border-color: rgba(75,85,99,0.9);
       color: var(--muted);
       font-size: 0.72rem;
-      justify-content: flex-start;
     }
 
     .slot-player-main {
       display: flex;
-      flex-direction: column;
-      gap: 1px;
+      gap: 6px;
+      align-items: baseline;
       min-width: 0;
     }
 
     .slot-player-name {
-      font-size: 0.78rem;
+      font-size: 0.8rem;
       font-weight: 500;
       white-space: nowrap;
       overflow: hidden;
@@ -458,21 +527,21 @@
     }
 
     .slot-player-meta {
-      font-size: 0.68rem;
+      font-size: 0.7rem;
       color: var(--muted);
     }
 
     .slot-badge-row {
-      display: flex;
-      align-items: center;
-      gap: 2px;
+      display: inline-flex;
+      gap: 3px;
+      font-size: 0.66rem;
+      margin-left: auto;
     }
 
     .slot-badge {
       border-radius: 999px;
       border: 1px solid rgba(148,163,184,0.7);
-      padding: 1px 5px;
-      font-size: 0.65rem;
+      padding: 1px 6px;
       color: var(--muted);
       white-space: nowrap;
     }
@@ -495,44 +564,29 @@
       color: #bbf7d0;
     }
 
-    /* Depth chart lock banner */
-    .lock-banner {
-      margin-bottom: 6px;
+    /* Roster / GM actions card */
+
+    .roster-table-wrapper {
       border-radius: var(--radius-md);
-      padding: 5px 7px;
-      font-size: 0.72rem;
-      display: flex;
-      align-items: flex-start;
-      gap: 6px;
+      border: 1px solid rgba(31,41,55,0.95);
+      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.98), rgba(15,23,42,1));
+      overflow: hidden;
     }
 
-    .lock-banner--warning {
-      border: 1px solid var(--warn);
-      background: var(--warn-soft);
-      color: #fef3c7;
-    }
-
-    .lock-banner--locked {
-      border: 1px solid var(--danger);
-      background: var(--danger-soft);
-      color: #fee2e2;
-    }
-
-    /* Roster panel */
     .roster-search-row {
       display: flex;
-      gap: 6px;
+      gap: 8px;
       align-items: center;
       margin-bottom: 6px;
       flex-wrap: wrap;
     }
 
     .roster-search-input {
-      flex: 1 1 150px;
+      flex: 1 1 200px;
       border-radius: var(--radius-pill);
       border: 1px solid rgba(55,65,81,0.9);
       background: rgba(15,23,42,0.96);
-      padding: 5px 9px;
+      padding: 6px 10px;
       font-size: 0.8rem;
       color: var(--text);
     }
@@ -545,37 +599,53 @@
       border-radius: var(--radius-pill);
       border: 1px solid rgba(55,65,81,0.9);
       background: rgba(15,23,42,0.96);
-      padding: 5px 9px;
+      padding: 6px 10px;
       font-size: 0.8rem;
       color: var(--text);
     }
 
+    .roster-table-header-row {
+      display: grid;
+      grid-template-columns: 40px minmax(0, 2.1fr) 60px minmax(0, 1.2fr) repeat(3, minmax(0, 80px));
+      padding: 4px 10px;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      background: linear-gradient(135deg, rgba(15,23,42,0.98), rgba(21,128,61,0.9));
+      border-bottom: 1px solid rgba(21,128,61,0.9);
+      color: rgba(187,247,208,0.96);
+    }
+
+    .roster-header-cell--right {
+      text-align: right;
+    }
+
     .roster-list {
-      max-height: 420px;
-      overflow-y: auto;
-      border-radius: var(--radius-md);
-      border: 1px solid rgba(31,41,55,0.95);
-      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.9), rgba(15,23,42,0.98));
+      /* No internal scroll; rows will expand and page itself will scroll */
     }
 
     .roster-row {
       display: grid;
-      grid-template-columns: minmax(0, 1.5fr) 50px minmax(0, 0.9fr) auto;
-      gap: 6px;
-      padding: 5px 8px;
+      grid-template-columns: 40px minmax(0, 2.1fr) 60px minmax(0, 1.2fr) repeat(3, minmax(0, 80px));
+      gap: 0;
+      padding: 4px 10px;
       font-size: 0.78rem;
       align-items: center;
-      border-bottom: 1px solid rgba(31,41,55,0.9);
+      border-bottom: 1px solid rgba(31,41,55,0.92);
       cursor: default;
       color: var(--text);
     }
 
-    .roster-row:last-child {
-      border-bottom: none;
+    .roster-row:nth-child(even) {
+      background: rgba(15,23,42,0.96);
+    }
+
+    .roster-row:nth-child(odd) {
+      background: rgba(15,23,42,0.92);
     }
 
     .roster-row:hover {
-      background: rgba(31,41,55,0.9);
+      background: rgba(30,64,175,0.55);
     }
 
     .roster-row-main {
@@ -614,32 +684,31 @@
       text-overflow: ellipsis;
     }
 
-    .roster-row-actions {
-      display: inline-flex;
-      gap: 4px;
-      justify-content: flex-end;
-    }
-
     .roster-row--unassigned {
       background: rgba(24,24,27,0.95);
     }
 
     .roster-row-highlight {
-      background: rgba(56,189,248,0.08);
+      box-shadow: inset 0 0 0 1px rgba(56,189,248,0.6);
     }
 
     .roster-empty {
-      padding: 8px;
+      padding: 8px 10px;
       font-size: 0.78rem;
       color: var(--muted);
     }
 
-    /* Tiny action pills under each player row – GM actions */
+    .roster-actions-cell {
+      display: inline-flex;
+      gap: 4px;
+      justify-content: flex-end;
+    }
+
     .action-pill {
       border-radius: var(--radius-pill);
-      border: 1px solid rgba(148,163,184,0.6);
+      border: 1px solid rgba(148,163,184,0.7);
       background: rgba(15,23,42,0.98);
-      padding: 2px 7px;
+      padding: 2px 8px;
       font-size: 0.68rem;
       color: var(--muted);
       cursor: pointer;
@@ -658,36 +727,12 @@
       transform: translateY(-0.5px);
     }
 
-    /* Shared scrollbars */
-    .roster-list,
-    .depth-chart-container {
-      scrollbar-width: thin;
-      scrollbar-color: rgba(148,163,184,0.9) rgba(15,23,42,1);
-    }
-
-    .roster-list::-webkit-scrollbar,
-    .depth-chart-container::-webkit-scrollbar {
-      width: 8px;
-      height: 8px;
-    }
-
-    .roster-list::-webkit-scrollbar-track,
-    .depth-chart-container::-webkit-scrollbar-track {
-      background: rgba(15,23,42,1);
-      border-radius: 999px;
-    }
-
-    .roster-list::-webkit-scrollbar-thumb,
-    .depth-chart-container::-webkit-scrollbar-thumb {
-      background: linear-gradient(180deg, rgba(148,163,184,0.9), rgba(148,163,184,0.55));
-      border-radius: 999px;
-    }
-
     /* Buttons */
+
     .btn {
       border-radius: var(--radius-pill);
       border: none;
-      padding: 7px 15px;
+      padding: 7px 16px;
       font-size: 0.78rem;
       font-weight: 600;
       letter-spacing: 0.14em;
@@ -709,12 +754,12 @@
       background: linear-gradient(135deg, #22c55e, #16a34a);
       color: #020617;
       border: 1px solid rgba(22,163,74,0.9);
-      box-shadow: 0 10px 22px rgba(22,163,74,0.45);
+      box-shadow: 0 12px 26px rgba(22,163,74,0.5);
     }
 
     .btn-primary:hover:enabled {
       transform: translateY(-1px);
-      box-shadow: 0 14px 26px rgba(22,163,74,0.6);
+      box-shadow: 0 16px 32px rgba(22,163,74,0.65);
     }
 
     .btn-primary:disabled {
@@ -725,39 +770,41 @@
 
     .btn-ghost {
       border-radius: var(--radius-pill);
-      border: 1px solid rgba(148,163,184,0.4);
+      border: 1px solid rgba(148,163,184,0.45);
       background: rgba(15,23,42,0.96);
       color: var(--text);
       font-size: 0.76rem;
-      padding: 5px 11px;
+      padding: 6px 13px;
     }
 
     .btn-ghost:hover {
       background: rgba(31,41,55,0.98);
-      border-color: rgba(148,163,184,0.8);
+      border-color: rgba(148,163,184,0.85);
     }
 
     button:focus-visible,
     .roster-search-input:focus-visible,
-    .roster-filter-pos:focus-visible {
+    .roster-filter-pos:focus-visible,
+    .pos-filter-select:focus-visible {
       outline: 2px solid var(--accent);
       outline-offset: 2px;
     }
 
     /* No-franchise state */
+
     .no-franchise-state {
       margin-top: 16px;
       border-radius: var(--radius-lg);
       border: 1px solid var(--card-border-strong);
       background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.7), rgba(15,23,42,0.98));
-      padding: 16px 16px 14px;
+      padding: 16px 18px 14px;
       text-align: left;
-      max-width: 480px;
+      max-width: 520px;
       box-shadow: var(--shadow-soft);
     }
 
     .no-franchise-title {
-      font-size: 0.96rem;
+      font-size: 0.98rem;
       font-weight: 600;
       margin-bottom: 6px;
     }
@@ -775,7 +822,7 @@
     }
 
     footer {
-      margin-top: 8px;
+      margin-top: 10px;
       font-size: 0.76rem;
       color: var(--muted);
       display: flex;
@@ -784,21 +831,21 @@
       flex-wrap: wrap;
     }
 
-    @media (max-width: 1024px) {
+    @media (max-width: 1200px) {
+      .depth-top-bar {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .depth-controls {
+        align-items: flex-start;
+      }
+    }
+
+    @media (max-width: 720px) {
       .page {
         padding: 16px 14px 20px;
       }
 
-      .layout-grid {
-        grid-template-columns: minmax(0, 1fr);
-      }
-
-      .depth-layout {
-        grid-template-columns: minmax(0, 1fr);
-      }
-    }
-
-    @media (max-width: 640px) {
       header.team-header {
         flex-direction: column;
         align-items: flex-start;
@@ -809,15 +856,11 @@
         justify-content: flex-start;
       }
 
+      .depth-table-header-row,
+      .slot-row,
+      .roster-table-header-row,
       .roster-row {
-        grid-template-columns: minmax(0, 1.5fr) 45px minmax(0, 0.9fr);
-        grid-auto-rows: auto;
-      }
-
-      .roster-row-actions {
-        margin-top: 3px;
-        justify-content: flex-start;
-        grid-column: 1 / -1;
+        grid-template-columns: 30px minmax(0, 2.4fr) 50px minmax(0, 1.2fr) repeat(2, minmax(0, 70px));
       }
     }
   </style>
@@ -845,18 +888,18 @@
     </header>
 
     <main id="team-main">
-      <div class="layout-grid">
-        <!-- Left: Formation + Depth chart -->
-        <section class="card" id="card-depth-chart" aria-labelledby="card-depth-chart-title">
-          <div class="card-header">
-            <div class="card-header-main">
-              <div class="card-title" id="card-depth-chart-title">
-                <strong>Depth Chart</strong>
-              </div>
-              <div class="card-subtitle">
-                Compact view of starters, backups, and formation.
-              </div>
+      <!-- Big depth chart / Madden-style view -->
+      <section class="card" id="card-depth-chart" aria-labelledby="card-depth-chart-title">
+        <div class="card-header">
+          <div class="card-header-main">
+            <div class="card-title" id="card-depth-chart-title">
+              <strong>Depth Chart</strong>
             </div>
+            <div class="card-subtitle">
+              Position order and key ratings for the selected unit.
+            </div>
+          </div>
+          <div class="depth-controls">
             <div class="unit-tabs" role="tablist">
               <button type="button" class="unit-tab unit-tab--active" data-unit="offense" id="tab-offense">
                 Offense
@@ -871,147 +914,160 @@
                 All
               </button>
             </div>
-          </div>
-          <div class="card-body">
-            <div id="lock-banner-container"></div>
-
-            <div class="depth-layout">
-              <!-- Formation board – JS can wire focus/highlight to depth chart selections -->
-              <div class="formation-board" id="formation-board">
-                <div class="formation-header">
-                  <span>Positional View</span>
-                  <span>Tap a slot to focus</span>
-                </div>
-                <div class="formation-grid">
-                  <!-- WR / outside -->
-                  <div class="formation-row" data-row="skill">
-                    <div class="formation-slot" data-pos="WR-L" data-empty="true">WR</div>
-                    <div></div>
-                    <div></div>
-                    <div class="formation-slot" data-pos="TE" data-empty="true">TE</div>
-                    <div></div>
-                    <div></div>
-                    <div class="formation-slot" data-pos="WR-R" data-empty="true">WR</div>
-                  </div>
-                  <!-- OL in front of QB -->
-                  <div class="formation-row" data-row="ol">
-                    <div class="formation-slot" data-pos="LT" data-empty="true">LT</div>
-                    <div class="formation-slot" data-pos="LG" data-empty="true">LG</div>
-                    <div class="formation-slot" data-pos="C" data-empty="true">C</div>
-                    <div class="formation-slot" data-pos="RG" data-empty="true">RG</div>
-                    <div class="formation-slot" data-pos="RT" data-empty="true">RT</div>
-                    <div></div>
-                    <div></div>
-                  </div>
-                  <!-- QB / RB backfield -->
-                  <div class="formation-row" data-row="backfield">
-                    <div></div>
-                    <div></div>
-                    <div class="formation-slot" data-pos="QB" data-empty="true">QB</div>
-                    <div></div>
-                    <div class="formation-slot" data-pos="RB" data-empty="true">RB</div>
-                    <div></div>
-                    <div></div>
-                  </div>
-                  <!-- Extra utility row (FB / slot / flex) -->
-                  <div class="formation-row" data-row="flex">
-                    <div></div>
-                    <div class="formation-slot" data-pos="FB" data-empty="true">FB</div>
-                    <div></div>
-                    <div class="formation-slot" data-pos="WR-S" data-empty="true">Slot</div>
-                    <div></div>
-                    <div></div>
-                    <div></div>
-                  </div>
-                </div>
-                <div class="formation-caption">
-                  This board mirrors your current depth chart for the selected unit.
-                </div>
-              </div>
-
-              <!-- Depth chart list – JS still renders into this container -->
-              <div class="depth-chart-container" id="depth-chart-container">
-                <!-- Populated by team_view.js -->
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <!-- Right: Roster & GM actions -->
-        <section class="card" id="card-roster" aria-labelledby="card-roster-title">
-          <div class="card-header">
-            <div class="card-header-main">
-              <div class="card-title" id="card-roster-title">
-                <strong>Roster</strong>
-              </div>
-              <div class="card-subtitle" id="card-roster-subtitle">
-                Compact list with quick GM actions.
-              </div>
-            </div>
-            <button type="button" class="btn-ghost" id="btn-sync-default-depth">
-              Reset to automatic
-            </button>
-          </div>
-          <div class="card-body">
-            <div class="roster-search-row">
-              <input
-                type="search"
-                id="roster-search-input"
-                class="roster-search-input"
-                placeholder="Search by name or position"
-                autocomplete="off"
-              />
-              <select id="roster-filter-pos" class="roster-filter-pos">
+            <!-- Optional: JS can hook this to choose a specific position (CB, WR, etc.) -->
+            <div>
+              <div class="pos-filter-label">Depth chart position</div>
+              <select class="pos-filter-select" id="depth-pos-select">
                 <option value="">All positions</option>
                 <option value="QB">QB</option>
                 <option value="RB">RB</option>
-                <option value="FB">FB</option>
                 <option value="WR">WR</option>
                 <option value="TE">TE</option>
-                <option value="LT">LT</option>
-                <option value="LG">LG</option>
-                <option value="C">C</option>
-                <option value="RG">RG</option>
-                <option value="RT">RT</option>
-                <option value="DT">DT</option>
-                <option value="EDGE">EDGE</option>
-                <option value="LB">LB</option>
-                <option value="CB">CB</option>
-                <option value="S">S</option>
-                <option value="K">K</option>
-                <option value="P">P</option>
+                <option value="OL">Offensive Line</option>
+                <option value="DL">Defensive Line</option>
+                <option value="LB">Linebacker</option>
+                <option value="DB">Defensive Backs</option>
+                <option value="ST">Special Teams</option>
               </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="card-body">
+          <div id="lock-banner-container"></div>
+
+          <!-- Madden-style featured player strip -->
+          <div class="depth-top-bar">
+            <div class="player-spotlight" id="player-spotlight">
+              <div class="player-photo" id="player-photo">
+                Player
+              </div>
+              <div class="player-meta">
+                <div class="player-name-row">
+                  <span class="player-name-main" id="player-name-main">Name</span>
+                  <span class="player-name-pos" id="player-name-pos">POS</span>
+                </div>
+                <div class="player-submeta-row" id="player-submeta-row">
+                  <span>HT: —</span>
+                  <span>WT: —</span>
+                  <span>College: —</span>
+                  <span>Exp: —</span>
+                </div>
+                <div class="player-tag-row" id="player-tag-row">
+                  <!-- JS can add tags: Team Captain, Star, etc. -->
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Table header + depth rows (filled by JS) -->
+          <div class="depth-table-wrapper">
+            <div class="depth-table-header-row">
+              <div class="depth-header-cell">#</div>
+              <div class="depth-header-cell">Name</div>
+              <div class="depth-header-cell">Pos</div>
+              <!-- You can map these to whatever ratings you want (no OVR required) -->
+              <div class="depth-header-cell depth-header-cell--right">SPD</div>
+              <div class="depth-header-cell depth-header-cell--right">ACC</div>
+              <div class="depth-header-cell depth-header-cell--right">AGI</div>
+              <div class="depth-header-cell depth-header-cell--right">AWR</div>
+              <div class="depth-header-cell depth-header-cell--right">Skill</div>
+            </div>
+
+            <div class="depth-chart-container" id="depth-chart-container">
+              <!-- team_view.js will render .pos-group and .slot-row elements here -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Roster + GM actions -->
+      <section class="card" id="card-roster" aria-labelledby="card-roster-title">
+        <div class="card-header">
+          <div class="card-header-main">
+            <div class="card-title" id="card-roster-title">
+              <strong>Roster</strong>
+            </div>
+            <div class="card-subtitle" id="card-roster-subtitle">
+              Full roster with quick GM actions.
+            </div>
+          </div>
+          <button type="button" class="btn-ghost" id="btn-sync-default-depth">
+            Reset to automatic
+          </button>
+        </div>
+        <div class="card-body">
+          <div class="roster-search-row">
+            <input
+              type="search"
+              id="roster-search-input"
+              class="roster-search-input"
+              placeholder="Search by name or position"
+              autocomplete="off"
+            />
+            <select id="roster-filter-pos" class="roster-filter-pos">
+              <option value="">All positions</option>
+              <option value="QB">QB</option>
+              <option value="RB">RB</option>
+              <option value="FB">FB</option>
+              <option value="WR">WR</option>
+              <option value="TE">TE</option>
+              <option value="LT">LT</option>
+              <option value="LG">LG</option>
+              <option value="C">C</option>
+              <option value="RG">RG</option>
+              <option value="RT">RT</option>
+              <option value="DT">DT</option>
+              <option value="EDGE">EDGE</option>
+              <option value="LB">LB</option>
+              <option value="CB">CB</option>
+              <option value="S">S</option>
+              <option value="K">K</option>
+              <option value="P">P</option>
+            </select>
+          </div>
+
+          <div class="roster-table-wrapper">
+            <div class="roster-table-header-row">
+              <div>#</div>
+              <div>Name</div>
+              <div>Pos</div>
+              <div>Role</div>
+              <div class="roster-header-cell--right">SPD</div>
+              <div class="roster-header-cell--right">ACC</div>
+              <div class="roster-header-cell--right">AWR</div>
             </div>
             <div class="roster-list" id="roster-list">
               <div class="roster-empty" id="roster-empty-msg">
                 Loading roster…
               </div>
-              <!-- JS will render .roster-row here.
-                   You can later add action buttons like:
-                   <div class="roster-row-actions">
+              <!-- team_view.js will render .roster-row entries here.
+                   You can add a cell like:
+                   <div class="roster-actions-cell">
                      <button class="action-pill" data-action="meet">Meet</button>
                      <button class="action-pill" data-action="contract">Contract</button>
                      <button class="action-pill" data-action="trade">Trade</button>
                    </div>
+                   to give each player realistic GM options.
               -->
             </div>
           </div>
-        </section>
-      </div>
-    </main>
+        </div>
+      </section>
 
-    <!-- No franchise state -->
-    <section id="no-franchise" class="no-franchise-state" hidden>
-      <div class="no-franchise-title">No active franchise found</div>
-      <div class="no-franchise-text">
-        There’s no active franchise in this slot. Return to the main menu to start a new franchise or continue an existing one.
-      </div>
-      <div class="no-franchise-actions">
-        <button type="button" class="btn-primary" id="btn-go-main-menu">
-          Back to main menu
-        </button>
-      </div>
-    </section>
+      <!-- No franchise state -->
+      <section id="no-franchise" class="no-franchise-state" hidden>
+        <div class="no-franchise-title">No active franchise found</div>
+        <div class="no-franchise-text">
+          There’s no active franchise in this slot. Return to the main menu to start a new franchise or continue an existing one.
+        </div>
+        <div class="no-franchise-actions">
+          <button type="button" class="btn-primary" id="btn-go-main-menu">
+            Back to main menu
+          </button>
+        </div>
+      </section>
+    </main>
 
     <footer>
       <span>Franchise GM • Team View & Depth Chart</span>
@@ -1019,7 +1075,6 @@
     </footer>
   </div>
 
-  <!-- Keep the same JS entry point so your hooks continue to work -->
   <script src="team_view.js"></script>
 </body>
 </html>
