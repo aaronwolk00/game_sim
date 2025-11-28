@@ -1,42 +1,37 @@
 // team.js
 //
-// Franchise GM – Team View & Depth Chart
+// Franchise GM – Team Formation Dashboard
 //
-// This file drives the team/roster page. It:
-// - Loads the current FranchiseSave from localStorage.
-// - Loads the LeagueState for lock status and basic context.
-// - Fetches the master roster CSV (all teams) and filters down to this team.
-// - Builds or loads a depth chart object for this franchise.
-// - Renders depth chart by unit (offense / defense / special) and full roster list.
-// - Persists changes immediately.
+// This keeps the existing data architecture:
+// - Loads FranchiseSave from localStorage ("franchiseGM_lastFranchise").
+// - Loads LeagueState from "franchiseGM_leagueState_<franchiseId>".
+// - Loads / saves depth chart at "franchiseGM_depthChart_<franchiseId>".
+// - Player data comes from layer3_rosters.csv.
+// - Depth chart structure: positions[pos] = [playerId | null, ...].
+//
+// The UI here is a formation board using CSS Grid for Offense / Defense / Special.
 
 // ---------------------------------------------------------------------------
-// Types (doc comments only for reference)
+// Types (doc comments only)
 // ---------------------------------------------------------------------------
+
 /**
  * @typedef {Object} FranchiseSave
  * @property {string} franchiseId
  * @property {string} franchiseName
- * @property {string} teamCode        // e.g. "CAR"
+ * @property {string} teamCode
  * @property {string} [teamName]
  * @property {number} seasonYear
  * @property {number} weekIndex
  * @property {string} phase
  * @property {string} record
- * @property {Object} ownerExpectation
- * @property {string} ownerExpectation.patience
- * @property {number} ownerExpectation.baselineWins
- * @property {number} ownerExpectation.targetYear
  */
 
 /**
  * @typedef {Object} LeagueState
  * @property {string} franchiseId
  * @property {number} seasonYear
- * @property {Object} timeline
- * @property {Object} timeline.nextEvent
- * @property {string} timeline.nextEvent.type      // "game", "draft", etc.
- * @property {string|null} timeline.nextEvent.kickoffIso
+ * @property {{ nextEvent?: { type: string, kickoffIso?: string|null } }} timeline
  */
 
 /**
@@ -50,7 +45,7 @@
  * @property {number} depthCsv
  * @property {number|null} ratingOverall
  * @property {number|null} ratingPos
- * @property {Object<string, number>} positionScores  // e.g. { QB: 10000, WR: 0, ... }
+ * @property {Object<string, number>} positionScores
  * @property {string|null} primaryArchetype
  */
 
@@ -60,7 +55,7 @@
  * @property {string} teamCode
  * @property {number} seasonYear
  * @property {string} lastUpdatedIso
- * @property {Object<string, Array<string|null>>} positions  // pos -> [playerId or null]
+ * @property {Object<string, Array<string|null>>} positions
  */
 
 // ---------------------------------------------------------------------------
@@ -71,12 +66,22 @@ const SAVE_KEY_LAST_FRANCHISE = "franchiseGM_lastFranchise";
 const LEAGUE_STATE_KEY_PREFIX = "franchiseGM_leagueState_";
 const DEPTH_CHART_KEY_PREFIX = "franchiseGM_depthChart_";
 
-/** URL for the master roster CSV (all teams). Change to local path if desired. */
 const ROSTERS_CSV_URL =
   "https://raw.githubusercontent.com/aaronwolk00/game_sim/refs/heads/main/layer3_rosters.csv";
 
 // Canonical positions grouped by unit
-const OFFENSE_POSITIONS = ["QB", "RB", "FB", "WR", "TE", "LT", "LG", "C", "RG", "RT"];
+const OFFENSE_POSITIONS = [
+  "QB",
+  "RB",
+  "FB",
+  "WR",
+  "TE",
+  "LT",
+  "LG",
+  "C",
+  "RG",
+  "RT"
+];
 const DEFENSE_POSITIONS = ["DT", "EDGE", "LB", "CB", "S"];
 const SPECIAL_POSITIONS = ["K", "P"];
 
@@ -101,11 +106,10 @@ const POSITION_SCORE_COLUMNS = {
   P: "position_score_P"
 };
 
-// Threshold for "eligible" position based on position_score_X (0–10000 scale).
-// Natural position is always considered eligible regardless of score.
+// Threshold for "eligible" position on 0–10000 scale
 const POSITION_ELIGIBILITY_THRESHOLD = 3500;
 
-// Max depth slots per position to show
+// Default max depth slots per position in a fresh chart
 const MAX_DEPTH_SLOTS = 4;
 
 // ---------------------------------------------------------------------------
@@ -187,12 +191,6 @@ function saveDepthChart(depthState) {
 // CSV parsing for layer3_rosters.csv
 // ---------------------------------------------------------------------------
 
-/**
- * Parse a CSV string into an array of row objects with string values.
- * Assumes simple CSV (no quoted commas). Good enough for this data.
- * @param {string} text
- * @returns {Array<Object<string,string>>}
- */
 function parseSimpleCsv(text) {
   const lines = text
     .split(/\r?\n/)
@@ -209,7 +207,7 @@ function parseSimpleCsv(text) {
 
   for (let i = 1; i < lines.length; i++) {
     const cells = lines[i].split(",");
-    if (cells.length === 1 && cells[0] === "") continue; // skip empty
+    if (cells.length === 1 && cells[0] === "") continue;
     const row = {};
     for (let j = 0; j < headers.length; j++) {
       const key = headers[j] || `col_${j}`;
@@ -243,9 +241,7 @@ function playerFromCsvRow(row, index) {
     const rawVal = row[colName];
     if (rawVal !== undefined && rawVal !== "") {
       const num = Number(rawVal);
-      if (!Number.isNaN(num)) {
-        positionScores[pos] = num;
-      }
+      if (!Number.isNaN(num)) positionScores[pos] = num;
     }
   }
 
@@ -257,7 +253,7 @@ function playerFromCsvRow(row, index) {
     teamName,
     firstName: first,
     lastName: last,
-    naturalPos: naturalPos,
+    naturalPos: naturalPos.toUpperCase(),
     depthCsv,
     ratingOverall: Number.isFinite(ratingOverall) ? ratingOverall : null,
     ratingPos: Number.isFinite(ratingPos) ? ratingPos : null,
@@ -270,10 +266,6 @@ function playerFromCsvRow(row, index) {
 // Depth chart helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Turn a rating number into a rough text tier, without exposing the number.
- * @param {number|null} rating
- */
 function ratingToTierLabel(rating) {
   if (rating == null || Number.isNaN(rating)) return "Fringe contributor";
   const r = rating;
@@ -289,35 +281,25 @@ function ratingToTierLabel(rating) {
 }
 
 /**
- * Human-readable position archetype from primary_archetype.
- * e.g. "arch_WR_deep_threat" -> "Deep threat WR"
+ * e.g. "arch_WR_deep_threat" -> "Deep Threat WR"
  */
 function archetypeToLabel(archetype, naturalPos) {
   if (!archetype) return naturalPos || "";
   if (!archetype.startsWith("arch_")) return archetype;
   const parts = archetype.split("_");
-  // Typical: ["arch", "WR", "deep", "threat"]
   if (parts.length < 3) return archetype;
   const pos = parts[1];
   const descriptor = parts.slice(2).join(" ");
   const niceDescriptor =
-    descriptor
-      .replace(/_/g, " ")
-      .replace(/\b\w/g, (c) => c.toUpperCase()) || "";
+    descriptor.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) || "";
   return `${niceDescriptor} ${pos}`;
 }
 
-/**
- * Determine if a player is "eligible" for a given position based on:
- * - natural position match, or
- * - position_scores threshold.
- * @param {Player} player
- * @param {string} pos
- */
 function isPlayerEligibleForPosition(player, pos) {
   if (!player) return false;
-  if (player.naturalPos === pos) return true;
-  const score = player.positionScores[pos];
+  const up = pos.toUpperCase();
+  if (player.naturalPos.toUpperCase() === up) return true;
+  const score = player.positionScores[up];
   if (typeof score === "number" && score >= POSITION_ELIGIBILITY_THRESHOLD) {
     return true;
   }
@@ -325,9 +307,8 @@ function isPlayerEligibleForPosition(player, pos) {
 }
 
 /**
- * Build a default depth chart from scratch based on roster.
- * This only runs when no saved depth chart exists for this franchise.
- * @param {Array<Player>} players
+ * Build a default depth chart for this roster when no saved chart exists.
+ * @param {Player[]} players
  * @param {FranchiseSave} save
  * @returns {DepthChartState}
  */
@@ -347,7 +328,6 @@ function createDefaultDepthChart(players, save) {
     ...SPECIAL_POSITIONS
   ];
 
-  // Group players by natural position
   /** @type {Record<string, Player[]>} */
   const byPos = {};
   for (const p of players) {
@@ -357,7 +337,6 @@ function createDefaultDepthChart(players, save) {
     byPos[pos].push(p);
   }
 
-  // For each position: sort by position-specific rating or overall, then assign
   for (const pos of allPositions) {
     const pool = (byPos[pos] || []).slice();
     if (!pool.length) {
@@ -366,8 +345,8 @@ function createDefaultDepthChart(players, save) {
     }
 
     pool.sort((a, b) => {
-      const ra = (a.ratingPos ?? a.ratingOverall ?? 0);
-      const rb = (b.ratingPos ?? b.ratingOverall ?? 0);
+      const ra = a.ratingPos ?? a.ratingOverall ?? 0;
+      const rb = b.ratingPos ?? b.ratingOverall ?? 0;
       return rb - ra;
     });
 
@@ -382,22 +361,6 @@ function createDefaultDepthChart(players, save) {
   return depth;
 }
 
-/**
- * Get the unit label for a position (offense/defense/special).
- * @param {string} pos
- */
-function unitForPosition(pos) {
-  const up = pos.toUpperCase();
-  if (OFFENSE_POSITIONS.includes(up)) return "offense";
-  if (DEFENSE_POSITIONS.includes(up)) return "defense";
-  if (SPECIAL_POSITIONS.includes(up)) return "special";
-  return "other";
-}
-
-/**
- * Get the human-readable description for a position group.
- * @param {string} pos
- */
 function posGroupSubLabel(pos) {
   const up = pos.toUpperCase();
   switch (up) {
@@ -436,21 +399,6 @@ function posGroupSubLabel(pos) {
   }
 }
 
-/**
- * Return an ordered list of positions for a given unit filter.
- * @param {"offense"|"defense"|"special"|"all"} unitFilter
- */
-function positionsForUnit(unitFilter) {
-  if (unitFilter === "offense") return OFFENSE_POSITIONS.slice();
-  if (unitFilter === "defense") return DEFENSE_POSITIONS.slice();
-  if (unitFilter === "special") return SPECIAL_POSITIONS.slice();
-  return [
-    ...OFFENSE_POSITIONS,
-    ...DEFENSE_POSITIONS,
-    ...SPECIAL_POSITIONS
-  ];
-}
-
 // ---------------------------------------------------------------------------
 // DOM helpers
 // ---------------------------------------------------------------------------
@@ -460,14 +408,9 @@ function getEl(id) {
 }
 
 // ---------------------------------------------------------------------------
-// Lock state
+// Lock / header helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Determine whether the depth chart should be locked based on the next event.
- * Lock once the next game's kickoff time has passed.
- * @param {LeagueState|null} leagueState
- */
 function computeLockState(leagueState) {
   if (!leagueState || !leagueState.timeline || !leagueState.timeline.nextEvent) {
     return { locked: false, reason: "No upcoming game set." };
@@ -475,7 +418,6 @@ function computeLockState(leagueState) {
 
   const next = leagueState.timeline.nextEvent;
   if (next.type !== "game") {
-    // For non-game phases, we leave things editable for now.
     return { locked: false, reason: "No active game window." };
   }
 
@@ -499,11 +441,24 @@ function computeLockState(leagueState) {
     };
   }
 
-  // Before kickoff, editable but close to lock
   return {
     locked: false,
     reason: `Editable until kickoff on ${kickoff.toLocaleString()}`
   };
+}
+
+function getTeamDisplayNameFromSave(save) {
+  if (!save) return "Franchise Team";
+  if (save.teamName && typeof save.teamName === "string") return save.teamName;
+  if (save.franchiseName && typeof save.franchiseName === "string")
+    return save.franchiseName;
+  if (save.teamCode) return save.teamCode;
+  return "Franchise Team";
+}
+
+function formatSeasonLabel(save) {
+  if (!save || !save.seasonYear) return "Season";
+  return `Season ${save.seasonYear}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -514,11 +469,11 @@ function computeLockState(leagueState) {
 let currentFranchiseSave = null;
 /** @type {LeagueState|null} */
 let currentLeagueState = null;
-/** @type {Array<Player>} */
+/** @type {Player[]} */
 let currentRoster = [];
 /** @type {DepthChartState|null} */
 let currentDepthChart = null;
-/** @type {"offense"|"defense"|"special"|"all"} */
+/** @type {"offense"|"defense"|"special"} */
 let currentUnitFilter = "offense";
 /** @type {boolean} */
 let depthLocked = false;
@@ -529,355 +484,204 @@ let highlightedPlayerId = null;
 // Rendering – header
 // ---------------------------------------------------------------------------
 
-function getTeamDisplayName(save) {
-  if (save.teamName && typeof save.teamName === "string") return save.teamName;
-  if (save.franchiseName && typeof save.franchiseName === "string") return save.franchiseName;
-  if (save.teamCode) return save.teamCode;
-  return "Franchise Team";
-}
-
-function formatSeasonSubline(save) {
-  const season = save.seasonYear ? `Season ${save.seasonYear}` : "Season";
-  const phase = save.phase || "";
-  const weekIndex =
-    typeof save.weekIndex === "number" && Number.isFinite(save.weekIndex)
-      ? save.weekIndex
-      : null;
-  const weekLabel =
-    weekIndex != null ? `Week ${weekIndex + 1}` : "";
-
-  return [season, phase, weekLabel].filter(Boolean).join(" • ");
-}
-
 function renderHeader() {
-  const nameEl = getEl("team-header-name");
-  const sublineEl = getEl("team-header-subline");
-  const recordValueEl = getEl("team-record-value");
-  const lockPill = getEl("depth-lock-pill");
-  const lockLabel = getEl("depth-lock-label");
-
   if (!currentFranchiseSave) return;
 
-  if (nameEl) nameEl.textContent = getTeamDisplayName(currentFranchiseSave);
-  if (sublineEl) sublineEl.textContent = formatSeasonSubline(currentFranchiseSave);
+  const nameEl = getEl("top-team-name");
+  const seasonEl = getEl("top-season-label");
+  const recordEl = getEl("top-record");
+  const lockLabelEl = getEl("top-lock-label");
+
+  if (nameEl) nameEl.textContent = getTeamDisplayNameFromSave(currentFranchiseSave);
+  if (seasonEl) seasonEl.textContent = formatSeasonLabel(currentFranchiseSave);
 
   const record = (currentFranchiseSave.record || "").trim() || "0–0";
-  if (recordValueEl) recordValueEl.textContent = record;
+  if (recordEl) recordEl.textContent = record;
 
   const lockInfo = computeLockState(currentLeagueState);
   depthLocked = lockInfo.locked;
-
-  if (lockPill && lockLabel) {
-    lockPill.classList.toggle("pill-lock--locked", depthLocked);
-    lockPill.classList.toggle("pill-lock--editable", !depthLocked);
-    lockLabel.textContent = depthLocked
+  if (lockLabelEl) {
+    lockLabelEl.textContent = lockInfo.locked
       ? "Depth chart locked"
       : "Depth chart editable";
-  }
-
-  const lockBannerContainer = getEl("lock-banner-container");
-  if (lockBannerContainer) {
-    lockBannerContainer.innerHTML = "";
-    const div = document.createElement("div");
-    div.className =
-      "lock-banner " +
-      (depthLocked ? "lock-banner--locked" : "lock-banner--warning");
-    div.textContent = lockInfo.reason;
-    lockBannerContainer.appendChild(div);
   }
 }
 
 // ---------------------------------------------------------------------------
-// Rendering – depth chart
+// Rendering – formation view
 // ---------------------------------------------------------------------------
 
-/**
- * Get player by id.
- * @param {string|null} playerId
- * @returns {Player|null}
- */
 function getPlayerById(playerId) {
   if (!playerId) return null;
   return currentRoster.find((p) => p.id === playerId) || null;
 }
 
-/**
- * Build a human description of how "risky" this assignment is.
- * @param {Player} player
- * @param {string} pos
- */
-function buildSlotRiskTags(player, pos) {
-  const tags = [];
-
-  if (!player) return tags;
-
-  if (player.naturalPos === pos) {
-    tags.push("Natural fit");
-  } else if (isPlayerEligibleForPosition(player, pos)) {
-    tags.push("Reasonable fit");
-  } else {
-    tags.push("Emergency only");
-  }
-
-  // We could later add injury flags, fatigue, etc. For now we only look at fit.
-  return tags;
+function depthLabelForIndex(idx) {
+  if (idx === 0) return "Starter";
+  if (idx === 1) return "2nd";
+  if (idx === 2) return "3rd";
+  return `${idx + 1}th`;
 }
 
 /**
- * Render the entire depth chart for the current unit filter.
+ * Render all position stacks for one unit into its formation container.
+ *
+ * @param {"offense"|"defense"|"special"} unit
+ * @param {string[]} positions
+ * @param {string} containerId
  */
-function renderDepthChart() {
-  const container = getEl("depth-chart-container");
+function renderFormationUnit(unit, positions, containerId) {
+  const container = getEl(containerId);
   if (!container || !currentDepthChart) return;
 
   container.innerHTML = "";
 
-  const positions = positionsForUnit(currentUnitFilter);
-
   positions.forEach((pos) => {
-    const unit = unitForPosition(pos);
-    // If filtering by offense/defense/special, skip mismatched
-    if (
-      currentUnitFilter !== "all" &&
-      unit !== currentUnitFilter
-    ) {
-      return;
-    }
+    const posKey = pos.toUpperCase();
+    const posSlots = currentDepthChart.positions[posKey] || [];
+    const slotCount = posSlots.length || 1;
 
-    const posSlots = currentDepthChart.positions[pos] || [];
-
-    const group = document.createElement("div");
-    group.className = "pos-group";
-    group.dataset.pos = pos;
+    const card = document.createElement("section");
+    card.className = `position-card position-card--${posKey}`;
+    card.dataset.pos = posKey;
 
     const header = document.createElement("div");
-    header.className = "pos-group-header";
+    header.className = "position-card-header";
 
-    const left = document.createElement("div");
     const label = document.createElement("div");
-    label.className = "pos-group-label";
-    label.textContent = pos;
+    label.className = "position-label";
+    label.textContent = posKey;
+
     const sub = document.createElement("div");
-    sub.className = "pos-group-sub";
-    sub.textContent = posGroupSubLabel(pos);
+    sub.className = "position-sub";
+    sub.textContent = posGroupSubLabel(posKey);
 
-    left.appendChild(label);
-    if (sub.textContent) left.appendChild(sub);
+    header.appendChild(label);
+    if (sub.textContent) header.appendChild(sub);
 
-    header.appendChild(left);
-    group.appendChild(header);
+    const body = document.createElement("div");
+    body.className = "position-card-body";
 
-    // Slots
-    const maxSlots = Math.max(posSlots.length, MAX_DEPTH_SLOTS);
-    for (let i = 0; i < maxSlots; i++) {
-      const slotRow = document.createElement("div");
-      slotRow.className = "slot-row";
-
-      const labelEl = document.createElement("div");
-      labelEl.className = "slot-row-label";
-      if (i === 0) labelEl.textContent = "Starter";
-      else if (i === 1) labelEl.textContent = "2nd";
-      else if (i === 2) labelEl.textContent = "3rd";
-      else labelEl.textContent = `${i + 1}th`;
-
-      const slotPlayerId = posSlots[i] || null;
-      const player = getPlayerById(slotPlayerId);
+    for (let i = 0; i < slotCount; i++) {
+      const playerId = posSlots[i] || null;
+      const player = getPlayerById(playerId);
 
       const pill = document.createElement("button");
       pill.type = "button";
-      pill.className = "slot-player-pill";
-      pill.dataset.pos = pos;
+      pill.className = "player-pill";
+      pill.dataset.pos = posKey;
       pill.dataset.slotIndex = String(i);
 
-      if (!player) {
-        pill.classList.add("slot-player-pill--empty");
-        pill.textContent = depthLocked
-          ? "Unfilled"
-          : "Click to assign player";
-      } else {
-        const nameDiv = document.createElement("div");
-        nameDiv.className = "slot-player-name";
-        nameDiv.textContent = `${player.firstName} ${player.lastName}`;
+      if (i === 0) pill.classList.add("player-pill--starter");
 
-        const metaDiv = document.createElement("div");
-        metaDiv.className = "slot-player-meta";
-        const tier = ratingToTierLabel(player.ratingOverall ?? player.ratingPos);
-        const archetypeLabel = archetypeToLabel(
+      if (!player) {
+        pill.classList.add("player-pill--empty");
+        const labelSpan = document.createElement("span");
+        labelSpan.className = "player-pill-name";
+        labelSpan.textContent = depthLocked
+          ? "Open slot"
+          : "Assign player";
+        pill.appendChild(labelSpan);
+      } else {
+        if (player.id === highlightedPlayerId) {
+          // Optional: extra visual affordance for most recently assigned player
+          pill.style.boxShadow = "0 0 0 1px rgba(56,189,248,0.9)";
+        }
+
+        const topRow = document.createElement("div");
+        topRow.className = "player-pill-top";
+
+        const orderSpan = document.createElement("span");
+        orderSpan.className = "player-pill-order";
+        orderSpan.textContent = depthLabelForIndex(i);
+
+        const nameSpan = document.createElement("span");
+        nameSpan.className = "player-pill-name";
+        nameSpan.textContent = `${player.firstName} ${player.lastName}`;
+
+        topRow.appendChild(orderSpan);
+        topRow.appendChild(nameSpan);
+
+        const meta = document.createElement("div");
+        meta.className = "player-pill-meta";
+        const rating = player.ratingPos ?? player.ratingOverall;
+        const ratingText =
+          rating != null && Number.isFinite(rating) ? `OVR ${rating}` : "";
+        const archLabel = archetypeToLabel(
           player.primaryArchetype,
           player.naturalPos
         );
-        metaDiv.textContent = `${archetypeLabel || player.naturalPos} • ${tier}`;
+        const tier = ratingToTierLabel(rating);
+        const metaParts = [ratingText, archLabel, tier].filter(Boolean);
+        meta.textContent = metaParts.join(" • ");
 
-        pill.appendChild(nameDiv);
-        pill.appendChild(metaDiv);
+        pill.appendChild(topRow);
+        pill.appendChild(meta);
       }
 
       if (depthLocked) {
         pill.disabled = true;
       } else {
         pill.addEventListener("click", () => {
-          openPlayerPickerForSlot(pos, i);
+          const slotIdx = Number(pill.dataset.slotIndex || "0") || 0;
+          openPlayerPickerForSlot(posKey, slotIdx);
         });
       }
 
-      const badgeCell = document.createElement("div");
-      badgeCell.className = "slot-badge-row";
-
-      if (player) {
-        const tags = buildSlotRiskTags(player, pos);
-        tags.forEach((tag) => {
-          const b = document.createElement("span");
-          b.className = "slot-badge";
-          if (tag === "Natural fit") b.classList.add("slot-badge--starter");
-          if (tag === "Emergency only") b.classList.add("slot-badge--risk");
-          b.textContent = tag;
-          badgeCell.appendChild(b);
-        });
-      }
-
-      slotRow.appendChild(labelEl);
-      slotRow.appendChild(pill);
-      slotRow.appendChild(badgeCell);
-      group.appendChild(slotRow);
+      body.appendChild(pill);
     }
 
-    container.appendChild(group);
+    card.appendChild(header);
+    card.appendChild(body);
+    container.appendChild(card);
   });
 }
 
-// ---------------------------------------------------------------------------
-// Rendering – roster list
-// ---------------------------------------------------------------------------
+function renderDepthChart() {
+  if (!currentDepthChart) return;
 
-function passesRosterFilter(player, query, posFilter) {
-  const q = query.trim().toLowerCase();
-  const pos = posFilter.trim().toUpperCase();
+  renderFormationUnit("offense", OFFENSE_POSITIONS, "offense-formation");
+  renderFormationUnit("defense", DEFENSE_POSITIONS, "defense-formation");
+  renderFormationUnit("special", SPECIAL_POSITIONS, "special-formation");
 
-  if (pos && player.naturalPos.toUpperCase() !== pos) return false;
+  const offenseEl = getEl("offense-formation");
+  const defenseEl = getEl("defense-formation");
+  const specialEl = getEl("special-formation");
 
-  if (!q) return true;
+  if (!offenseEl || !defenseEl || !specialEl) return;
 
-  const fullName = `${player.firstName} ${player.lastName}`.toLowerCase();
-  if (fullName.includes(q)) return true;
-
-  if (player.naturalPos.toLowerCase().includes(q)) return true;
-
-  return false;
-}
-
-/**
- * Determine whether a player appears anywhere on the depth chart.
- * @param {Player} player
- */
-function playerIsAssignedSomewhere(player) {
-  if (!currentDepthChart) return false;
-  for (const pos of Object.keys(currentDepthChart.positions || {})) {
-    const slots = currentDepthChart.positions[pos] || [];
-    if (slots.some((id) => id === player.id)) return true;
-  }
-  return false;
-}
-
-function renderRosterList() {
-  const listEl = getEl("roster-list");
-  const emptyMsg = getEl("roster-empty-msg");
-  const searchInput = /** @type {HTMLInputElement|null} */ (
-    getEl("roster-search-input")
-  );
-  const posSelect = /** @type {HTMLSelectElement|null} */ (
-    getEl("roster-filter-pos")
-  );
-
-  if (!listEl) return;
-
-  const query = searchInput ? searchInput.value || "" : "";
-  const posFilter = posSelect ? posSelect.value || "" : "";
-
-  const filtered = currentRoster.filter((player) =>
-    passesRosterFilter(player, query, posFilter)
-  );
-
-  listEl.innerHTML = "";
-
-  if (!filtered.length) {
-    if (emptyMsg) {
-      emptyMsg.textContent = query
-        ? "No players match this filter."
-        : "No players loaded for this roster.";
-      emptyMsg.style.display = "block";
-      listEl.appendChild(emptyMsg);
-    }
-    return;
-  }
-
-  if (emptyMsg) emptyMsg.style.display = "none";
-
-  filtered.forEach((player) => {
-    const row = document.createElement("div");
-    row.className = "roster-row";
-    if (!playerIsAssignedSomewhere(player)) {
-      row.classList.add("roster-row--unassigned");
-    }
-    if (highlightedPlayerId === player.id) {
-      row.classList.add("roster-row-highlight");
-    }
-
-    const nameCell = document.createElement("div");
-    nameCell.className = "roster-row-name";
-    nameCell.textContent = `${player.firstName} ${player.lastName}`;
-
-    const posCell = document.createElement("div");
-    posCell.className = "roster-row-pos";
-    posCell.textContent = player.naturalPos || "—";
-
-    const roleCell = document.createElement("div");
-    roleCell.className = "roster-row-role";
-    const tier = ratingToTierLabel(player.ratingOverall ?? player.ratingPos);
-    const archetypeLabel = archetypeToLabel(
-      player.primaryArchetype,
-      player.naturalPos
-    );
-    roleCell.textContent = archetypeLabel
-      ? `${archetypeLabel} • ${tier}`
-      : tier;
-
-    row.appendChild(nameCell);
-    row.appendChild(posCell);
-    row.appendChild(roleCell);
-
-    listEl.appendChild(row);
-  });
+  offenseEl.hidden = currentUnitFilter !== "offense";
+  defenseEl.hidden = currentUnitFilter !== "defense";
+  specialEl.hidden = currentUnitFilter !== "special";
 }
 
 // ---------------------------------------------------------------------------
-// Player picker for slot assignment
+// Player picker for slot assignment (existing behavior preserved)
 // ---------------------------------------------------------------------------
 
 /**
- * Open a simple inline picker for a specific slot.
- * For now, we use window.prompt-style selection:
- * - The user picks a player from a filtered list in a simple dialog-like flow.
- * - If the player is not eligible, we ask them to confirm the risky move.
+ * Open a simple picker for a specific slot, using a prompt-based list.
  * @param {string} pos
  * @param {number} slotIndex
  */
 function openPlayerPickerForSlot(pos, slotIndex) {
   if (depthLocked) return;
 
-  // Build a sorted list of candidates of this team, sorted by fit.
+  const upPos = pos.toUpperCase();
+
+  // Build a sorted list of candidates for this team, sorted by fit.
   const candidates = currentRoster.slice().sort((a, b) => {
-    // Prefer players whose naturalPos == pos, then by position score, then rating.
-    const aNatural = a.naturalPos.toUpperCase() === pos.toUpperCase();
-    const bNatural = b.naturalPos.toUpperCase() === pos.toUpperCase();
+    const aNatural = a.naturalPos.toUpperCase() === upPos;
+    const bNatural = b.naturalPos.toUpperCase() === upPos;
     if (aNatural && !bNatural) return -1;
     if (!aNatural && bNatural) return 1;
 
-    const aScore = a.positionScores[pos] ?? 0;
-    const bScore = b.positionScores[pos] ?? 0;
+    const aScore = a.positionScores[upPos] ?? 0;
+    const bScore = b.positionScores[upPos] ?? 0;
     if (bScore !== aScore) return bScore - aScore;
 
-    const aRating = (a.ratingPos ?? a.ratingOverall ?? 0);
-    const bRating = (b.ratingPos ?? b.ratingOverall ?? 0);
+    const aRating = a.ratingPos ?? a.ratingOverall ?? 0;
+    const bRating = b.ratingPos ?? b.ratingOverall ?? 0;
     return bRating - aRating;
   });
 
@@ -888,22 +692,28 @@ function openPlayerPickerForSlot(pos, slotIndex) {
 
   const labelLines = candidates.map((p, idx) => {
     const tier = ratingToTierLabel(p.ratingOverall ?? p.ratingPos);
-    const naturalTag = p.naturalPos.toUpperCase() === pos.toUpperCase()
-      ? " (natural)"
-      : "";
+    const naturalTag =
+      p.naturalPos.toUpperCase() === upPos ? " (natural)" : "";
     return `${idx + 1}. ${p.firstName} ${p.lastName} [${p.naturalPos}${naturalTag}, ${tier}]`;
   });
 
   const input = window.prompt(
-    `Assign ${pos} depth ${slotIndex + 1}:\n` +
+    `Assign ${upPos} depth ${slotIndex + 1}:\n` +
       labelLines.slice(0, 30).join("\n") +
       (labelLines.length > 30 ? "\n…" : "") +
-      `\n\nEnter number (1-${Math.min(labelLines.length, 30)}) or leave blank to cancel:`
+      `\n\nEnter number (1-${Math.min(
+        labelLines.length,
+        30
+      )}) or leave blank to cancel:`
   );
 
   if (!input) return;
   const choiceIndex = Number(input) - 1;
-  if (!Number.isFinite(choiceIndex) || choiceIndex < 0 || choiceIndex >= candidates.length) {
+  if (
+    !Number.isFinite(choiceIndex) ||
+    choiceIndex < 0 ||
+    choiceIndex >= candidates.length
+  ) {
     window.alert("Invalid selection.");
     return;
   }
@@ -911,30 +721,28 @@ function openPlayerPickerForSlot(pos, slotIndex) {
   const chosen = candidates[choiceIndex];
   if (!chosen) return;
 
-  const eligible = isPlayerEligibleForPosition(chosen, pos);
+  const eligible = isPlayerEligibleForPosition(chosen, upPos);
   if (!eligible) {
     const confirmRisk = window.confirm(
-      `${chosen.firstName} ${chosen.lastName} is not a natural or rated fit at ${pos}. ` +
-      "In real life this would be an emergency-only assignment. Do you want to proceed anyway?"
+      `${chosen.firstName} ${chosen.lastName} is not a natural or rated fit at ${upPos}. ` +
+        "In real life this would be an emergency-only assignment. Do you want to proceed anyway?"
     );
     if (!confirmRisk) return;
   }
 
-  // Assign player to this slot. We allow players to appear in multiple positions
-  // (e.g., WR + special teams). We do not forcibly remove them from other slots.
-  if (!currentDepthChart.positions[pos]) {
-    currentDepthChart.positions[pos] = new Array(MAX_DEPTH_SLOTS).fill(null);
+  if (!currentDepthChart.positions[upPos]) {
+    currentDepthChart.positions[upPos] = new Array(MAX_DEPTH_SLOTS).fill(null);
   }
-  currentDepthChart.positions[pos][slotIndex] = chosen.id;
+
+  currentDepthChart.positions[upPos][slotIndex] = chosen.id;
   saveDepthChart(currentDepthChart);
   highlightedPlayerId = chosen.id;
 
   renderDepthChart();
-  renderRosterList();
 }
 
 // ---------------------------------------------------------------------------
-// Binding – unit tabs & controls
+// Binding – tabs & actions
 // ---------------------------------------------------------------------------
 
 function bindUnitTabs() {
@@ -942,7 +750,7 @@ function bindUnitTabs() {
   tabs.forEach((tab) => {
     tab.addEventListener("click", () => {
       const unit = tab.getAttribute("data-unit") || "offense";
-      currentUnitFilter = /** @type any */ (unit);
+      currentUnitFilter = /** @type any */ unit;
 
       tabs.forEach((t) => t.classList.remove("unit-tab--active"));
       tab.classList.add("unit-tab--active");
@@ -952,50 +760,21 @@ function bindUnitTabs() {
   });
 }
 
-function bindRosterFilters() {
-  const searchInput = getEl("roster-search-input");
-  const posSelect = getEl("roster-filter-pos");
-
-  if (searchInput) {
-    searchInput.addEventListener("input", () => {
-      renderRosterList();
+function bindTopActions() {
+  const buttons = document.querySelectorAll(".top-action-btn");
+  buttons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const action = btn.getAttribute("data-action") || "action";
+      window.alert(
+        `"${action}" is a placeholder in this build. In the full game this would open the ${action} hub.`
+      );
     });
-  }
-  if (posSelect) {
-    posSelect.addEventListener("change", () => {
-      renderRosterList();
-    });
-  }
-}
+  });
 
-function bindButtons() {
-  const backHubBtn = getEl("btn-back-hub");
   const mainMenuBtn = getEl("btn-go-main-menu");
-  const resetDepthBtn = getEl("btn-sync-default-depth");
-
-  if (backHubBtn) {
-    backHubBtn.addEventListener("click", () => {
-      window.location.href = "franchise.html";
-    });
-  }
   if (mainMenuBtn) {
     mainMenuBtn.addEventListener("click", () => {
       window.location.href = "main_page.html";
-    });
-  }
-  if (resetDepthBtn) {
-    resetDepthBtn.addEventListener("click", () => {
-      if (!currentFranchiseSave) return;
-      const ok = window.confirm(
-        "Reset depth chart to an automatic, engine-style default for this roster?"
-      );
-      if (!ok) return;
-
-      currentDepthChart = createDefaultDepthChart(currentRoster, currentFranchiseSave);
-      saveDepthChart(currentDepthChart);
-      highlightedPlayerId = null;
-      renderDepthChart();
-      renderRosterList();
     });
   }
 }
@@ -1007,7 +786,9 @@ function bindButtons() {
 function showNoFranchiseState() {
   const main = getEl("team-main");
   const noFranchise = getEl("no-franchise");
+  const topBar = getEl("team-top-bar");
   if (main) main.hidden = true;
+  if (topBar) topBar.hidden = true;
   if (noFranchise) noFranchise.hidden = false;
 }
 
@@ -1029,27 +810,22 @@ async function initTeamPage() {
   let csvText;
   try {
     const resp = await fetch(ROSTERS_CSV_URL);
-    if (!resp.ok) {
-      throw new Error(`HTTP ${resp.status}`);
-    }
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     csvText = await resp.text();
   } catch (err) {
     console.error("[Franchise GM] Failed to load roster CSV:", err);
-    const rosterList = getEl("roster-list");
-    const empty = getEl("roster-empty-msg");
-    if (rosterList && empty) {
-      rosterList.innerHTML = "";
-      empty.textContent =
-        "Failed to load roster data. Check the CSV URL or network.";
-      empty.style.display = "block";
-      rosterList.appendChild(empty);
-    }
     renderHeader();
+    const offense = getEl("offense-formation");
+    if (offense) {
+      offense.textContent =
+        "Failed to load roster data. Check the CSV URL or your network.";
+    }
+    bindUnitTabs();
+    bindTopActions();
     return;
   }
 
   const rawRows = parseSimpleCsv(csvText);
-
   const teamCode = (save.teamCode || "").toUpperCase();
   currentRoster = rawRows
     .map(playerFromCsvRow)
@@ -1064,15 +840,10 @@ async function initTeamPage() {
     saveDepthChart(currentDepthChart);
   }
 
-  // Render everything
   renderHeader();
   renderDepthChart();
-  renderRosterList();
-
-  // Wire controls
   bindUnitTabs();
-  bindRosterFilters();
-  bindButtons();
+  bindTopActions();
 }
 
 if (document.readyState === "loading") {
