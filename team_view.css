@@ -48,6 +48,8 @@
     flex-direction: column;
   }
   
+  /* PAGE WRAPPER ----------------------------------------------------------- */
+  
   .team-page {
     flex: 1;
     max-width: 1960px;
@@ -60,7 +62,7 @@
     position: relative;
   }
   
-  /* Ambient glow */
+  /* Ambient glow behind the whole page */
   .team-page::before {
     content: "";
     position: fixed;
@@ -74,7 +76,7 @@
     z-index: -2;
   }
   
-  /* Top bar */
+  /* TOP BAR --------------------------------------------------------------- */
   
   .top-bar {
     display: flex;
@@ -159,7 +161,7 @@
     box-shadow: var(--shadow-sm);
   }
   
-  /* Unit selector tabs */
+  /* UNIT TABS ------------------------------------------------------------- */
   
   .unit-tabs {
     display: flex;
@@ -181,7 +183,8 @@
       background-color 140ms ease-out,
       color 140ms ease-out,
       transform 120ms ease-out,
-      border-color 120ms ease-out;
+      border-color 120ms ease-out,
+      box-shadow 120ms ease-out;
   }
   
   .unit-tab--active {
@@ -196,25 +199,24 @@
     color: var(--text-main);
   }
   
-  /* Formation shell / tactical board */
+  /* FORMATION BOARD ------------------------------------------------------- */
   
   .formation-shell {
     flex: 1;
     border-radius: 22px;
     border: 1px solid var(--border-subtle);
-    background:
-      linear-gradient(
-        180deg,
-        rgba(15, 23, 42, 0.98),
-        rgba(15, 23, 42, 1)
-      );
+    background: linear-gradient(
+      180deg,
+      rgba(15, 23, 42, 0.98),
+      rgba(15, 23, 42, 1)
+    );
     padding: 16px;
     box-shadow: var(--shadow-soft);
     position: relative;
-    overflow: hidden;
+    overflow: hidden; /* keeps field pattern clipped to rounded corners */
   }
   
-  /* subtle field pattern */
+  /* subtle horizontal field lines */
   .formation-shell::before {
     content: "";
     position: absolute;
@@ -239,73 +241,81 @@
   .formation-grid {
     position: relative;
     z-index: 1;
-    height: 100%;
     width: 100%;
+    min-height: 420px;
     display: grid;
-    gap: 10px;
+    gap: 14px;
     padding: 10px;
+    align-content: flex-start;
+    grid-auto-rows: minmax(72px, auto); /* rows grow to fit pills so no overlap */
   }
   
-  /* OFFENSE grid layout */
-  
+  /* OFFENSE GRID LAYOUT
+     WR / TE on the edges,
+     line in front,
+     QB behind C,
+     FB / RB behind QB.
+  */
   .formation-grid--offense {
     grid-template-columns: repeat(7, minmax(0, 1fr));
-    grid-template-rows: 80px 90px 90px 90px 40px;
+    grid-template-rows: auto auto auto auto;
     grid-template-areas:
       "wr wr te te . . ."
       "lt lg c rg rt . ."
       ". . qb qb . . ."
-      ". fb rb rb . . ."
-      ". . . . . . .";
+      ". fb rb rb . . .";
   }
   
-  /* DEFENSE grid layout */
-  
+  /* DEFENSE GRID LAYOUT
+     DBs deep, LBs in the middle, DL on the line.
+  */
   .formation-grid--defense {
     grid-template-columns: repeat(7, minmax(0, 1fr));
-    grid-template-rows: 80px 90px 90px 40px;
+    grid-template-rows: auto auto auto;
     grid-template-areas:
       "cb cb s s . . ."
       ". lb lb lb . . ."
-      "edge edge dt dt . . ."
-      ". . . . . . .";
+      "edge edge dt dt . . .";
   }
   
-  /* SPECIAL TEAMS grid layout */
-  
+  /* SPECIAL TEAMS GRID LAYOUT */
   .formation-grid--special {
     grid-template-columns: repeat(7, minmax(0, 1fr));
-    grid-template-rows: 90px 90px auto;
+    grid-template-rows: auto auto;
     grid-template-areas:
       ". . k k . . ."
-      ". . p p . . ."
-      ". . . . . . .";
+      ". . p p . . .";
   }
   
-  /* Position cards, mapped to grid areas */
+  /* POSITION CARDS -------------------------------------------------------- */
   
   .position-card {
     border-radius: var(--radius-md);
     border: 1px solid rgba(31, 41, 55, 0.95);
-    background: radial-gradient(circle at 0 0, rgba(15, 23, 42, 0.94), rgba(15, 23, 42, 0.99));
+    background: radial-gradient(
+      circle at 0 0,
+      rgba(15, 23, 42, 0.94),
+      rgba(15, 23, 42, 0.99)
+    );
     padding: 6px 8px 8px;
     display: flex;
     flex-direction: column;
     gap: 4px;
     box-shadow: var(--shadow-sm);
+    min-height: 80px;
   }
   
-  /* Offense mapping */
-  .formation-grid--offense .position-card--QB { grid-area: qb; }
-  .formation-grid--offense .position-card--RB { grid-area: rb; }
-  .formation-grid--offense .position-card--FB { grid-area: fb; }
-  .formation-grid--offense .position-card--WR { grid-area: wr; }
-  .formation-grid--offense .position-card--TE { grid-area: te; }
-  .formation-grid--offense .position-card--LT { grid-area: lt; }
-  .formation-grid--offense .position-card--LG { grid-area: lg; }
-  .formation-grid--offense .position-card--C  { grid-area: c; }
-  .formation-grid--offense .position-card--RG { grid-area: rg; }
-  .formation-grid--offense .position-card--RT { grid-area: rt; }
+  /* Map positions to the formation grid areas (offense) */
+  .formation-grid--offense .position-card--QB  { grid-area: qb; }
+  .formation-grid--offense .position-card--RB  { grid-area: rb; }
+  .formation-grid--offense .position-card--FB  { grid-area: fb; }
+  .formation-grid--offense .position-card--WR  { grid-area: wr; }
+  .formation-grid--offense .position-card--TE  { grid-area: te; }
+  .formation-grid--offense .position-card--LT  { grid-area: lt; }
+  .formation-grid--offense .position-card--LG  { grid-area: lg; }
+  .formation-grid--offense .position-card--C   { grid-area: c; }
+  .formation-grid--offense .position-card--RG  { grid-area: rg; }
+  .formation-grid--offense .position-card--RT  { grid-area: rt; }
   
   /* Defense mapping */
   .formation-grid--defense .position-card--DT   { grid-area: dt; }
@@ -315,8 +325,8 @@
   .formation-grid--defense .position-card--S    { grid-area: s; }
   
   /* Special teams mapping */
-  .formation-grid--special .position-card--K { grid-area: k; }
-  .formation-grid--special .position-card--P { grid-area: p; }
+  .formation-grid--special .position-card--K    { grid-area: k; }
+  .formation-grid--special .position-card--P    { grid-area: p; }
   
   .position-card-header {
     display: flex;
@@ -345,7 +355,7 @@
     margin-top: 2px;
   }
   
-  /* Player pills */
+  /* PLAYER PILLS ---------------------------------------------------------- */
   
   .player-pill {
     width: 100%;
@@ -378,7 +388,11 @@
   .player-pill--starter {
     border-color: var(--accent);
     box-shadow: 0 10px 24px rgba(34, 197, 94, 0.45);
-    background: radial-gradient(circle at 0 0, rgba(34, 197, 94, 0.22), rgba(15, 23, 42, 0.98));
+    background: radial-gradient(
+      circle at 0 0,
+      rgba(34, 197, 94, 0.22),
+      rgba(15, 23, 42, 0.98)
+    );
   }
   
   .player-pill--empty {
@@ -418,14 +432,18 @@
     color: var(--text-soft);
   }
   
-  /* No-franchise state */
+  /* NO FRANCHISE STATE ---------------------------------------------------- */
   
   .no-franchise-state {
     margin-top: 40px;
     padding: 22px 22px 18px;
     border-radius: var(--radius-lg);
     border: 1px solid var(--border-strong);
-    background: radial-gradient(circle at 0 0, rgba(15, 23, 42, 0.8), rgba(15, 23, 42, 0.98));
+    background: radial-gradient(
+      circle at 0 0,
+      rgba(15, 23, 42, 0.8),
+      rgba(15, 23, 42, 0.98)
+    );
     box-shadow: var(--shadow-soft);
     max-width: 520px;
   }
@@ -455,7 +473,7 @@
     font-weight: 600;
   }
   
-  /* Footer */
+  /* FOOTER ---------------------------------------------------------------- */
   
   .team-footer {
     margin-top: 8px;
@@ -467,7 +485,7 @@
     flex-wrap: wrap;
   }
   
-  /* Responsive tweaks */
+  /* RESPONSIVE ------------------------------------------------------------ */
   
   @media (max-width: 1280px) {
     .team-page {
@@ -484,21 +502,17 @@
     }
   }
   
+  /* On smaller screens we abandon strict formation layout
+     and just tile the position cards in a grid so they never overlap. */
   @media (max-width: 900px) {
-    .formation-grid--offense,
-    .formation-grid--defense,
-    .formation-grid--special {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+    .formation-grid {
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
       grid-template-rows: auto;
+      grid-auto-flow: row;
       grid-template-areas: none;
     }
   
     .position-card {
-      min-height: 100px;
-    }
-  
-    .position-card {
-      /* simple flow when we abandon the strict formation on small screens */
       grid-area: auto !important;
     }
   }
