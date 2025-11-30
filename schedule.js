@@ -585,15 +585,30 @@ function renderWeekDetail() {
   }
 
   if (boxBtn) {
+    // Only enable box score once the game is final
     boxBtn.disabled = !isFinal;
+
     boxBtn.onclick = () => {
       if (!isFinal) {
+        // Shouldn't fire because the button is disabled, but keep the guard.
         window.alert("Box score will be available after this game is played.");
         return;
       }
-      window.alert("Box score view not implemented yet.");
+
+      // Pass enough info for box_score.html to locate the exact game
+      const params = new URLSearchParams({
+        season: String(currentFranchiseSave?.seasonYear ?? ""),
+        week: String(game.seasonWeek),     // 1–18 week number
+        index: String(game.index),        // 0-based index in this team's schedule
+        team: game.teamCode,             // your team
+        opp: game.opponentCode,          // opponent
+        home: game.isHome ? "1" : "0"    // "1" = home, "0" = away
+      });
+
+      window.location.href = `box_score.html?${params.toString()}`;
     };
   }
+
 }
 
 // ---------------------------------------------------------------------------

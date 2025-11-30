@@ -575,19 +575,27 @@ function renderFormationUnit(unit, positions, containerId) {
       if (i === 0) pill.classList.add("player-pill--starter");
 
       if (!player) {
+        // Empty slot – main click still edits depth (when unlocked)
         pill.classList.add("player-pill--empty");
         const labelSpan = document.createElement("span");
         labelSpan.className = "player-pill-name";
-        labelSpan.textContent = depthLocked
-          ? "Open slot"
-          : "Assign player";
+        labelSpan.textContent = depthLocked ? "Open slot" : "Assign player";
         pill.appendChild(labelSpan);
+
+        if (depthLocked) {
+          pill.disabled = true;
+        } else {
+          pill.addEventListener("click", () => {
+            const slotIdx = Number(pill.dataset.slotIndex || "0") || 0;
+            openPlayerPickerForSlot(posKey, slotIdx);
+          });
+        }
       } else {
         if (player.id === highlightedPlayerId) {
-          // Optional: extra visual affordance for most recently assigned player
           pill.style.boxShadow = "0 0 0 1px rgba(56,189,248,0.9)";
         }
 
+        // Main pill content
         const topRow = document.createElement("div");
         topRow.className = "player-pill-top";
 
@@ -617,15 +625,37 @@ function renderFormationUnit(unit, positions, containerId) {
 
         pill.appendChild(topRow);
         pill.appendChild(meta);
-      }
 
-      if (depthLocked) {
-        pill.disabled = true;
-      } else {
+        // Small inline "Edit depth" affordance – uses stopPropagation
+        const actions = document.createElement("div");
+        actions.className = "player-pill-actions";
+
+        const editSpan = document.createElement("span");
+        editSpan.className = "player-pill-edit-link";
+        editSpan.textContent = depthLocked ? "Depth locked" : "Edit depth";
+
+        if (!depthLocked) {
+          editSpan.addEventListener("click", (evt) => {
+            evt.stopPropagation();
+            const slotIdx = Number(pill.dataset.slotIndex || "0") || 0;
+            openPlayerPickerForSlot(posKey, slotIdx);
+          });
+        }
+
+        actions.appendChild(editSpan);
+        pill.appendChild(actions);
+
+        // Main click → Player Detail page
         pill.addEventListener("click", () => {
-          const slotIdx = Number(pill.dataset.slotIndex || "0") || 0;
-          openPlayerPickerForSlot(posKey, slotIdx);
+          const url = new URL("player_detail.html", window.location.href);
+          url.searchParams.set("playerId", player.id);
+          window.location.href = url.toString();
         });
+
+        if (depthLocked) {
+          // Keep profile view active even if depth is locked.
+          // Only the Edit Depth affordance is effectively disabled.
+        }
       }
 
       body.appendChild(pill);
@@ -636,6 +666,7 @@ function renderFormationUnit(unit, positions, containerId) {
     container.appendChild(card);
   });
 }
+
 
 function renderDepthChart() {
   if (!currentDepthChart) return;
