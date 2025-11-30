@@ -585,24 +585,32 @@ function renderWeekDetail() {
   }
 
   if (boxBtn) {
-    // Only enable box score once the game is final
-    boxBtn.disabled = !isFinal;
+    const hasResult =
+      game.status === "final" &&
+      game.teamScore != null &&
+      game.opponentScore != null;
+
+    boxBtn.disabled = !hasResult;
 
     boxBtn.onclick = () => {
-      if (!isFinal) {
-        // Shouldn't fire because the button is disabled, but keep the guard.
+      if (!hasResult) {
         window.alert("Box score will be available after this game is played.");
         return;
       }
 
-      // Pass enough info for box_score.html to locate the exact game
+      // Use league week + true home/away team codes,
+      // which is exactly what box_score.js expects.
+      const seasonYear = currentFranchiseSave?.seasonYear ?? "";
+      const leagueWeek = game.seasonWeek; // 1–18
+
+      const homeTeamCode = game.isHome ? game.teamCode : game.opponentCode;
+      const awayTeamCode = game.isHome ? game.opponentCode : game.teamCode;
+
       const params = new URLSearchParams({
-        season: String(currentFranchiseSave?.seasonYear ?? ""),
-        week: String(game.seasonWeek),     // 1–18 week number
-        index: String(game.index),        // 0-based index in this team's schedule
-        team: game.teamCode,             // your team
-        opp: game.opponentCode,          // opponent
-        home: game.isHome ? "1" : "0"    // "1" = home, "0" = away
+        season: String(seasonYear),
+        week: String(leagueWeek),      // league week number, NOT index
+        home: homeTeamCode,           // e.g. "DAL"
+        away: awayTeamCode            // e.g. "NYJ"
       });
 
       window.location.href = `box_score.html?${params.toString()}`;
