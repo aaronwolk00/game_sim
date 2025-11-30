@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Franchise GM – Player Detail</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #020617;
+      --bg-elevated: rgba(15, 23, 42, 0.96);
+      --bg-soft: rgba(15, 23, 42, 0.9);
+      --border-subtle: #1f2937;
+      --border-strong: #4b5563;
+      --text-main: #e5e7eb;
+      --text-soft: #9ca3af;
+      --accent: #22c55e;
+      --accent-soft: rgba(34, 197, 94, 0.16);
+      --danger: #f97373;
+      --muted-pill: rgba(15, 23, 42, 0.92);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: radial-gradient(circle at top left, #020617 0%, #020617 45%, #020617 100%);
+      color: var(--text-main);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
+        "Segoe UI", Roboto, sans-serif;
+    }
+
+    .page-shell {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 20px 16px 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .top-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .top-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    #btn-back-team {
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.8);
+      background: #020617;
+      color: var(--text-main);
+      font-size: 0.75rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      padding: 6px 14px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    #btn-back-team:hover {
+      background: #0b1120;
+    }
+
+    .top-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .top-meta-title {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--text-soft);
+    }
+
+    .top-meta-team {
+      font-size: 0.86rem;
+      color: var(--text-soft);
+    }
+
+    .top-right {
+      font-size: 0.78rem;
+      color: var(--text-soft);
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.6);
+      padding: 4px 10px;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      background: linear-gradient(
+        135deg,
+        rgba(15, 23, 42, 0.96),
+        rgba(15, 23, 42, 1)
+      );
+      color: var(--text-soft);
+    }
+
+    .pill-accent {
+      border-color: rgba(34, 197, 94, 0.7);
+      background: radial-gradient(circle at top left, rgba(34, 197, 94, 0.14), rgba(15, 23, 42, 0.98));
+      color: var(--accent);
+    }
+
+    .layout-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+      gap: 16px;
+    }
+
+    @media (max-width: 900px) {
+      .layout-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
+    .card {
+      border-radius: 18px;
+      border: 1px solid var(--border-subtle);
+      background: var(--bg-elevated);
+      box-shadow: 0 20px 45px rgba(0, 0, 0, 0.7);
+      padding: 16px 16px 14px;
+    }
+
+    .card + .card {
+      margin-top: 10px;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .card-title {
+      font-size: 0.86rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: var(--text-soft);
+    }
+
+    .card-subtitle {
+      font-size: 0.8rem;
+      color: var(--text-soft);
+    }
+
+    /* Primary header block */
+
+    .player-header-main {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      gap: 12px;
+    }
+
+    #player-name {
+      font-size: 1.5rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    #player-pos-arch {
+      font-size: 0.9rem;
+      color: var(--text-soft);
+    }
+
+    .player-header-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 6px;
+    }
+
+    .tag-chip {
+      border-radius: 999px;
+      padding: 3px 9px;
+      font-size: 0.7rem;
+      border: 1px solid var(--border-subtle);
+      background: var(--muted-pill);
+      color: var(--text-soft);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+
+    .tag-chip--accent {
+      border-color: rgba(34, 197, 94, 0.7);
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    #player-tagline {
+      margin-top: 10px;
+      font-size: 0.9rem;
+      color: var(--text-main);
+    }
+
+    .player-header-footer {
+      margin-top: 8px;
+      font-size: 0.8rem;
+      color: var(--text-soft);
+    }
+
+    /* Scouting body */
+
+    #scouting-body {
+      font-size: 0.88rem;
+      color: var(--text-main);
+      line-height: 1.45;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    #scouting-body ul {
+      margin: 6px 0 0;
+      padding-left: 18px;
+    }
+
+    #scouting-body li {
+      margin: 2px 0;
+    }
+
+    /* Usage */
+
+    .usage-summary-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      font-size: 0.85rem;
+      color: var(--text-main);
+      margin-bottom: 6px;
+    }
+
+    .usage-metric {
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--border-subtle);
+      background: rgba(15, 23, 42, 0.9);
+      font-size: 0.78rem;
+      color: var(--text-soft);
+    }
+
+    #usage-note {
+      font-size: 0.8rem;
+      color: var(--text-soft);
+      margin-top: 4px;
+    }
+
+    /* Team context */
+
+    .context-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      font-size: 0.85rem;
+      color: var(--text-main);
+    }
+
+    .context-list li {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 3px 0;
+    }
+
+    .context-label {
+      color: var(--text-soft);
+    }
+
+    .context-value-strong {
+      font-weight: 500;
+    }
+
+    /* Personality / injuries */
+
+    #personality-body,
+    #injury-body {
+      font-size: 0.86rem;
+      color: var(--text-main);
+      line-height: 1.4;
+    }
+
+    .muted {
+      color: var(--text-soft);
+    }
+
+    /* Fallback states */
+
+    .center-state {
+      text-align: center;
+      padding: 40px 16px;
+      font-size: 0.92rem;
+      color: var(--text-soft);
+    }
+
+    .center-state h1 {
+      font-size: 1.15rem;
+      margin-bottom: 8px;
+    }
+
+    .center-state button {
+      margin-top: 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.8);
+      background: #020617;
+      color: var(--text-main);
+      font-size: 0.8rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      padding: 7px 18px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div id="no-franchise-state" class="center-state" hidden>
+    <h1>No active franchise</h1>
+    <p>
+      This screen needs an active FranchiseSave in local storage. Return to the
+      main menu and start or continue a franchise, then open a player profile
+      from the team formation screen.
+    </p>
+    <button type="button" id="btn-go-main-menu-fallback">Back to main menu</button>
+  </div>
+
+  <div id="player-not-found-state" class="center-state" hidden>
+    <h1>Player not found</h1>
+    <p id="player-not-found-message">
+      We couldn't find the requested player on your active roster.
+    </p>
+    <button type="button" id="btn-back-from-missing">Back</button>
+  </div>
+
+  <main id="player-page" class="page-shell" hidden>
+    <header class="top-bar">
+      <div class="top-left">
+        <button type="button" id="btn-back-team">
+          ← Back
+        </button>
+        <div class="top-meta">
+          <div class="top-meta-title">Player Detail & Reports</div>
+          <div class="top-meta-team" id="top-team-label"></div>
+        </div>
+      </div>
+      <div class="top-right">
+        <span id="top-season-label"></span>
+      </div>
+    </header>
+
+    <section class="card">
+      <div class="player-header-main">
+        <div>
+          <div id="player-name">Player Name</div>
+          <div id="player-pos-arch">Position • Archetype</div>
+          <div class="player-header-tags">
+            <span class="tag-chip tag-chip--accent" id="player-tier-chip">Tier</span>
+            <span class="tag-chip" id="player-role-chip">Role</span>
+            <span class="tag-chip" id="player-depth-chip">Depth</span>
+          </div>
+        </div>
+      </div>
+      <div id="player-tagline">Scouting summary line.</div>
+      <div class="player-header-footer" id="player-header-footer">
+        Team context, record, and season phase.
+      </div>
+    </section>
+
+    <section class="layout-grid">
+      <div>
+        <section class="card">
+          <div class="card-header">
+            <div class="card-title">Scouting Report</div>
+          </div>
+          <div id="scouting-body">
+            <!-- Filled by JS -->
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-header">
+            <div class="card-title">Usage & Production</div>
+          </div>
+          <div id="usage-summary">
+            <!-- Filled by JS -->
+          </div>
+          <div id="usage-note"></div>
+        </section>
+      </div>
+
+      <div>
+        <section class="card">
+          <div class="card-header">
+            <div class="card-title">Team Context</div>
+          </div>
+          <ul class="context-list" id="team-context-list">
+            <!-- Filled by JS -->
+          </ul>
+        </section>
+
+        <section class="card">
+          <div class="card-header">
+            <div class="card-title">Personality & Intangibles</div>
+          </div>
+          <div id="personality-body">
+            <!-- Filled by JS -->
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-header">
+            <div class="card-title">Injury Notes</div>
+            <div class="card-subtitle">Stubbed for future injury model</div>
+          </div>
+          <div id="injury-body">
+            <!-- Filled by JS -->
+          </div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="player_detail.js"></script>
+</body>
+</html>
