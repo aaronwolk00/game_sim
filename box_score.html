@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Franchise GM – Box Score</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #020617;
+      --panel: #020617;
+      --card: #020617;
+      --card-border: #1e293b;
+      --card-border-strong: #4b5563;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --accent: #22c55e;
+      --accent-soft: rgba(34,197,94,0.18);
+      --accent-alt: #38bdf8;
+      --danger: #f97373;
+      --danger-soft: rgba(248,113,113,0.18);
+      --radius-lg: 18px;
+      --radius-md: 12px;
+      --radius-pill: 999px;
+      --shadow-soft: 0 22px 45px rgba(15,23,42,0.8);
+      --shadow-sm: 0 10px 26px rgba(15,23,42,0.75);
+      --border-subtle: rgba(31,41,55,0.9);
+      --font: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
+        "Segoe UI", Roboto, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+      font-family: var(--font);
+      background: radial-gradient(circle at 0% 0%, #0b1120 0, #020617 48%, #000 100%);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .page {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      max-width: 1960px;
+      margin: 0 auto;
+      padding: 24px 40px 24px;
+      position: relative;
+    }
+
+    .page::before {
+      content: "";
+      position: fixed;
+      inset: -40%;
+      background:
+        radial-gradient(circle at 0% 0%, rgba(56,189,248,0.16), transparent 55%),
+        radial-gradient(circle at 100% 100%, rgba(34,197,94,0.16), transparent 60%);
+      opacity: 0.85;
+      mix-blend-mode: screen;
+      pointer-events: none;
+      z-index: -2;
+    }
+
+    .box-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .box-header-left {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    #box-header-title {
+      font-size: 1.35rem;
+      font-weight: 650;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    #box-header-subline {
+      font-size: 0.86rem;
+      color: var(--muted);
+    }
+
+    .box-header-right {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+      align-items: center;
+    }
+
+    .btn-ghost {
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(148,163,184,0.7);
+      background: rgba(15,23,42,0.9);
+      color: var(--text);
+      font-size: 0.8rem;
+      padding: 6px 14px;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      box-shadow: 0 1px 3px rgba(15,23,42,0.8);
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+    }
+
+    .btn-ghost:hover {
+      background: rgba(37,99,235,0.9);
+      border-color: rgba(129,140,248,0.95);
+    }
+
+    .box-main {
+      display: grid;
+      grid-template-columns: minmax(0, 1.6fr) minmax(0, 1.1fr);
+      gap: 16px;
+      align-items: flex-start;
+    }
+
+    .card {
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--card-border);
+      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.9), rgba(15,23,42,0.99));
+      box-shadow: var(--shadow-soft);
+      padding: 14px 16px 14px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card-title-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 10px;
+      gap: 8px;
+    }
+
+    .card-title {
+      font-size: 0.9rem;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--muted);
+    }
+
+    .card-title strong {
+      color: var(--text);
+    }
+
+    .card-subtitle {
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+
+    /* Scoreboard card */
+
+    .scoreboard-card {
+      padding-top: 16px;
+      padding-bottom: 16px;
+    }
+
+    .score-header-line {
+      font-size: 0.84rem;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+
+    .score-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+      margin-bottom: 10px;
+    }
+
+    .score-team {
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(55,65,81,0.95);
+      padding: 10px 12px;
+      background: linear-gradient(
+        135deg,
+        rgba(15,23,42,0.98),
+        rgba(15,23,42,0.94)
+      );
+      box-shadow: var(--shadow-sm);
+    }
+
+    .score-team--winner {
+      border-color: var(--accent);
+      box-shadow: 0 16px 32px rgba(34,197,94,0.4);
+      background: radial-gradient(circle at 0% 0%, rgba(34,197,94,0.18), rgba(15,23,42,0.96));
+    }
+
+    .score-team-name-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 4px;
+      gap: 8px;
+    }
+
+    .score-team-name {
+      font-size: 0.95rem;
+      font-weight: 600;
+    }
+
+    .score-team-record {
+      font-size: 0.74rem;
+      color: var(--muted);
+    }
+
+    .score-team-score {
+      font-size: 1.6rem;
+      font-weight: 650;
+      letter-spacing: 0.08em;
+    }
+
+    .score-meta-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-top: 6px;
+    }
+
+    .score-tag {
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(148,163,184,0.65);
+      padding: 2px 8px;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+    }
+
+    /* Team summary card */
+
+    .team-summary-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 10px;
+      margin-top: 6px;
+    }
+
+    .team-summary-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
+    .team-summary-row span:first-child {
+      color: rgba(209,213,219,0.95);
+    }
+
+    /* No franchise state */
+
+    .no-franchise {
+      margin-top: 40px;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--card-border-strong);
+      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.85), rgba(15,23,42,0.98));
+      padding: 22px 22px 18px;
+      max-width: 480px;
+      box-shadow: var(--shadow-soft);
+    }
+
+    .no-franchise-title {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    .no-franchise-text {
+      font-size: 0.86rem;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    .no-franchise-btn {
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(148,163,184,0.8);
+      background: rgba(15,23,42,0.95);
+      color: var(--text);
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      padding: 7px 16px;
+      cursor: pointer;
+    }
+
+    .box-footer {
+      margin-top: 10px;
+      font-size: 0.78rem;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    [hidden] {
+      display: none !important;
+    }
+
+    @media (max-width: 1100px) {
+      .page {
+        padding: 18px 18px 20px;
+      }
+      .box-main {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
+    @media (max-width: 640px) {
+      .box-header {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      .score-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page" id="box-page-root">
+    <header class="box-header" id="box-header">
+      <div class="box-header-left">
+        <div id="box-header-title">Box Score</div>
+        <div id="box-header-subline">Season — • Week — • Final</div>
+      </div>
+      <div class="box-header-right">
+        <a href="schedule.html" class="btn-ghost">Back to schedule</a>
+        <a href="franchise.html" class="btn-ghost">Back to hub</a>
+      </div>
+    </header>
+
+    <main class="box-main" id="box-main">
+      <section class="card scoreboard-card" id="scoreboard-card" aria-labelledby="box-header-title">
+        <div class="score-header-line" id="score-header-line">
+          Loading box score…
+        </div>
+        <div class="score-grid">
+          <div class="score-team" id="score-team-away">
+            <div class="score-team-name-row">
+              <div class="score-team-name" id="away-team-name">Away team</div>
+              <div class="score-team-score" id="away-team-score">0</div>
+            </div>
+            <div class="score-team-record" id="away-team-record">Record —</div>
+          </div>
+          <div class="score-team" id="score-team-home">
+            <div class="score-team-name-row">
+              <div class="score-team-name" id="home-team-name">Home team</div>
+              <div class="score-team-score" id="home-team-score">0</div>
+            </div>
+            <div class="score-team-record" id="home-team-record">Record —</div>
+          </div>
+        </div>
+        <div class="score-meta-row">
+          <div id="score-meta-left">Kickoff —</div>
+          <div>
+            <span class="score-tag" id="score-tag-type">Regular Season</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" id="team-summary-card">
+        <div class="card-title-row">
+          <div class="card-title"><strong>Team Summary</strong></div>
+          <div class="card-subtitle">
+            Simple line score for this matchup.
+          </div>
+        </div>
+        <div class="team-summary-grid">
+          <div class="team-summary-row">
+            <span>Result</span>
+            <span id="summary-result">—</span>
+          </div>
+          <div class="team-summary-row">
+            <span>Score</span>
+            <span id="summary-scoreline">—</span>
+          </div>
+          <div class="team-summary-row">
+            <span>Location</span>
+            <span id="summary-location">—</span>
+          </div>
+          <div class="team-summary-row">
+            <span>Notes</span>
+            <span id="summary-note">Box score details will expand as game stats are added to LeagueState.</span>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <section class="no-franchise" id="box-no-franchise" hidden>
+      <div class="no-franchise-title">No active franchise found</div>
+      <div class="no-franchise-text">
+        There’s no active franchise in this slot. Return to the main menu to start a new franchise or continue an existing one.
+      </div>
+      <button type="button" class="no-franchise-btn" id="box-btn-main-menu">
+        Back to main menu
+      </button>
+    </section>
+
+    <footer class="box-footer">
+      <span>Franchise GM • Box Score</span>
+      <span id="box-footer-meta">Data from saved league state.</span>
+    </footer>
+  </div>
+
+  <script type="module" src="box_score.js"></script>
+</body>
+</html>
