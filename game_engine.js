@@ -2399,7 +2399,7 @@ function simulateFieldGoal(state, offenseUnits, specialOff, rng) {
   // Scale the curve up/down slightly based on accuracy.
   //  kAcc 60 → factor ~0.85, 75 → 1.0, 90 → 1.15, 100 → ~1.25
   const accNorm   = (kAcc - 65) / 25;           // roughly -0.6..1.0 for 60–100
-  const accFactor = 1 + accNorm * 0.25;
+  const accFactor = 1 + accNorm * 0.15;
   let prob        = baseProb * accFactor;
 
   // --- Context pressure: close, late, long -> a bit harder ---
@@ -2428,7 +2428,7 @@ function simulateFieldGoal(state, offenseUnits, specialOff, rng) {
   }
 
   // Final clamp: allow true longshots, but no guaranteed makes
-  prob = clamp(prob, 0.01, 0.99);
+  prob = clamp(prob, 0.00, 0.999);
 
   const made = rng.next() < prob;
 
