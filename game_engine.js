@@ -2393,7 +2393,7 @@ function simulateFieldGoal(state, offenseUnits, specialOff, rng) {
   const scale             = 4.5;                // yards per e-fold change in odds
 
   const x        = (effDist - center) / scale;
-  let baseProb   = 1 / (1 + Math.exp(-x));       // 0–1, ~0.5 at "center"
+  let baseProb   = 1 / (1 + Math.exp(x));       // 0–1, ~0.5 at "center"
 
   // --- Accuracy tweak ---
   // Scale the curve up/down slightly based on accuracy.
