@@ -1780,8 +1780,8 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
         const redZone   = yardsToGoal <= 20;
     
         const shortYds  = distance <= 2;
-        const medYds    = distance > 2 && distance <= 5;
-        const longYds   = distance > 5;
+        const medYds    = distance > 2 && distance <= 6;
+        const longYds   = distance > 6;
     
         // ---------- HARD MUST-GO OVERRIDES (fix end-game weirdness) ----------
         const secondsLeft = clockSec;
@@ -1877,8 +1877,7 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
         // 3) Plus territory (opp 40+)
         if (plusTerr) {
           // --- NEW rule: inside opponent 35 → always FG or go-for-it, never punt ---
-          const autoFgZone = yardline >= 65; // opp 35 or closer (~52-yard FG)
-          if (autoFgZone) {
+          if (inFgRange) {
             // Only punt if impossible FG (wind, extreme distance, or injury)
             const puntOverride = rng.next() < 0.02; // 2% ultra-rare
             if (!puntOverride) {
@@ -1900,7 +1899,7 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
     
         // Out of normal range (really long FG):
         // - Short/medium distance: go a decent chunk of the time
-        if (shortYds || medYds) {
+        if (shortYds || medYds ) {
             let goProb = 0.60;
             if (scoreDiff < 0) goProb += 0.10;
             if (quarter >= 3) goProb += 0.10;
