@@ -2388,9 +2388,9 @@ function simulateFieldGoal(state, offenseUnits, specialOff, rng) {
   //   - centerBase ~ where an average NFL kicker is ~50/50
   //   - powerCenterShift pushes that out for big legs
   const centerBase        = 48;                 // avg kicker inflection around 45 yds
-  const powerCenterShift  = (kPow - 70) * 0.25; // big legs move curve outward ~±4–5 yds
+  const powerCenterShift  = (kPow - 70) * 0.3; // big legs move curve outward ~±4–5 yds
   const center            = centerBase + powerCenterShift;
-  const scale             = 4.0;                // yards per e-fold change in odds
+  const scale             = 4.5;                // yards per e-fold change in odds
 
   const x        = (effDist - center) / scale;
   let baseProb   = 1 / (1 + Math.exp(-x));       // 0–1, ~0.5 at "center"
