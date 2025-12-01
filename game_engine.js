@@ -1671,44 +1671,63 @@ function simulateFieldGoal(state, offenseUnits, specialOff, rng) {
     const { cfg } = state;
     const { offenseSide } = getOffenseDefense(state);
   
-    const yardsToGoal  = 100 - state.ballYardline;
-    const rawDistance  = yardsToGoal + 17; // LOS + 17 (standard NFL)
+    const yardsToGoal = 100 - state.ballYardline;
+    const rawDistance = yardsToGoal + 17; // LOS + 17 (standard NFL)
   
     const kAcc = specialOff.kicking?.accuracy ?? 60;
     const kPow = specialOff.kicking?.power   ?? 60;
   
-    // Effective distance: stronger leg "shrinks" distance a bit
-    const legBonus = (kPow - 70) * 0.15; // +/- ~4–5 yds across 40–100
-    const effDist  = Math.max(18, rawDistance - legBonus);
+    // --- Leg / distance model ---
+    // Stronger leg effectively "shrinks" distance a bit
+    // 60 -> -2.5 yds, 70 -> 0, 90 -> +5 yds, 100 -> +7.5 yds
+    const legShift = (kPow - 70) * 0.25;
+    const effDist  = Math.max(18, rawDistance - legShift);
   
-    // Baseline make rate vs effective distance
-    let base;
-    if (effDist <= 30) {
-      base = 0.985;
-    } else if (effDist <= 35) {
-      base = 0.985 - 0.006 * (effDist - 30);           // ~0.985 → ~0.955
-    } else if (effDist <= 45) {
-      base = 0.955 - 0.009 * (effDist - 35);           // ~0.955 → ~0.865
-    } else if (effDist <= 55) {
-      base = 0.865 - 0.015 * (effDist - 45);           // ~0.865 → ~0.715
-    } else {
-      base = 0.715 - 0.02 * (effDist - 55);            // then down toward 40s
-    }
+    // Smooth baseline make rate vs distance using a logistic curve:
+    //   - centerBase ~ where an average NFL kicker is ~50/50
+    //   - powerCenterShift pushes that out for big legs
+    const centerBase        = 45;                 // avg kicker inflection around 45 yds
+    const powerCenterShift  = (kPow - 70) * 0.15; // big legs move curve outward ~±4–5 yds
+    const center            = centerBase + powerCenterShift;
+    const scale             = 4.0;                // yards per e-fold change in odds
   
-    // Kicker accuracy tweak: small but meaningful
-    const accAdj = 0.0015 * (kAcc - 70);
-    let prob = base + accAdj;
+    const x        = (effDist - center) / scale;
+    let baseProb   = 1 / (1 + Math.exp(x));       // 0–1, ~0.5 at "center"
   
-    // Context pressure: long, late, close game -> slightly harder
+    // --- Accuracy tweak ---
+    // Scale the curve up/down slightly based on accuracy.
+    //  kAcc 60 → factor ~0.85, 75 → 1.0, 90 → 1.15, 100 → ~1.25
+    const accNorm   = (kAcc - 75) / 25;           // roughly -0.6..1.0 for 60–100
+    const accFactor = 1 + accNorm * 0.25;
+    let prob        = baseProb * accFactor;
+  
+    // --- Context pressure: close, late, long -> a bit harder ---
     const lateQuarter = state.quarter >= 4;
-    const closeGame = Math.abs(state.score.home - state.score.away) <= 3;
-    const longKick = rawDistance >= 50;
+    const closeGame   = Math.abs(state.score.home - state.score.away) <= 3;
+    const longKick    = rawDistance >= 50;
   
     if (lateQuarter && closeGame && longKick) {
       prob -= 0.03;
     }
   
-    prob = clamp(prob, 0.10, 0.99);
+    // If the defense iced the kicker just before this snap, apply a small penalty
+    if (state._icedKicker) {
+      prob -= (cfg.iceKickerPenalty ?? 0.02);
+      state._icedKicker = false; // one-shot
+    }
+  
+    // --- Extreme distance caps ---
+    // Even with a monster leg, 65+ should be rare, 68–70 almost never.
+    if (rawDistance >= 70) {
+      prob = Math.min(prob, 0.02);   // ≤ 2% at 70+ even for elite guys
+    } else if (rawDistance >= 68) {
+      prob = Math.min(prob, 0.06);   // ≤ 6% at 68–69
+    } else if (rawDistance >= 65) {
+      prob = Math.min(prob, 0.12);   // ≤ 12% at 65–67
+    }
+  
+    // Final clamp: allow true longshots, but no guaranteed makes
+    prob = clamp(prob, 0.01, 0.99);
   
     const made = rng.next() < prob;
   
@@ -1718,7 +1737,7 @@ function simulateFieldGoal(state, offenseUnits, specialOff, rng) {
     // Kicker stats
     const kicker =
       offenseSide === "home" ? state.homeKicker : state.awayKicker;
-    const kickerRow = kicker ? ensurePlayerRow(state, kicker, offenseSide) : null;
+    const kickerRow  = kicker ? ensurePlayerRow(state, kicker, offenseSide) : null;
     const kickerId   = getPlayerKey(kicker);
     const kickerName = getPlayerName(kicker);
   
