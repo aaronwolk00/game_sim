@@ -2393,7 +2393,7 @@ function simulateFieldGoal(state, offenseUnits, specialOff, rng) {
   const scale             = 4.0;                // yards per e-fold change in odds
 
   const x        = (effDist - center) / scale;
-  let baseProb   = 1 / (1 + Math.exp(x));       // 0–1, ~0.5 at "center"
+  let baseProb   = 1 / (1 + Math.exp(-x));       // 0–1, ~0.5 at "center"
 
   // --- Accuracy tweak ---
   // Scale the curve up/down slightly based on accuracy.
@@ -2405,10 +2405,10 @@ function simulateFieldGoal(state, offenseUnits, specialOff, rng) {
   // --- Context pressure: close, late, long -> a bit harder ---
   const lateQuarter = state.quarter >= 4;
   const closeGame   = Math.abs(state.score.home - state.score.away) <= 3;
-  const longKick    = rawDistance >= 50;
+  const longKick    = rawDistance >= 54;
 
   if (lateQuarter && closeGame && longKick) {
-    prob -= 0.03;
+    prob -= 0.02;
   }
 
   // If the defense iced the kicker just before this snap, apply a small penalty
@@ -2424,7 +2424,7 @@ function simulateFieldGoal(state, offenseUnits, specialOff, rng) {
   } else if (rawDistance >= 68) {
     prob = Math.min(prob, 0.06);   // ≤ 6% at 68–69
   } else if (rawDistance >= 65) {
-    prob = Math.min(prob, 0.12);   // ≤ 12% at 65–67
+    prob = Math.min(prob, 0.14);   // ≤ 14% at 65–67
   }
 
   // Final clamp: allow true longshots, but no guaranteed makes
