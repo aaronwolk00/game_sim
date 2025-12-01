@@ -464,8 +464,8 @@ class RNG {
     const teamB = getTeamBaseline(cfg, kickingTeam);
     const teamTB = Number.isFinite(teamB?.tb) ? teamB.tb : null;
   
-    const kPow = (getUnitProfiles(kickingTeam).special?.kicking?.power ?? 60);
-    const powerAdj = (kPow - 60) * 0.004; // ±0.16 tops (40–100), typically smaller
+    const kPow = (getUnitProfiles(kickingTeam).special?.kicking?.power ?? 38.5);
+    const powerAdj = (kPow - 38.5) * 0.004; // ±0.16 tops (40–100), typically smaller
   
     let rate = (teamTB != null ? teamTB : baseLeague) + powerAdj;
     return clamp(rate, 0.10, 0.95);
@@ -2388,7 +2388,7 @@ function simulateFieldGoal(state, offenseUnits, specialOff, rng) {
   //   - centerBase ~ where an average NFL kicker is ~50/50
   //   - powerCenterShift pushes that out for big legs
   const centerBase        = 48;                 // avg kicker inflection around 45 yds
-  const powerCenterShift  = (kPow - 38.5) * 0.25; // big legs move curve outward ~±4–5 yds
+  const powerCenterShift  = (kPow - 38.5) * 0.10; // big legs move curve outward ~±4–5 yds
   const center            = centerBase + powerCenterShift;
   const scale             = 4.5;                // yards per e-fold change in odds
 
