@@ -2375,20 +2375,20 @@ function simulateFieldGoal(state, offenseUnits, specialOff, rng) {
   const yardsToGoal = 100 - state.ballYardline;
   const rawDistance = yardsToGoal + 17; // LOS + 17 (standard NFL)
 
-  const kAcc = specialOff.kicking?.accuracy ?? 60;
-  const kPow = specialOff.kicking?.power   ?? 60;
+  const kAcc = specialOff.kicking?.accuracy ?? 31.5;
+  const kPow = specialOff.kicking?.power   ?? 38.5;
 
   // --- Leg / distance model ---
   // Stronger leg effectively "shrinks" distance a bit
   // 60 -> -2.5 yds, 70 -> 0, 90 -> +5 yds, 100 -> +7.5 yds
-  const legShift = (kPow - 70) * 0.4;
+  const legShift = (kPow - 38.5) * 0.25;
   const effDist  = Math.max(18, rawDistance - legShift);
 
   // Smooth baseline make rate vs distance using a logistic curve:
   //   - centerBase ~ where an average NFL kicker is ~50/50
   //   - powerCenterShift pushes that out for big legs
   const centerBase        = 48;                 // avg kicker inflection around 45 yds
-  const powerCenterShift  = (kPow - 70) * 0.3; // big legs move curve outward ~±4–5 yds
+  const powerCenterShift  = (kPow - 38.5) * 0.25; // big legs move curve outward ~±4–5 yds
   const center            = centerBase + powerCenterShift;
   const scale             = 4.5;                // yards per e-fold change in odds
 
@@ -2398,7 +2398,7 @@ function simulateFieldGoal(state, offenseUnits, specialOff, rng) {
   // --- Accuracy tweak ---
   // Scale the curve up/down slightly based on accuracy.
   //  kAcc 60 → factor ~0.85, 75 → 1.0, 90 → 1.15, 100 → ~1.25
-  const accNorm   = (kAcc - 65) / 25;           // roughly -0.6..1.0 for 60–100
+  const accNorm   = (kAcc - 31.5) / 25;           // roughly -0.6..1.0 for 60–100
   const accFactor = 1 + accNorm * 0.15;
   let prob        = baseProb * accFactor;
 
@@ -2424,7 +2424,7 @@ function simulateFieldGoal(state, offenseUnits, specialOff, rng) {
   } else if (rawDistance >= 68) {
     prob = Math.min(prob, 0.06);   // ≤ 6% at 68–69
   } else if (rawDistance >= 65) {
-    prob = Math.min(prob, 0.14);   // ≤ 14% at 65–67
+    prob = Math.min(prob, 0.12);   // ≤ 14% at 65–67
   }
 
   // Final clamp: allow true longshots, but no guaranteed makes
