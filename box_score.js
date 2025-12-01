@@ -5,16 +5,20 @@
 // Reads game identity from the query string (?season=&week=&home=&away=),
 // loads the current LeagueState from localStorage, and renders a scoreboard
 // for that specific matchup.
+//
+// IMPORTANT CHANGE: instead of using schedule.byWeek (which doesn't get its
+// scores updated), this version derives the matchup and final score from
+// schedule.byTeam, which GameDay *does* update via teamScore/opponentScore.
 // -----------------------------------------------------------------------------
 
-import { getTeamDisplayName, ensureAllTeamSchedules } from "./league_schedule.js";
+import { getTeamDisplayName } from "./league_schedule.js";
 
 const SAVE_KEY_LAST_FRANCHISE = "franchiseGM_lastFranchise";
 const LEAGUE_STATE_KEY_PREFIX = "franchiseGM_leagueState_";
 
-// -----------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
 // Storage helpers
-// -----------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
 
 function getLeagueStateKey(franchiseId) {
   return `${LEAGUE_STATE_KEY_PREFIX}${franchiseId}`;
@@ -57,18 +61,6 @@ function loadLeagueState(franchiseId) {
   }
 }
 
-function saveLeagueState(state) {
-  if (!storageAvailable() || !state || !state.franchiseId) return;
-  try {
-    window.localStorage.setItem(
-      getLeagueStateKey(state.franchiseId),
-      JSON.stringify(state)
-    );
-  } catch (err) {
-    console.warn("[Franchise GM] Failed to save league state:", err);
-  }
-}
-
 function getEl(id) {
   return document.getElementById(id);
 }
@@ -86,6 +78,11 @@ function formatIsoToNice(iso) {
     timeZone: "America/New_York"
   };
   return date.toLocaleString("en-US", options);
+}
+
+function safeNumber(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
 }
 
 // Compute record through a given week using schedule.byTeam[*].teamScore/opponentScore
@@ -114,9 +111,128 @@ function computeRecordThroughWeek(leagueState, teamCode, weekNumber) {
   return ties > 0 ? `${wins}-${losses}-${ties}` : `${wins}-${losses}`;
 }
 
-// -----------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Matchup lookup based on schedule.byTeam
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a scoreboard-style game object from a team-centric schedule entry.
+ * @param {Object} g - TeamGame from schedule.byTeam[*]
+ * @param {string} homeCode - uppercase home team code
+ * @param {string} awayCode - uppercase away team code
+ */
+function buildGameFromTeamGame(g, homeCode, awayCode, leagueWeek) {
+  const seasonWeek = typeof g.seasonWeek === "number" ? g.seasonWeek : leagueWeek;
+  const status = g.status || "scheduled";
+
+  // g.teamCode is "this" team; g.opponentCode is the other team.
+  const teamCodeUpper = String(g.teamCode || "").toUpperCase();
+  const oppCodeUpper = String(g.opponentCode || "").toUpperCase();
+
+  const teamScore = safeNumber(g.teamScore);
+  const oppScore = safeNumber(g.opponentScore);
+
+  // We want scores in true home/away orientation, regardless of how the game
+  // is stored in this particular team's schedule.
+  let homeScore = null;
+  let awayScore = null;
+
+  if (teamCodeUpper === homeCode && oppCodeUpper === awayCode) {
+    // This schedule row is from the home team perspective.
+    homeScore = teamScore;
+    awayScore = oppScore;
+  } else if (teamCodeUpper === awayCode && oppCodeUpper === homeCode) {
+    // This schedule row is from the away team perspective.
+    homeScore = oppScore;
+    awayScore = teamScore;
+  } else {
+    // Fallback: if it doesn't line up perfectly, leave as nulls.
+    homeScore = null;
+    awayScore = null;
+  }
+
+  return {
+    week: seasonWeek,
+    homeTeam: homeCode,
+    awayTeam: awayCode,
+    homeScore,
+    awayScore,
+    kickoffIso: g.kickoffIso || null,
+    type: g.type || "regular",
+    status,
+    venue: g.venue || null
+  };
+}
+
+/**
+ * Find the matchup for (seasonWeek, homeCode, awayCode) using schedule.byTeam.
+ * Falls back to the franchise team's schedule if needed.
+ */
+function findMatchupFromByTeam(leagueState, leagueWeek, homeCode, awayCode, franchiseCode) {
+  const byTeam = leagueState?.schedule?.byTeam || {};
+  const upperHome = (homeCode || "").toUpperCase();
+  const upperAway = (awayCode || "").toUpperCase();
+  const upperFranchise = (franchiseCode || "").toUpperCase();
+
+  const weekIndex0 = leagueWeek > 0 ? leagueWeek - 1 : 0;
+
+  const matchForTeam = (teamKey, oppKey) => {
+    const games = byTeam[teamKey] || [];
+    return (
+      games.find((g) => {
+        const idx =
+          typeof g.index === "number"
+            ? g.index
+            : typeof g.seasonWeek === "number"
+            ? g.seasonWeek - 1
+            : null;
+        if (idx !== weekIndex0) return false;
+        return String(g.opponentCode || "").toUpperCase() === oppKey;
+      }) || null
+    );
+  };
+
+  // 1) Try from the home team's schedule (ideal)
+  if (upperHome && upperAway && byTeam[upperHome]) {
+    const g = matchForTeam(upperHome, upperAway);
+    if (g) return buildGameFromTeamGame(g, upperHome, upperAway, leagueWeek);
+  }
+
+  // 2) Try from the away team's schedule
+  if (upperHome && upperAway && byTeam[upperAway]) {
+    const g = matchForTeam(upperAway, upperHome);
+    if (g) return buildGameFromTeamGame(g, upperHome, upperAway, leagueWeek);
+  }
+
+  // 3) Fallback: franchise team schedule, infer home/away from isHome flag
+  if (upperFranchise && byTeam[upperFranchise]) {
+    const games = byTeam[upperFranchise];
+    const g =
+      games.find((gg) => {
+        const idx =
+          typeof gg.index === "number"
+            ? gg.index
+            : typeof gg.seasonWeek === "number"
+            ? gg.seasonWeek - 1
+            : null;
+        return idx === weekIndex0;
+      }) || null;
+
+    if (g) {
+      const opp = String(g.opponentCode || "").toUpperCase();
+      const isHome = !!g.isHome;
+      const inferredHome = isHome ? upperFranchise : opp;
+      const inferredAway = isHome ? opp : upperFranchise;
+      return buildGameFromTeamGame(g, inferredHome, inferredAway, leagueWeek);
+    }
+  }
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Main init
-// -----------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
 
 document.addEventListener("DOMContentLoaded", initBoxScorePage);
 
@@ -142,54 +258,44 @@ async function initBoxScorePage() {
 
   const params = new URLSearchParams(window.location.search);
   const seasonParam = Number(params.get("season") || save.seasonYear || 0);
-  const weekParam = Number(params.get("week") || 0);
-  const homeCode = (params.get("home") || "").toUpperCase();
-  const awayCode = (params.get("away") || "").toUpperCase();
 
-  let leagueState = loadLeagueState(save.franchiseId);
-  if (!leagueState) {
-    leagueState = {
-      franchiseId: save.franchiseId,
-      seasonYear: seasonParam
-    };
-  } else {
-    leagueState.seasonYear = seasonParam;
-  }
+  const rawWeek = Number(params.get("week") || 0);
+  const weekParam =
+    Number.isFinite(rawWeek) && rawWeek > 0 ? rawWeek : 1; // league week label (1–18)
 
-  // Ensure schedules exist so we have schedule.byWeek populated
-  await ensureAllTeamSchedules(leagueState, seasonParam);
-  saveLeagueState(leagueState);
+  const homeCodeParam = (params.get("home") || "").toUpperCase();
+  const awayCodeParam = (params.get("away") || "").toUpperCase();
 
-  const byWeek = leagueState.schedule?.byWeek || {};
-  const weekGames = byWeek[weekParam] || [];
-
-  let game = null;
-  if (homeCode && awayCode) {
-    game =
-      weekGames.find(
-        (g) =>
-          g &&
-          String(g.homeTeam || "").toUpperCase() === homeCode &&
-          String(g.awayTeam || "").toUpperCase() === awayCode
-      ) || null;
-  }
-
-  if (!game && weekGames.length) {
-    // Fallback: first game of that week
-    game = weekGames[0];
-  }
-
-  renderPage(save, leagueState, game, {
+  const ctx = {
     seasonYear: seasonParam,
     week: weekParam,
-    homeCode,
-    awayCode
-  });
+    homeCode: homeCodeParam,
+    awayCode: awayCodeParam
+  };
+
+  const leagueState = loadLeagueState(save.franchiseId);
+
+  if (!leagueState || !leagueState.schedule || !leagueState.schedule.byTeam) {
+    // No schedule available – render "unavailable" state
+    renderPage(save, leagueState, null, ctx);
+    return;
+  }
+
+  // Find the actual matchup (and its final scores) from schedule.byTeam
+  const game = findMatchupFromByTeam(
+    leagueState,
+    weekParam,
+    homeCodeParam,
+    awayCodeParam,
+    save.teamCode
+  );
+
+  renderPage(save, leagueState, game, ctx);
 }
 
-// -----------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
 // Rendering
-// -----------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
 
 function renderPage(save, leagueState, game, ctx) {
   const headerTitle = getEl("box-header-title");
@@ -214,13 +320,30 @@ function renderPage(save, leagueState, game, ctx) {
   const summaryLocation = getEl("summary-location");
   const summaryNote = getEl("summary-note");
 
+  // If we couldn't find the matchup from schedule.byTeam, show a simple error
   if (!game) {
-    if (headerTitle) headerTitle.textContent = "Box score unavailable";
+    const homeName =
+      ctx.homeCode && getTeamDisplayName(ctx.homeCode)
+        ? getTeamDisplayName(ctx.homeCode)
+        : "Home team";
+    const awayName =
+      ctx.awayCode && getTeamDisplayName(ctx.awayCode)
+        ? getTeamDisplayName(ctx.awayCode)
+        : "Away team";
+
+    if (headerTitle) headerTitle.textContent = `${awayName} at ${homeName}`;
     if (headerSubline) {
       headerSubline.textContent = `Season ${ctx.seasonYear} • Week ${ctx.week} • Game not found`;
     }
     if (headerLine) headerLine.textContent = "Unable to locate this matchup in the league schedule.";
     if (metaLeft) metaLeft.textContent = "No data";
+
+    if (awayNameEl) awayNameEl.textContent = awayName;
+    if (homeNameEl) homeNameEl.textContent = homeName;
+    if (awayScoreEl) awayScoreEl.textContent = "—";
+    if (homeScoreEl) homeScoreEl.textContent = "—";
+    if (awayRecordEl) awayRecordEl.textContent = "Record —";
+    if (homeRecordEl) homeRecordEl.textContent = "Record —";
 
     if (summaryResult) summaryResult.textContent = "—";
     if (summaryScoreline) summaryScoreline.textContent = "—";
@@ -238,12 +361,8 @@ function renderPage(save, leagueState, game, ctx) {
   const homeName = getTeamDisplayName(homeCode);
   const awayName = getTeamDisplayName(awayCode);
 
-  const homeScore = Number.isFinite(Number(game.homeScore))
-    ? Number(game.homeScore)
-    : null;
-  const awayScore = Number.isFinite(Number(game.awayScore))
-    ? Number(game.awayScore)
-    : null;
+  const homeScore = safeNumber(game.homeScore);
+  const awayScore = safeNumber(game.awayScore);
 
   const isFinal =
     game.status === "final" &&
@@ -253,6 +372,7 @@ function renderPage(save, leagueState, game, ctx) {
   const weekLabel =
     typeof game.week === "number" ? game.week : ctx.week;
 
+  // Header
   if (headerTitle) {
     headerTitle.textContent = `${awayName} at ${homeName}`;
   }
@@ -281,9 +401,13 @@ function renderPage(save, leagueState, game, ctx) {
   }
 
   // Records through this week
-  const recordWeek = typeof weekLabel === "number" ? weekLabel : ctx.week;
-  const homeRecord = computeRecordThroughWeek(leagueState, homeCode, recordWeek);
-  const awayRecord = computeRecordThroughWeek(leagueState, awayCode, recordWeek);
+  let homeRecord = "0-0";
+  let awayRecord = "0-0";
+
+  if (leagueState && leagueState.schedule && leagueState.schedule.byTeam) {
+    homeRecord = computeRecordThroughWeek(leagueState, homeCode, weekLabel);
+    awayRecord = computeRecordThroughWeek(leagueState, awayCode, weekLabel);
+  }
 
   if (awayNameEl) awayNameEl.textContent = awayName;
   if (homeNameEl) homeNameEl.textContent = homeName;
@@ -295,9 +419,10 @@ function renderPage(save, leagueState, game, ctx) {
   if (homeRecordEl) homeRecordEl.textContent = `Record ${homeRecord}`;
 
   // Winner highlight
+  if (awayCard) awayCard.classList.remove("score-team--winner");
+  if (homeCard) homeCard.classList.remove("score-team--winner");
+
   if (isFinal) {
-    if (homeCard) homeCard.classList.remove("score-team--winner");
-    if (awayCard) awayCard.classList.remove("score-team--winner");
     if (homeScore > awayScore && homeCard) homeCard.classList.add("score-team--winner");
     if (awayScore > homeScore && awayCard) awayCard.classList.add("score-team--winner");
   }
