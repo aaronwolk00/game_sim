@@ -1759,14 +1759,14 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
     // ---------------- 4th down decisions ----------------
     if (down === 4) {
         const yardsToGoal = 100 - yardline;
-        const kAcc = specialOff.kicking?.accuracy ?? 60;
+        const kAcc = specialOff.kicking?.accuracy ?? 31.5;
     
         // Approximate max "reasonable" FG distance as a function of kicker.
         // This is distance from LOS: yardsToGoal + 17.
         const rawKickDist = yardsToGoal + 17;
     
         // 40–100 accuracy → max distance from ~50–57 yards
-        const maxFgDist = 50 + 0.12 * (kAcc - 60); // soft: ~48–57 range
+        const maxFgDist = 54 + 0.12 * (kAcc - 31.5); // soft: ~48–57 range
         const inFgRange = rawKickDist <= maxFgDist;
     
         const oneScoreGame = Math.abs(scoreDiff) <= 8;
