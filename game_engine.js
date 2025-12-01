@@ -2398,7 +2398,7 @@ function simulateFieldGoal(state, offenseUnits, specialOff, rng) {
   // --- Accuracy tweak ---
   // Scale the curve up/down slightly based on accuracy.
   //  kAcc 60 → factor ~0.85, 75 → 1.0, 90 → 1.15, 100 → ~1.25
-  const accNorm   = (kAcc - 75) / 25;           // roughly -0.6..1.0 for 60–100
+  const accNorm   = (kAcc - 65) / 25;           // roughly -0.6..1.0 for 60–100
   const accFactor = 1 + accNorm * 0.25;
   let prob        = baseProb * accFactor;
 
