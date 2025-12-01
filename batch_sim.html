@@ -74,6 +74,7 @@
         <button id="btnLoad" class="primary">Load Teams</button>
         <button id="btnRun">Run Batch</button>
         <button id="btnCSV">Download per-game CSV</button>
+        <button id="btnFGCSV">Download FG CSV</button>
         <span id="status" class="pill">Idle</span>
       </div>
       <progress id="prog" max="1" value="0"></progress>
@@ -116,6 +117,22 @@
         <tbody></tbody>
       </table>
     </section>
+
+    <section class="panel">
+      <h3 style="margin:0 0 10px">Field goal curve (all games)</h3>
+      <table id="fgTable">
+        <thead>
+          <tr>
+            <th>Distance (yds)</th>
+            <th>Attempts</th>
+            <th>Made</th>
+            <th>Make %</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div class="small muted">Distances are rounded to nearest yard and aggregated across all FG attempts in the batch.</div>
+    </section>
   </main>
 
   <script type="module">
@@ -148,6 +165,7 @@
     const aggMeta = el('aggMeta');
     const sideBody = document.querySelector('#sideTable tbody');
     const scoreBody = document.querySelector('#scoreTable tbody');
+    const fgBody = document.querySelector('#fgTable tbody');
 
     function setStatus(text){ status.textContent = text; }
     function setNote(text){ notes.textContent = text; }
@@ -197,11 +215,11 @@
         playsInBounds: new Stat(),
         playsOOB: new Stat(),
 
-        // NEW: play-type counts
+        // play-type counts
         passPlays: new Stat(),
         runPlays: new Stat(),
 
-        // NEW: 4th-down behavior
+        // 4th-down behavior
         fourthDowns: new Stat(),
         fourthGoForIt: new Stat(),
 
@@ -216,24 +234,24 @@
         qbPassCmp: new Stat(),
         sacks: new Stat(),
 
-        // NEW: QB rushing
+        // QB rushing
         qbRushYds: new Stat(),
 
-        // NEW: WR/TE receiving yards (top usage guys per side)
+        // WR/TE receiving yards (top usage guys per side)
         wr1RecYds: new Stat(),
         wr2RecYds: new Stat(),
         wr3RecYds: new Stat(),
         te1RecYds: new Stat(),
         te2RecYds: new Stat(),
 
-        // NEW: RB receiving yards (all RB/HB on both teams)
+        // RB receiving yards (all RB/HB on both teams)
         rbRecYds: new Stat(),
 
-        // NEW: RB rushing yards by “RB1/RB2” (top 2 RB rushers per side)
+        // RB1/RB2 rushing yards (top 2 RB rushers per side)
         rb1RushYds: new Stat(),
         rb2RushYds: new Stat(),
 
-        // NEW: turnover breakdown
+        // turnover breakdown
         turnoversInt: new Stat(),
         turnoversFum: new Stat(),
 
@@ -245,14 +263,16 @@
         homeRush: new Stat(), awayRush: new Stat(),
         homePass: new Stat(), awayPass: new Stat(),
 
+        // FG curve buckets: key = distance (string), value = { attempts, made }
+        fgByDist: {},
+
         // per-game CSV rows
-        perGameRows: []
+        perGameRows: [],
+
+        // per-FG-attempt CSV rows
+        fgAttemptRows: []
       };
     }
-
-
-
-
 
     // ---------- League loading ----------
     let TEAMS = [];
@@ -287,7 +307,6 @@
       ) || null;
     }
 
-    // ---------- Per-game extraction ----------
     // ---------- Per-game extraction ----------
     function summarizeGame(result, homeTeam, awayTeam){
       const num = (v) => {
@@ -336,21 +355,21 @@
         }
       }
 
-      // ---------- Play-shape & decision metrics ----------
+      // Play-shape & decision metrics
       let totalClockRunoff = 0;
       let countedPlays = 0;
       let playsInBounds = 0;
       let playsOOB = 0;
 
-      // NEW: pass / run counts
+      // Pass / run counts
       let passPlays = 0;
       let runPlays = 0;
 
-      // NEW: 4th-down usage
+      // 4th-down usage
       let fourthDowns = 0;
       let fourthGoForIt = 0;
 
-      // NEW: turnover breakdown
+      // Turnover breakdown
       let turnoversInt = 0;
       let turnoversFum = 0;
 
@@ -387,8 +406,6 @@
           }
         }
 
-
-
         // Turnover breakdown – only “true” TOs (exclude punts/missed FGs/safeties)
         const trueTurnover =
           p.turnover && !p.fieldGoalAttempt && !p.punt && !p.safety;
@@ -400,15 +417,13 @@
 
       const secPerPlay = countedPlays > 0 ? totalClockRunoff / countedPlays : 0;
 
-
-      // ---------- Player usage metrics from playerStats ----------
+      // Player usage metrics from playerStats
       const ps = result.playerStats || {};
       const players = Object.values(ps);
 
       const homePlayers = players.filter(p => p.side === 'home');
       const awayPlayers = players.filter(p => p.side === 'away');
 
-      // QBs by pass attempts (for attempts/completions)
       const byPass = (list) =>
         list
           .filter(p => p.position === 'QB')
@@ -424,7 +439,7 @@
       const qbPassCmp =
         (homeQB?.passCmp || 0) + (awayQB?.passCmp || 0);
 
-      // NEW: QB rush yards (all QBs on both teams)
+      // QB rush yards (all QBs on both teams)
       const qbRushYds = players
         .filter(p => p.position === 'QB')
         .reduce((s,p) => s + (p.rushYds || 0), 0);
@@ -434,7 +449,6 @@
       const wrPos = new Set(['WR']);
       const tePos = new Set(['TE']);
 
-      // Helper: sort by receiving yards for a given position set
       const byRecv = (list, posSet) =>
         list
           .filter(p => posSet.has(p.position))
@@ -445,7 +459,6 @@
       const homeTEs = byRecv(homePlayers, tePos);
       const awayTEs = byRecv(awayPlayers, tePos);
 
-      // WR1–WR3 receiving yards (top 3 WRs per side, summed across both teams)
       const wr1RecYds =
         (homeWRs[0]?.recYds || 0) + (awayWRs[0]?.recYds || 0);
       const wr2RecYds =
@@ -453,18 +466,15 @@
       const wr3RecYds =
         (homeWRs[2]?.recYds || 0) + (awayWRs[2]?.recYds || 0);
 
-      // TE1–TE2 receiving yards (top 2 TEs per side)
       const te1RecYds =
         (homeTEs[0]?.recYds || 0) + (awayTEs[0]?.recYds || 0);
       const te2RecYds =
         (homeTEs[1]?.recYds || 0) + (awayTEs[1]?.recYds || 0);
 
-      // RB receiving yards (all RB/HB on both teams)
       const rbRecYds = players
         .filter(p => rbPos.has(p.position))
         .reduce((s,p) => s + (p.recYds || 0), 0);
 
-            // RB1/RB2 rushing yards (top 2 RBs by rush attempts per side)
       const byRushRB = (list) =>
         list
           .filter(p => rbPos.has(p.position))
@@ -481,13 +491,11 @@
       const rb1RushYds = homeRB1RushYds + awayRB1RushYds;
       const rb2RushYds = homeRB2RushYds + awayRB2RushYds;
 
-      // ---------- Sacks (team -> players -> PBP fallback) ----------
-      // 1) Try teamStats naming variants
+      // Sacks
       let sacks =
         num((home && (home.sacks ?? home.defSacks ?? home.teamSacks)) || 0) +
         num((away && (away.sacks ?? away.defSacks ?? away.teamSacks)) || 0);
 
-      // 2) If still zero, try playerStats (defenders), common keys: sacks / defSacks
       if (sacks === 0) {
         sacks = (players || []).reduce(
           (sum, pl) => sum + num(pl.defSacks ?? pl.sacks),
@@ -495,7 +503,6 @@
         );
       }
 
-      // 3) If still zero, scan PBP if present (various encodings)
       if (sacks === 0 && Array.isArray(result.plays)) {
         for (const p of result.plays) {
           const tags = Array.isArray(p?.tags) ? p.tags.map(t => String(t).toUpperCase()) : [];
@@ -506,8 +513,6 @@
           if (anySackFlag || tagIsSack) sacks++;
         }
       }
-
-
 
       return {
         homePts, awayPts,
@@ -529,13 +534,13 @@
         playsOOB,
         sacks,
 
-        // NEW: play type + 4th-down usage
+        // play type + 4th-down usage
         passPlays,
         runPlays,
         fourthDowns,
         fourthGoForIt,
 
-        // NEW: turnover breakdown
+        // turnover breakdown
         turnoversInt,
         turnoversFum,
 
@@ -552,12 +557,11 @@
         rb1RushYds,
         rb2RushYds
       };
-
     }
-
 
     // ---------- Globals for last batch ----------
     let LAST_ROWS = null;
+    let LAST_FG_ROWS = null;
 
     // ---------- Batch run ----------
     async function runBatch(){
@@ -615,14 +619,13 @@
         B.playsOOB.push(g.playsOOB);
         B.sacks.push(g.sacks);
 
-        // NEW: play-type counts
+        // play-type counts
         B.passPlays.push(g.passPlays);
         B.runPlays.push(g.runPlays);
 
-        // NEW: 4th-down usage
+        // 4th-down usage
         B.fourthDowns.push(g.fourthDowns);
         B.fourthGoForIt.push(g.fourthGoForIt);
-
 
         // scoring
         B.td.push(g.td);
@@ -661,6 +664,61 @@
         B.turnoversInt.push(g.turnoversInt);
         B.turnoversFum.push(g.turnoversFum);
 
+        // FG distance / attempt-level aggregation
+        if (Array.isArray(res.plays)) {
+          for (const p of res.plays) {
+            if (!p.fieldGoalAttempt) continue;
+
+            const distRaw = Number(p.kickDistance);
+            if (!Number.isFinite(distRaw)) continue;
+            const dist = Math.round(distRaw);
+            const key = String(dist);
+
+            let bucket = B.fgByDist[key];
+            if (!bucket) {
+              bucket = B.fgByDist[key] = { attempts: 0, made: 0 };
+            }
+            bucket.attempts++;
+            if (p.fieldGoalGood) bucket.made++;
+
+            // Grab kicker ratings from unitProfiles (roster scale)
+            let rawAcc = null;
+            let rawPow = null;
+            let kickTeamId = '';
+            let kickTeamName = '';
+            if (p.offenseSide === 'home') {
+              const team = home;
+              const up = team.unitProfiles?.special?.kicking || {};
+              rawAcc = up.accuracy;
+              rawPow = up.power;
+              kickTeamId = team.teamId ?? '';
+              kickTeamName = team.teamName ?? '';
+            } else if (p.offenseSide === 'away') {
+              const team = away;
+              const up = team.unitProfiles?.special?.kicking || {};
+              rawAcc = up.accuracy;
+              rawPow = up.power;
+              kickTeamId = team.teamId ?? '';
+              kickTeamName = team.teamName ?? '';
+            }
+
+            B.fgAttemptRows.push({
+              game: i + 1,
+              homeId: home.teamId,
+              awayId: away.teamId,
+              offenseSide: p.offenseSide || '',
+              kickingTeamId: kickTeamId,
+              kickingTeamName: kickTeamName,
+              kickerId: p.kickerId ?? '',
+              kickerName: p.kickerName ?? '',
+              distanceYds: dist,
+              distanceExact: distRaw.toFixed(2),
+              made: p.fieldGoalGood ? 1 : 0,
+              rawKAcc: rawAcc != null ? rawAcc : '',
+              rawKPow: rawPow != null ? rawPow : ''
+            });
+          }
+        }
 
         B.perGameRows.push({
           game: i + 1,
@@ -706,8 +764,6 @@
           rb2RushYds: g.rb2RushYds
         });
 
-
-
         if ((i % 25) === 0){
           await new Promise(r => setTimeout(r, 0));
         }
@@ -715,6 +771,7 @@
       }
 
       LAST_ROWS = B.perGameRows;
+      LAST_FG_ROWS = B.fgAttemptRows;
       renderAggregates(B, n);
       setStatus('Done');
     }
@@ -749,7 +806,7 @@
       rows.push(rowHTML('Plays in bounds',      B.playsInBounds.toRow(fmt2)));
       rows.push(rowHTML('Plays out of bounds',  B.playsOOB.toRow(fmt2)));
 
-      // NEW: play-type / 4th-down metrics
+      // play-type / 4th-down metrics
       rows.push(rowHTML('Passing plays',        B.passPlays.toRow(fmt2)));
       rows.push(rowHTML('Rushing plays',        B.runPlays.toRow(fmt2)));
       rows.push(rowHTML('4th downs',            B.fourthDowns.toRow(fmt2)));
@@ -761,14 +818,14 @@
       rows.push(rowHTML('Touchdowns',   B.td.toRow(fmt2)));
       rows.push(rowHTML('Safeties',     B.safety.toRow(fmt2)));
 
-      // NEW: turnover breakdown
+      // turnover breakdown
       rows.push(rowHTML('Interceptions',        B.turnoversInt.toRow(fmt2)));
       rows.push(rowHTML('Fumbles lost',         B.turnoversFum.toRow(fmt2)));
       rows.push(rowHTML('Sacks',         B.sacks.toRow(fmt2), 'Both teams combined'));
 
       // usage
       rows.push(rowHTML('QB pass attempts',       B.qbPassAtt.toRow(fmt2), 'Both teams combined'));
-      rows.push(rowHTML('QB completions',         B.qbPassCmp.toRow(fmt2), 'Both teams combined'));    
+      rows.push(rowHTML('QB completions',         B.qbPassCmp.toRow(fmt2), 'Both teams combined'));
       rows.push(rowHTML('QB rush yards',          B.qbRushYds.toRow(fmt2), 'All QBs, both teams'));
       rows.push(rowHTML('RB receiving yards',     B.rbRecYds.toRow(fmt2),  'All RB/HB, both teams'));
       rows.push(rowHTML('RB1 rushing yards',      B.rb1RushYds.toRow(fmt2), 'Top RB per side, summed'));
@@ -778,7 +835,6 @@
       rows.push(rowHTML('WR3 receiving yards',    B.wr3RecYds.toRow(fmt2), 'Third WR per side, summed'));
       rows.push(rowHTML('TE1 receiving yards',    B.te1RecYds.toRow(fmt2), 'Top TE per side, summed'));
       rows.push(rowHTML('TE2 receiving yards',    B.te2RecYds.toRow(fmt2), 'Second TE per side, summed'));
-
 
       aggBody.innerHTML = rows.join('');
 
@@ -803,6 +859,27 @@
       score.push(`<tr><td class="mono">FG made</td><td>${B.fgMade.mean.toFixed(2)}</td><td class="muted small">From plays</td></tr>`);
       score.push(`<tr><td class="mono">Safeties</td><td>${B.safety.mean.toFixed(2)}</td><td class="muted small">From events</td></tr>`);
       scoreBody.innerHTML = score.join('');
+
+      // FG curve table
+      const fgRows = [];
+      const distKeys = Object.keys(B.fgByDist)
+        .map(k => Number(k))
+        .filter(k => Number.isFinite(k))
+        .sort((a,b) => a - b);
+
+      for (const d of distKeys) {
+        const bucket = B.fgByDist[String(d)];
+        const pct = bucket.attempts > 0 ? (bucket.made / bucket.attempts) * 100 : 0;
+        fgRows.push(
+          `<tr>
+            <td>${d}</td>
+            <td>${bucket.attempts}</td>
+            <td>${bucket.made}</td>
+            <td>${pct.toFixed(1)}%</td>
+          </tr>`
+        );
+      }
+      fgBody.innerHTML = fgRows.join('');
     }
 
     // ---------- CSV ----------
@@ -812,8 +889,7 @@
       const esc = (v)=>{
         const s = String(v);
         return (s.includes(',') || s.includes('"') || s.includes('\n'))
-          ? `"${s.replace(/"/g,'""')}"`
-          : s;
+          ? `"${s.replace(/"/g,'""')}"` : s;
       };
       const out = [headers.join(',')];
       for (const r of rows){
@@ -854,7 +930,9 @@
         document.querySelector('#aggTable tbody').innerHTML = '';
         document.querySelector('#sideTable tbody').innerHTML = '';
         document.querySelector('#scoreTable tbody').innerHTML = '';
+        document.querySelector('#fgTable tbody').innerHTML = '';
         LAST_ROWS = null;
+        LAST_FG_ROWS = null;
         await runBatch();
       }catch(err){
         setStatus('Error');
@@ -869,6 +947,14 @@
         return;
       }
       downloadCSV(LAST_ROWS, 'batch_sim_results.csv');
+    });
+
+    el('btnFGCSV').addEventListener('click', ()=>{
+      if (!LAST_FG_ROWS || !LAST_FG_ROWS.length){
+        setNote('No FG attempts yet. Run a batch first.');
+        return;
+      }
+      downloadCSV(LAST_FG_ROWS, 'batch_fg_attempts.csv');
     });
 
     // auto-load on open (respect query params)
