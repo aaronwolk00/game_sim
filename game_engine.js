@@ -1887,7 +1887,7 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
         // ---- NEAR-GOAL 4th & short: almost always GO, very few chip FGs ----
         if (nearGoal && shortYds) {
           // Only favor a chip FG in very specific clock/lead cases:
-          const lateHalf = (quarter === 2 && secLeft <= 25);
+          const lateHalf = (quarter === 2 && secLeft <= 40);
           const protectLeadLate =
             (quarter === 4 && secLeft <= 120 && scoreDiff > 0);
 
@@ -1896,13 +1896,13 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
           let goProb;
           if (on1) {
             // 4th & goal at the 1: should be almost all go
-            goProb = fgFavored ? 0.55 : 0.97;
+            goProb = fgFavored ? 0.75 : 0.98;
           } else if (on2) {
             // 2-yard line: still heavily go, but slightly more FGs than from the 1
-            goProb = fgFavored ? 0.60 : 0.93;
+            goProb = fgFavored ? 0.65 : 0.95;
           } else {
             // 3–5 yard line
-            goProb = fgFavored ? 0.65 : 0.88;
+            goProb = fgFavored ? 0.65 : 0.89;
           }
 
           // Team flavor: anti-punt / aggressive offenses go even more
