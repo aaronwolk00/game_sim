@@ -2100,99 +2100,106 @@ function simulatePlay(state) {
       // This is where most NFL FGs live.
       // ----------------------------
       if (plusTerr) {
-        const yardsToGoal = 100 - yardline;
-        const isRedZone   = yardsToGoal <= 20;
-        const inside10    = yardsToGoal <= 10;
+        const yardsToGoalPlus = 100 - yardline;
+        const isRedZone       = yardsToGoalPlus <= 20;
+        const inside10        = yardsToGoalPlus <= 10;
 
-        // --- Determine scoring “zones” ---
+        // Bucket kicks by scrimmage line for distribution:
+        //  - “Sweet spot” LOS 25–40 → 42–57 yd FGs → very common
+        //  - Inside 10 → mostly go; only late/close chip FGs
+        //  - LOS 40–45 (55–60 yds) → rare long attempts
         const sweetSpot = (yardline >= 60 && yardline <= 95); // opp 40–15
         const chipZone  = isRedZone && inside10;              // inside opp 10
-        const longZone  = yardline < 60 && inFgRange;         // 40–45 yard line → 57–62 yd FG
+        const longZone  = yardline < 60 && inFgRange;         // just outside opp 40
 
         const goPlayType = () => (rng.next() < basePassProb ? "pass" : "run");
 
-        // --- Approximate FG make probability using the same model as simulateFieldGoal ---
-        const yardsToGoalPlus = 100 - yardline;
+        // --- Approximate FG make probability using same logic as simulateFieldGoal ---
         const rawKickDist = yardsToGoalPlus + 17;
 
         const powerShift = 4.5 * ((0.3 * accZ) + (0.7 * powZ));
-        const effDist = Math.max(18, rawKickDist - powerShift);
+        const effDist    = Math.max(18, rawKickDist - powerShift);
 
         const tooFarMult = clamp(1 - (effDist - 65) / 10, 0, 1);
         const baseCenter = 56;
         const baseScale  = 6.0;
         const accCenterShift = 1.4 * accZ;
-        const center = baseCenter + accCenterShift;
+        const center     = baseCenter + accCenterShift;
 
         const xFG = (effDist - center) / baseScale;
         let fgMakeProb = (1 / (1 + Math.exp(xFG))) * tooFarMult;
+
+        // Short-range smoothing: chip shots are very reliable, but not perfect
         if (effDist <= 40) {
-          const t = clamp((40 - effDist) / 22, 0, 1);
+          const t = clamp((40 - effDist) / 22, 0, 1); // 18..40 → 1..0
           fgMakeProb += 0.03 + 0.07 * t;
         }
         fgMakeProb = clamp(fgMakeProb, 0.02, 0.995);
 
-        // --- Estimate conversion probabilities by distance ---
+        // --- Estimate 4th-down conversion probability by distance ---
         let convProb;
         if (shortYds)      convProb = 0.70;
         else if (medYds)   convProb = 0.50;
         else               convProb = 0.30;
 
-        // --- Estimate expected points for each option ---
-        const fgEP   = 3 * fgMakeProb;
-        const goEP   = convProb * (isRedZone ? 4.2 : 3.6);
-        const puntEP = 1.0; // rough average after pinning the opponent deep
+        // --- Expected points (base) ---
+        let fgEP   = 3 * fgMakeProb;
+        let goEP   = convProb * (isRedZone ? 4.2 : 3.6); // TD-heavy EP in red zone
+        let puntEP = 1.0;                                // rough average for a pin
 
-        // --- Apply game context ---
-        const lateQ4 = (quarter === 4 && clockSec <= 300);
+        // --- Game context tweaks ---
+        const lateQ4   = (quarter === 4 && clockSec <= 300);
         const oneScore = Math.abs(scoreDiff) <= 8;
 
-        if (lateQ4 && scoreDiff < 0) {
-          // trailing one score → slightly favor going for it
-          convProb += 0.05;
-        } else if (lateQ4 && scoreDiff > 0) {
-          // protecting a lead → favor safer plays
-          fgEP += 0.1;
+        if (lateQ4 && scoreDiff < 0 && oneScore) {
+          // Trailing one score late: “go” option becomes more valuable
+          goEP += 0.3;
+        } else if (lateQ4 && scoreDiff > 0 && oneScore) {
+          // Protecting a small lead late: safer options look a bit better
+          fgEP   += 0.1;
           puntEP += 0.2;
         }
 
-        // --- Adjust for team style (puntBias) ---
+        // --- Team style from puntBias (conservative vs aggressive) ---
         const style = clamp(puntBias, -0.4, 0.4);
         if (style > 0) { // conservative teams
           fgEP   *= 1 + 0.2 * style;
           goEP   *= 1 - 0.3 * style;
           puntEP *= 1 + 0.4 * style;
-        } else { // aggressive teams
+        } else {         // aggressive teams
           fgEP   *= 1 + 0.1 * style;
           goEP   *= 1 - 0.7 * style;
           puntEP *= 1 + 0.3 * style;
         }
 
-        // --- Convert expected points to soft decision weights ---
-        const temp = 0.9; // decision “temperature”: smaller = more deterministic
+        // --- Convert EPs to decision weights via softmax ---
+        const temp = 0.9; // decision “temperature”: lower → more deterministic
         let wFG = Math.exp(fgEP / temp);
         let wGo = Math.exp(goEP / temp);
         let wP  = Math.exp(puntEP / temp);
 
-        // --- Game-specific modifiers ---
+        // --- Special-case tweaks inside chip zone (inside opp 10) ---
         if (chipZone && shortYds) {
-          // Teams rarely kick short chip FGs unless it's to end a half or protect lead
-          if ((quarter === 2 && clockSec <= 40) || (quarter === 4 && scoreDiff >= 0 && clockSec <= 180)) {
-            wFG *= 1.4;  // “take the points” end-of-half
+          // Normal: teams strongly prefer going for TD instead of chip FG.
+          if ((quarter === 2 && clockSec <= 40) ||
+              (quarter === 4 && scoreDiff >= 0 && clockSec <= 180)) {
+            // End of half / protecting lead: more “take the points”
+            wFG *= 1.4;
             wGo *= 0.6;
           } else {
-            wFG *= 0.4;  // normal situation: mostly go for TD
+            // Normal mid-game: rarely settle for chip FG
+            wFG *= 0.4;
             wGo *= 1.2;
           }
         }
 
+        // --- Long FGs: make them rare even when “in range” ---
         if (rawKickDist >= 55) {
-          // Long attempts are rare even if in range
           const longFactor = clamp(1 - (rawKickDist - 55) / 12, 0.15, 1);
           wFG *= longFactor;
         }
 
-        // --- Normalize and pick outcome ---
+        // --- Normalize and pick a decision ---
         const totalW = wFG + wGo + wP;
         const r = rng.next() * totalW;
 
@@ -2200,6 +2207,7 @@ function simulatePlay(state) {
         if (r < wFG + wGo) return { type: goPlayType() };
         return { type: "punt" };
       }
+
 
 
       // ----------------------------
