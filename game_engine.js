@@ -2063,7 +2063,7 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
     const plusTerr = yardline >= 60;
 
     const shortYds = distance <= 2;
-    const medYds   = distance > 2 && distance <= 5;
+    const medYds   = distance > 2 && distance <= 6;
     const longYds  = distance > 5;
 
     const goPlayType = () =>
@@ -2201,13 +2201,13 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
         const t = clamp((40 - effDist) / 22, 0, 1);
         fgMakeProb += 0.03 + 0.07 * t;
       }
-      fgMakeProb = clamp(fgMakeProb, 0.02, 0.995);
+      fgMakeProb = clamp(fgMakeProb, 0.00, 0.985);
 
       // ---- 4th-down conversion probability by distance ----
       let convProb;
-      if (shortYds)      convProb = 0.70;
-      else if (medYds)   convProb = 0.50;
-      else               convProb = 0.30;
+      if (shortYds)      convProb = 0.65;
+      else if (medYds)   convProb = 0.40;
+      else               convProb = 0.15;
 
       // ---- EP if we GO (depends on exact yardline, not just "red zone") ----
       const expGainOnConv = Math.min(distance + 1, 6);
