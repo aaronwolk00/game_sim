@@ -1667,7 +1667,7 @@ function consumeTimeout(state, side, reason = "timeout", displayClockSec = state
     //    - no timeouts
     //    - not 4th down
     const yardline       = state.ballYardline; // 0–100 from offense goal
-    const inScoringRange = yardline >= 60 && yardline <= 90; // opp 40–10
+    const inScoringRange = yardline >= 50 && yardline <= 95; // opp 40–10
   
     if (
       !intent.forceKneel &&          // don’t spike if we’re just icing the game
@@ -2060,7 +2060,7 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
 
     const deepOwn  = yardline <= 35;
     const midField = yardline > 35 && yardline < 60;
-    const plusTerr = yardline >= 60;
+    const plusTerr = yardline >= 50;
 
     const shortYds = distance <= 2;
     const medYds   = distance > 2 && distance <= 6;
@@ -2155,9 +2155,9 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
       const inside10        = yardsToGoalPlus <= 10;
       const goalLine        = yardsToGoalPlus <= 2;   // 1–2 yard line
 
-      const sweetSpot = (yardline >= 60 && yardline <= 95); // opp 40–15
+      const sweetSpot = (yardline >= 50 && yardline <= 95); // opp 40–15
       const chipZone  = isRedZone && inside10;
-      const longZone  = yardline < 60 && inFgRange;
+      const longZone  = yardline < 50 && inFgRange;
 
       const goPlayTypeLocal = () =>
         rng.next() < basePassProb ? "pass" : "run";
@@ -2291,9 +2291,9 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
       }
 
       // ---- Long FGs: smooth downweighting, not hard cutoff ----
-      if (rawKickDistFG >= 55) {
-        const longFactor = clamp(1 - (rawKickDistFG - 55) / 12, 0.15, 1);
-        fgEP *= 1.5;
+      if (rawKickDistFG >= 57) {
+        const longFactor = clamp(1 - (rawKickDistFG - 57) / 12, 0.15, 1);
+        fgEP *= longFactor;
       }
 
       // ---- Convert EPs into decision weights via softmax ----
