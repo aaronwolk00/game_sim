@@ -1142,7 +1142,7 @@ function simulateDrive(state) {
     // Don't even *think* about kneeling outside the last ~3 minutes.
     // This keeps teams from going into victory too early even if the math
     // would technically allow a multi-kneel sequence.
-    if (secondsLeft > 180) return false;
+    if (secondsLeft > 120) return false;
   
     // Very rough but conservative "safe windows" by number of defensive timeouts.
     // These assume:
@@ -1158,25 +1158,25 @@ function simulateDrive(state) {
       case 0:
         // With no timeouts, you can usually kill 2 full play clocks +
         // some slack (e.g. 1:20–1:30 range in real games).
-        safeWindow = 2 * playClock + 5;   // ~85s with a 40s clock
+        safeWindow = 3 * playClock;   // ~85s with a 40s clock
         break;
   
       case 1:
         // One timeout lets them stop one between-play bleed.
         // You still can usually burn > 1 full clock + a bit.
-        safeWindow = playClock + 5;       // ~45s
+        safeWindow = 2* playClock + 5;       // ~45s
         break;
   
       case 2:
         // Two timeouts: they can stop things twice, so you need the clock
         // already pretty low before you can just kneel it out.
-        safeWindow = 30;                  // ~half a minute
+        safeWindow = 41;                  // ~half a minute
         break;
   
       default: // 3+ timeouts
         // Three timeouts: they can stop almost every between-play bleed.
         // You basically need the clock almost dead.
-        safeWindow = 20;                  // very conservative
+        safeWindow = 5;                  // very conservative
         break;
     }
   
@@ -1804,22 +1804,42 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
       // HARD end-game overrides
       // ----------------------------
 
-      // Trailing/tied by one score very late: always "go", never punt/long FG.
-      if (quarter === 4 && oneScore && scoreDiff <= 0 && secLeft <= 90) {
-        return { type: shortYds ? "run" : "pass" };
+      // Trailing/tied by one score very late: no punts,
+      // allow FG if it can tie or take the lead.
+      if (quarter === 4 && oneScore && secLeft <= 90) {
+
+        // If a FG ties or takes the lead and we're in range,
+        // heavily bias toward kicking it.
+        if (inFgRange && scoreDiff >= -3 && scoreDiff <= 0) {
+          if (shortYds) {
+            // Still let some coaches go on 4th-and-short.
+            let goProb = 0.30;
+            goProb += (-puntBias) * 0.15;
+            goProb = clamp(goProb, 0.10, 0.60);
+
+            if (rng.next() < goProb) {
+              return { type: basePassProb > 0.55 ? "pass" : "run" };
+            }
+          }
+          // Default: take the FG to tie / go ahead.
+          return { type: "field_goal" };
+        }
+
+        // If a FG *doesn't* get you even (down 4–8), it's a must-go spot:
+        // no punts, no long "why are we kicking this" FGs.
+        return { type: longYds ? "pass" : "run" };
       }
 
-      // Trailing by any amount with ~:40 or less: do not punt.
+      // Trailing by any amount with ~:40 or less: do not punt. (kept as-is)
       if (quarter === 4 && scoreDiff < 0 && secLeft <= 40) {
         return { type: longYds ? "pass" : "run" };
       }
 
-      // Down two scores late: don’t punt unless backed up in a disaster.
+      // Down two scores late: never punt, even if it's a disaster.
       if (quarter === 4 && scoreDiff <= -9 && secLeft <= 120) {
-        if (!(yardline < 20 && distance >= 25)) {
-          return { type: longYds ? "pass" : "run" };
-        }
+        return { type: longYds ? "pass" : "run" };
       }
+
 
       // ----------------------------
       // 1) Deep in own territory
@@ -1993,31 +2013,31 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
 
   // ------------------------ Clock-management plays -----------------------------
 
-function simulateKneelPlay(state, rng) {
-    // Simple kneeldown: small loss, short in-play time, clock will run
-    const yards = rng.nextRange(-3 -1);
-    const inPlayTime = rng.nextRange(1.5, 2.5); // ~1–2s
-  
-    return {
-      playType: "run",   // treated like a run for chains logic
-      yardsGained: yards,
-      inPlayTime,
-      timeElapsed: inPlayTime,
-      turnover: false,
-      interception: false,
-      sack: false,
-      completion: false,
-      incomplete: false,
-      outOfBounds: false,
-      touchdown: false,
-      safety: false,
-      fieldGoalAttempt: false,
-      fieldGoalGood: false,
-      punt: false,
-      endOfDrive: false,
-      kneel: true,
-    };
-  }
+  function simulateKneelPlay(state, rng) {
+      // Simple kneeldown: small loss, short in-play time, clock will run
+      const yards = rng.nextRange(-3, -1);
+      const inPlayTime = rng.nextRange(1.5, 2.5); // ~1–2s
+    
+      return {
+        playType: "run",   // treated like a run for chains logic
+        yardsGained: yards,
+        inPlayTime,
+        timeElapsed: inPlayTime,
+        turnover: false,
+        interception: false,
+        sack: false,
+        completion: false,
+        incomplete: false,
+        outOfBounds: false,
+        touchdown: false,
+        safety: false,
+        fieldGoalAttempt: false,
+        fieldGoalGood: false,
+        punt: false,
+        endOfDrive: false,
+        kneel: true,
+      };
+    }
   
   function simulateSpikePlay(state, rng) {
     // Immediate incomplete pass to stop clock; no yards
@@ -2438,7 +2458,7 @@ function simulateFieldGoal(state, offenseUnits, specialOff, rng) {
   // Smooth baseline make rate vs distance using a logistic curve:
   //   - centerBase ~ where an average NFL kicker is ~50/50
   //   - powerCenterShift pushes that out for big legs
-  const centerBase        = 48;                 // avg kicker inflection around 45 yds
+  const centerBase        = 56;                 // avg kicker inflection around 45 yds
   const powerCenterShift  = (kPow - 38.5) * 0.10; // big legs move curve outward ~±4–5 yds
   const center            = centerBase + powerCenterShift;
   const scale             = 4.5;                // yards per e-fold change in odds
@@ -2451,12 +2471,12 @@ function simulateFieldGoal(state, offenseUnits, specialOff, rng) {
   //  kAcc 60 → factor ~0.85, 75 → 1.0, 90 → 1.15, 100 → ~1.25
   const accNorm   = (kAcc - 31.5) / 25;           // roughly -0.6..1.0 for 60–100
   const accFactor = 1 + accNorm * 0.15;
-  let prob        = baseProb * accFactor;
+  let prob        = 1 - (1 - baseProb) * (2 - accFactor);
 
   // --- Context pressure: close, late, long -> a bit harder ---
   const lateQuarter = state.quarter >= 4;
   const closeGame   = Math.abs(state.score.home - state.score.away) <= 3;
-  const longKick    = rawDistance >= 54;
+  const longKick    = effDist >= 54;
 
   if (lateQuarter && closeGame && longKick) {
     prob -= 0.02;
