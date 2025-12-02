@@ -1876,6 +1876,7 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
   if (down === 4) {
     const yardsToGoal = 100 - yardline;
     const rawKickDist = yardsToGoal + 17; // LOS + 17
+
     // --- Kicker range model (team + kicker + environment) ---
     const kAcc = Number.isFinite(situation.kickerAcc)
       ? situation.kickerAcc
@@ -1885,7 +1886,7 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
       ? situation.kickerPow
       : (specialOff.kicking?.power ?? 38.6);
 
-    // League baselines for z-scores – just define what “average” means.
+    // League baselines for z-scores – define “average”
     const meanAcc = 31.5;
     const stdAcc  = 10.08;
     const meanPow = 38.63;
@@ -1911,8 +1912,32 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
     // Hard floor/ceiling for sanity
     maxFgDist = clamp(maxFgDist, 45, 72);
 
-
     const inFgRange = rawKickDist <= maxFgDist;
+
+    // -------------------------------------------------------------------
+    // Approximate FG make probability for decision-making.
+    // Mirrors your simulateFieldGoal shape (incl. long-range fade).
+    // -------------------------------------------------------------------
+    const powerShift = 4.5 * legZ;
+    const effDist    = Math.max(18, rawKickDist - powerShift - envAdj);
+
+    const tooFarMult = clamp(1 - (effDist - 65) / 10, 0, 1); // kills 70+ yds
+
+    const baseCenter     = 56;  // ~50/50 for an average leg
+    const baseScale      = 6.0;
+    const accCenterShift = 1.4 * accZ;
+    const center         = baseCenter + accCenterShift;
+
+    const xFG = (effDist - center) / baseScale;
+    let fgMakeProb = (1 / (1 + Math.exp(xFG))) * tooFarMult;
+
+    // Short-range smoothing (chip shots are very reliable but not perfect)
+    if (effDist <= 40) {
+      const tChip = clamp((40 - effDist) / 22, 0, 1); // 18..40 → 1..0
+      fgMakeProb += 0.03 + 0.07 * tChip;
+    }
+
+    fgMakeProb = clamp(fgMakeProb, 0.02, 0.995);
 
     const secLeft = clockSec;
     const oneScore = Math.abs(scoreDiff) <= 8;
@@ -1952,7 +1977,7 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
       return { type: goPlayType() };
     }
 
-    // (B) Trailing by any amount with <=40s: punting is pointless
+    // (B) Trailing by any amount with <=60s: punting is pointless
     if (quarter === 4 && scoreDiff < 0 && secLeft <= 60) {
       return { type: goPlayType() };
     }
@@ -1988,8 +2013,10 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
         if (lateClose) {
           let kickProb = 0.50;
           if (scoreDiff < 0) kickProb += 0.10;
+          // tilt by actual make prob: bombs with 15% vs 40% shouldn't be treated equal
+          kickProb += (fgMakeProb - 0.25) * 0.40;
           kickProb += (puntBias) * 0.10;
-          kickProb = clamp(kickProb, 0.30, 0.75);
+          kickProb = clamp(kickProb, 0.10, 0.75);
 
           if (rng.next() < kickProb) return { type: "field_goal" };
         }
@@ -2020,84 +2047,88 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
     // This is where most NFL FGs live.
     // ----------------------------
     if (plusTerr) {
-      const yardsToGoal = 100 - yardline;
-      const isRedZone   = yardsToGoal <= 20;
-      const inside10    = yardsToGoal <= 10;
+      const yardsToGoalPlus = 100 - yardline;
+      const isRedZone   = yardsToGoalPlus <= 20;
+      const inside10    = yardsToGoalPlus <= 10;
 
-      const los = yardline; // for comments
+      const oneScoreGame = Math.abs(scoreDiff) <= 8;
+      const late4        = (quarter === 4 && secLeft <= 300);
 
-      // Bucket kicks by scrimmage line for distribution:
-      //  - “Sweet spot” LOS 25–40 → 42–57 yd FGs → very common
-      //  - Inside 10 → mostly go; only late/close chip FGs
-      //  - LOS 40–45 (55–60 yds) → rare long attempts
-
-      const sweetSpot = (yardline >= 60 && yardline <= 95); // opp 40–15
-      const chipZone  = isRedZone && inside10;              // inside opp 10
-      const longZone  = yardline < 60 && inFgRange;         // just outside opp 40
-
-      // ---- Inside 10: strongly prefer GO (limit chip FGs) ----
-      if (chipZone && shortYds) {
-        const lateProtectLead =
-          (quarter === 4 && secLeft <= 180 && scoreDiff > 0);
-        const endOfHalfSafe =
-          (quarter === 2 && secLeft <= 40);
-
-        // Only favor FG in “take the points” situations
-        let goProb = 0.80; // 90% go by default here
-        if (lateProtectLead || endOfHalfSafe) goProb = 0.45;
-
-        goProb += (-puntBias) * 0.15;
-        goProb = clamp(goProb, 0.30, 0.98);
-
-        if (rng.next() < goProb) return { type: goPlayType() };
-        return { type: "field_goal" };
-      }
-
-      // ---- Sweet spot: most FGs in league live here ----
-      if (sweetSpot && inFgRange) {
-        let kickProb = 0.72; // default: mostly kicks
-
-        // trailing a bit: maybe lean slightly more aggressive
-        if (scoreDiff < 0) kickProb -= 0.05;
-
-        // late, one-score: more willing to take sure points
-        if (under5 && oneScore && scoreDiff >= 0) kickProb += 0.05;
-
-        kickProb += (puntBias) * 0.05;
-        kickProb = clamp(kickProb, 0.55, 0.90);
-
-        if (rng.next() < kickProb) return { type: "field_goal" };
-        return { type: goPlayType() };
-      }
-
-      // ---- Long FG zone: rare attempts ----
-      if (longZone) {
-        let kickProb = 0.35;          // rare by default
-        if (quarter >= 4 && oneScore) kickProb += 0.15; // late/close → a bit more
-        if (scoreDiff < 0) kickProb += 0.05;           // trailing → push slightly
-        kickProb += (puntBias) * 0.10;
-        kickProb = clamp(kickProb, 0.10, 0.60);
-
-        if (rng.next() < kickProb) return { type: "field_goal" };
-
-        // Otherwise: go vs punt
-        let goProb = 0.55;
-        if (scoreDiff < 0) goProb += 0.10;
-        goProb += (-puntBias) * 0.20;
-        goProb = clamp(goProb, 0.35, 0.85);
+      // If even with this kicker's leg we're out of range, no FG option: go vs punt only.
+      if (!inFgRange) {
+        let goProb = 0.60;
+        if (scoreDiff < 0) goProb += 0.10;  // trailing → more aggressive
+        if (quarter < 3)  goProb -= 0.10;  // early game → more conservative
+        goProb += (-puntBias) * 0.25;      // aggressive teams go more
+        goProb = clamp(goProb, 0.35, 0.90);
 
         if (rng.next() < goProb) return { type: goPlayType() };
         return { type: "punt" };
       }
 
-      // Out of range even for big legs: mostly go, some punts
-      let goProb = 0.55;
-      if (scoreDiff > 7) goProb -= 0.10;
-      if (quarter < 3)  goProb -= 0.10;
-      goProb += (-puntBias) * 0.25;
-      goProb = clamp(goProb, 0.30, 0.85);
+      // Approximate 4th-down conversion probability by yards to go
+      let convProb;
+      if (shortYds)      convProb = 0.68; // 4th & 1–2
+      else if (medYds)   convProb = 0.48; // 4th & 3–5
+      else               convProb = 0.32; // longer
 
-      if (rng.next() < goProb) return { type: goPlayType() };
+      // Slightly more aggressive in plus territory
+      convProb += 0.04;
+      convProb = clamp(convProb, 0.10, 0.85);
+
+      // Coarse expected points proxies:
+      const fgEP   = 3 * fgMakeProb;
+      const goEP   = convProb * (isRedZone ? 4.2 : 3.6);
+      const puntEP = 1.0; // pin them deep
+
+      // Convert EPs to decision weights (softmax-ish)
+      const temp = 1.1; // smaller → more deterministic
+      let wFG = Math.exp(fgEP   / temp);
+      let wGo = Math.exp(goEP   / temp);
+      let wP  = Math.exp(puntEP / temp);
+
+      // Protecting a narrow lead late → bump FG/punt, reduce GO
+      if (late4 && scoreDiff > 0 && oneScoreGame) {
+        wFG *= 1.35;
+        wGo *= 0.85;
+      }
+
+      // Trailing one score late → bump GO vs FG
+      if (late4 && scoreDiff < 0 && oneScoreGame) {
+        wGo *= 1.25;
+        wFG *= 0.90;
+      }
+
+      // Inside the 10 on 4th & short: modern coaches go a lot here
+      if (inside10 && shortYds) {
+        wGo *= 1.30;
+        wFG *= 0.60;
+      }
+
+      // Very long attempts (55+ raw) stay rare even if technically “in range”
+      if (rawKickDist >= 55) {
+        const longFactor = clamp(1 - (rawKickDist - 55) / 10, 0.20, 1.0);
+        wFG *= longFactor;
+      }
+
+      // Team style: puntBias > 0 = conservative; < 0 = aggressive
+      if (puntBias !== 0) {
+        const c = clamp(puntBias, -0.40, 0.40);
+        if (c > 0) {
+          // Conservative: more punt, slightly more FG, less GO
+          wP  *= 1 + 0.6 * c;
+          wFG *= 1 + 0.2 * c;
+        } else {
+          // Aggressive: scale up GO weight
+          wGo *= 1 + (-0.9 * c);
+        }
+      }
+
+      const totalW = wFG + wGo + wP;
+      const r = rng.next() * totalW;
+
+      if (r < wFG)             return { type: "field_goal" };
+      if (r < wFG + wGo)       return { type: goPlayType() };
       return { type: "punt" };
     }
 
@@ -2106,12 +2137,11 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
     // This handles weird edge cases.
     // ----------------------------
     if (inFgRange && !shortYds) {
-      // This bucket corresponds roughly to LOS in the 20–25 range, which is
-      // part of that big NFL FG cluster. We allow a decent number of kicks here.
-      let kickProb = 0.65;
-      if (scoreDiff >= 0 && under5) kickProb += 0.05;
+      // Anchor FG tendency to kicker's make chance instead of a fixed %
+      let kickProb = 0.55 + 0.6 * (fgMakeProb - 0.5); // ~0.55 at 50%, ~0.79 at 90%
+      if (scoreDiff >= 0 && under5) kickProb += 0.05; // protecting a lead late
       kickProb += (puntBias) * 0.05;
-      kickProb = clamp(kickProb, 0.45, 0.85);
+      kickProb = clamp(kickProb, 0.40, 0.90);
 
       if (rng.next() < kickProb) return { type: "field_goal" };
       return { type: goPlayType() };
@@ -2121,6 +2151,7 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
     if (rng.next() < tinyGo) return { type: goPlayType() };
     return { type: "punt" };
   }
+
 
   // ---------------- Non-4th downs: run vs pass ----------------
   return rng.next() < basePassProb ? { type: "pass" } : { type: "run" };
@@ -2610,11 +2641,12 @@ function simulateFieldGoal(state, offenseUnits, specialOff, rng) {
         : 0;
 
   const effDist = Math.max(18, rawDistance - powerShift - fgEnvAdjust);
+  const tooFarMult = clamp(1 - (effDist - 65) / 10, 0, 1)
 
 
   // ---- Smooth logistic baseline (no hard-coded per-distance table) ----
   // Think: average NFL-ish kicker is around 50/50 somewhere in low-50s.
-  const baseCenter = 53;   // effective distance where an average leg is ~50/50
+  const baseCenter = 56;   // effective distance where an average leg is ~50/50
   const baseScale  = 6.0;  // smaller => steeper drop with distance
 
   // More accurate kickers shift the center *out* a bit (they stay good longer)
@@ -2623,7 +2655,7 @@ function simulateFieldGoal(state, offenseUnits, specialOff, rng) {
 
   // Logistic make curve
   const x    = (effDist - center) / baseScale;
-  let makeP  = 1 / (1 + Math.exp(x));
+  let makeP  = (1 / (1 + Math.exp(x))) * tooFarMult;
 
   // ---- Short-range smoothing (chip shots are *very* reliable, but not perfect) ----
   if (effDist <= 40) {
