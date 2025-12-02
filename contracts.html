@@ -7,23 +7,23 @@
   <style>
     :root {
       --bg: #020617;
-      --bg-elevated: rgba(15,23,42,0.96);
-      --bg-soft: rgba(15,23,42,0.9);
-      --border-subtle: #1f2937;
-      --border-strong: #4b5563;
-      --card-border: rgba(31,41,55,0.95);
+      --panel: #020617;
+      --card: #020617;
+      --card-border: #1e293b;
+      --card-border-strong: #4b5563;
       --text: #e5e7eb;
       --muted: #9ca3af;
       --accent: #22c55e;
       --accent-soft: rgba(34,197,94,0.18);
       --accent-alt: #38bdf8;
       --danger: #f97373;
-      --danger-soft: rgba(248,113,113,0.16);
+      --danger-soft: rgba(248,113,113,0.18);
       --radius-lg: 18px;
       --radius-md: 12px;
       --radius-pill: 999px;
-      --shadow-soft: 0 24px 48px rgba(0,0,0,0.8);
+      --shadow-soft: 0 22px 45px rgba(15,23,42,0.8);
       --shadow-sm: 0 10px 26px rgba(15,23,42,0.75);
+      --border-subtle: rgba(31,41,55,0.9);
       --font: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
         "Segoe UI", Roboto, sans-serif;
     }
@@ -32,13 +32,13 @@
       box-sizing: border-box;
     }
 
-    html, body {
+    html,
+    body {
       margin: 0;
       padding: 0;
       min-height: 100vh;
       font-family: var(--font);
-      background:
-        radial-gradient(circle at 0% 0%, #0b1120 0, #020617 48%, #000 100%);
+      background: radial-gradient(circle at 0% 0%, #0b1120 0, #020617 48%, #000 100%);
       color: var(--text);
       -webkit-font-smoothing: antialiased;
     }
@@ -48,95 +48,96 @@
       flex-direction: column;
     }
 
-    .page-root {
+    .page {
       flex: 1;
-      max-width: 1960px;
-      margin: 0 auto;
-      padding: 24px 32px 24px;
       display: flex;
       flex-direction: column;
-      gap: 18px;
+      max-width: 1960px;
+      margin: 0 auto;
+      padding: 24px 40px 24px;
       position: relative;
     }
 
-    .page-root::before {
+    .page::before {
       content: "";
       position: fixed;
       inset: -40%;
-      pointer-events: none;
-      z-index: -1;
       background:
         radial-gradient(circle at 0% 0%, rgba(56,189,248,0.16), transparent 55%),
-        radial-gradient(circle at 100% 100%, rgba(34,197,94,0.18), transparent 60%);
-      opacity: 0.9;
+        radial-gradient(circle at 100% 100%, rgba(34,197,94,0.16), transparent 60%);
+      opacity: 0.85;
       mix-blend-mode: screen;
+      pointer-events: none;
+      z-index: -2;
     }
 
     /* Header */
 
-    .page-header {
+    .contracts-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
       gap: 16px;
+      margin-bottom: 18px;
     }
 
-    .header-left {
+    .contracts-header-left {
       display: flex;
       flex-direction: column;
       gap: 4px;
     }
 
-    #team-name-heading {
-      font-size: 1.35rem;
+    #contracts-header-title {
+      font-size: 1.25rem;
       font-weight: 650;
       letter-spacing: 0.08em;
       text-transform: uppercase;
     }
 
-    #season-phase-line {
+    #contracts-header-subline {
       font-size: 0.86rem;
       color: var(--muted);
     }
 
-    .header-right {
+    .contracts-header-right {
       display: flex;
       flex-wrap: wrap;
-      align-items: center;
-      justify-content: flex-end;
       gap: 10px;
+      justify-content: flex-end;
+      align-items: center;
     }
 
     .pill-record {
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(34,197,94,0.8);
+      padding: 6px 14px;
+      font-size: 0.84rem;
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      border-radius: var(--radius-pill);
-      padding: 4px 10px;
-      border: 1px solid rgba(148,163,184,0.7);
-      background: rgba(15,23,42,0.9);
-      font-size: 0.78rem;
+      background: radial-gradient(circle at 0% 0%, rgba(34,197,94,0.16), rgba(15,23,42,0.98));
+      box-shadow: 0 1px 3px rgba(15,23,42,0.8);
+      white-space: nowrap;
     }
 
-    .pill-record span:first-child {
+    .pill-record-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: #22c55e;
+      box-shadow: 0 0 0 4px rgba(34,197,94,0.25);
+    }
+
+    .pill-record-label {
       text-transform: uppercase;
       letter-spacing: 0.16em;
-      font-size: 0.72rem;
-      color: var(--muted);
+      font-size: 0.68rem;
+      color: rgba(187,247,208,0.95);
     }
 
-    #record-pill-value {
+    .pill-record-value {
+      font-variant-numeric: tabular-nums;
       font-weight: 600;
-    }
-
-    .team-select {
-      min-width: 190px;
-      padding: 6px 10px;
-      border-radius: var(--radius-pill);
-      border: 1px solid rgba(148,163,184,0.8);
-      background: rgba(15,23,42,0.96);
-      color: var(--text);
-      font-size: 0.84rem;
     }
 
     .btn-ghost {
@@ -145,15 +146,15 @@
       background: rgba(15,23,42,0.9);
       color: var(--text);
       font-size: 0.8rem;
-      text-transform: uppercase;
-      letter-spacing: 0.16em;
       padding: 6px 14px;
-      cursor: pointer;
+      text-decoration: none;
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      text-decoration: none;
+      cursor: pointer;
       box-shadow: 0 1px 3px rgba(15,23,42,0.8);
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
     }
 
     .btn-ghost:hover {
@@ -161,31 +162,123 @@
       border-color: rgba(129,140,248,0.95);
     }
 
-    /* Main layout */
+    .btn-ghost:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 3px;
+    }
 
-    .contracts-grid {
+    /* Filters / controls */
+
+    .cap-filters {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .cap-filters-left,
+    .cap-filters-right {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .filter-label {
+      font-size: 0.76rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+    }
+
+    .filter-select {
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(55,65,81,0.95);
+      background: rgba(15,23,42,0.95);
+      color: var(--text);
+      font-size: 0.8rem;
+      padding: 4px 10px;
+      min-width: 120px;
+      outline: none;
+    }
+
+    .filter-select:focus-visible {
+      outline: 2px solid var(--accent-alt);
+      outline-offset: 2px;
+    }
+
+    .segmented-toggle {
+      display: inline-flex;
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(55,65,81,0.95);
+      background: rgba(15,23,42,0.96);
+      overflow: hidden;
+    }
+
+    .segmented-toggle button {
+      border: none;
+      background: transparent;
+      color: #9ca3af;
+      font-size: 0.76rem;
+      padding: 4px 10px;
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+    }
+
+    .segmented-toggle button[data-active="true"] {
+      background: rgba(34,197,94,0.18);
+      color: #e5e7eb;
+    }
+
+    .search-input {
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(55,65,81,0.95);
+      background: rgba(15,23,42,0.96);
+      color: var(--text);
+      font-size: 0.8rem;
+      padding: 5px 11px;
+      min-width: 200px;
+      outline: none;
+    }
+
+    .search-input::placeholder {
+      color: rgba(148,163,184,0.8);
+    }
+
+    .search-input:focus-visible {
+      outline: 2px solid var(--accent-alt);
+      outline-offset: 2px;
+    }
+
+    /* Layout */
+
+    .cap-layout {
       display: grid;
-      grid-template-columns: minmax(0, 1.8fr) minmax(0, 1.05fr);
-      gap: 16px;
+      grid-template-columns: minmax(0, 2.1fr) minmax(0, 1.1fr);
+      gap: 18px;
       align-items: flex-start;
+      min-height: 0;
     }
 
     .card {
       border-radius: var(--radius-lg);
       border: 1px solid var(--card-border);
-      background: radial-gradient(circle at 0% 0%, var(--bg-elevated), #020617);
+      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.9), rgba(15,23,42,0.99));
       box-shadow: var(--shadow-soft);
       padding: 14px 16px 14px;
       position: relative;
       overflow: hidden;
     }
 
-    .card-header-row {
+    .card-title-row {
       display: flex;
       justify-content: space-between;
       align-items: baseline;
-      gap: 10px;
       margin-bottom: 10px;
+      gap: 8px;
     }
 
     .card-title {
@@ -204,77 +297,14 @@
       color: var(--muted);
     }
 
-    /* Controls row (season tabs + view toggles) */
-
-    .contracts-controls {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 8px;
-      flex-wrap: wrap;
-    }
-
-    .season-tabs {
-      display: inline-flex;
-      flex-wrap: wrap;
-      gap: 4px;
-    }
-
-    .season-tab {
-      border-radius: var(--radius-pill);
-      border: 1px solid rgba(55,65,81,0.95);
-      background: rgba(15,23,42,0.94);
-      font-size: 0.76rem;
-      padding: 3px 10px;
-      cursor: pointer;
-      color: var(--muted);
-    }
-
-    .season-tab[data-active="true"] {
-      color: var(--text);
-      border-color: var(--accent);
-      background: radial-gradient(circle at 0% 0%, var(--accent-soft), rgba(15,23,42,0.96));
-    }
-
-    .view-toggle {
-      display: inline-flex;
-      gap: 4px;
-      border-radius: var(--radius-pill);
-      border: 1px solid rgba(55,65,81,0.95);
-      padding: 2px;
-      background: rgba(15,23,42,0.96);
-    }
-
-    .view-toggle button {
-      border: none;
-      background: transparent;
-      color: var(--muted);
-      font-size: 0.74rem;
-      padding: 4px 9px;
-      border-radius: var(--radius-pill);
-      cursor: pointer;
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-    }
-
-    .view-toggle button[data-active="true"] {
-      background: var(--accent-soft);
-      color: var(--text);
-    }
-
     /* Contracts table */
 
     .contracts-table-wrapper {
+      margin-top: 4px;
       border-radius: var(--radius-md);
-      border: 1px solid rgba(31,41,55,0.9);
-      background: linear-gradient(
-        135deg,
-        rgba(15,23,42,0.98),
-        rgba(15,23,42,0.94)
-      );
-      box-shadow: var(--shadow-sm);
-      max-height: calc(100vh - 260px);
+      border: 1px solid rgba(31,41,55,0.95);
+      background: rgba(15,23,42,0.96);
+      max-height: calc(100vh - 210px);
       overflow: auto;
     }
 
@@ -287,409 +317,716 @@
     .contracts-table thead {
       position: sticky;
       top: 0;
-      background: rgba(15,23,42,0.98);
-      z-index: 1;
+      z-index: 2;
+      background: linear-gradient(
+        180deg,
+        rgba(15,23,42,1) 0%,
+        rgba(15,23,42,0.96) 100%
+      );
     }
 
     .contracts-table th,
     .contracts-table td {
       padding: 6px 8px;
-      border-bottom: 1px solid rgba(30,64,175,0.28);
+      border-bottom: 1px solid rgba(31,41,55,0.9);
+      text-align: right;
       white-space: nowrap;
     }
 
-    .contracts-table th {
+    .contracts-table th:first-child,
+    .contracts-table td:first-child {
       text-align: left;
-      font-weight: 500;
-      color: var(--muted);
+      padding-left: 10px;
+    }
+
+    .contracts-table th:nth-child(2),
+    .contracts-table td:nth-child(2) {
+      text-align: left;
+    }
+
+    .contracts-table th {
+      font-size: 0.7rem;
+      color: #9ca3af;
       text-transform: uppercase;
-      letter-spacing: 0.12em;
-      font-size: 0.72rem;
+      letter-spacing: 0.16em;
     }
 
-    .contracts-table td.numeric {
-      text-align: right;
-      font-variant-numeric: tabular-nums;
+    .contracts-table tbody tr:nth-child(even) {
+      background: rgba(15,23,42,0.92);
     }
 
-    .contracts-row {
-      cursor: pointer;
-    }
-
-    .contracts-row:hover {
+    .contracts-table tbody tr:hover {
       background: rgba(30,64,175,0.35);
     }
 
-    .contracts-row[data-focus="true"] {
-      background: rgba(34,197,94,0.18);
+    .contracts-table tbody tr[data-selected="true"] {
+      background: rgba(34,197,94,0.16);
     }
 
-    .contracts-name-cell {
+    .contracts-player-name-cell {
       display: flex;
       flex-direction: column;
-      gap: 1px;
+      gap: 2px;
     }
 
-    .contracts-name-primary {
+    .contracts-player-name {
       font-weight: 500;
     }
 
-    .contracts-name-secondary {
-      color: var(--muted);
-      font-size: 0.72rem;
-    }
-
-    /* Right column – cap summary */
-
-    .cap-summary-metric {
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      font-size: 0.78rem;
-      margin-bottom: 4px;
-      color: var(--muted);
-    }
-
-    .cap-summary-metric span:first-child {
-      text-transform: uppercase;
-      letter-spacing: 0.14em;
-      font-size: 0.72rem;
-    }
-
-    .cap-summary-metric span:last-child {
-      font-variant-numeric: tabular-nums;
-      color: #e5e7eb;
-    }
-
-    .cap-bar {
-      margin: 8px 0 12px;
-      width: 100%;
-      height: 8px;
-      border-radius: 999px;
-      background: rgba(15,23,42,0.98);
-      border: 1px solid rgba(31,41,55,0.9);
-      overflow: hidden;
-      position: relative;
-    }
-
-    .cap-bar-fill {
-      position: absolute;
-      inset: 0;
-      width: 0%;
-      background: linear-gradient(90deg, #22c55e, #facc15);
-      transition: width 180ms ease-out;
-    }
-
-    .cap-summary-section-title {
-      font-size: 0.78rem;
-      text-transform: uppercase;
-      letter-spacing: 0.16em;
-      color: var(--muted);
-      margin-top: 6px;
-      margin-bottom: 4px;
-    }
-
-    .cap-toplist {
-      list-style: none;
-      margin: 0;
-      padding: 0;
-      font-size: 0.76rem;
-    }
-
-    .cap-toplist li {
-      display: flex;
-      justify-content: space-between;
-      gap: 6px;
-      padding: 3px 0;
-      border-bottom: 1px dashed rgba(31,41,55,0.8);
-    }
-
-    .cap-toplist li span:last-child {
-      font-variant-numeric: tabular-nums;
-      color: var(--muted);
-    }
-
-    .player-context {
-      margin-top: 12px;
-      padding-top: 10px;
-      border-top: 1px solid rgba(31,41,55,0.8);
-      font-size: 0.78rem;
-    }
-
-    .player-context-title {
-      font-size: 0.78rem;
-      text-transform: uppercase;
-      letter-spacing: 0.16em;
-      color: var(--muted);
-      margin-bottom: 4px;
-    }
-
-    .player-context-main {
-      font-size: 0.86rem;
-      margin-bottom: 4px;
-    }
-
-    .player-context-sub {
-      color: var(--muted);
-    }
-
-    .badge-small {
-      border-radius: var(--radius-pill);
-      padding: 2px 7px;
-      border: 1px solid rgba(148,163,184,0.65);
+    .contracts-player-meta {
       font-size: 0.7rem;
-      text-transform: uppercase;
-      letter-spacing: 0.14em;
-      color: var(--muted);
-    }
-
-    .badge-small--accent {
-      border-color: var(--accent);
-      color: var(--accent);
-    }
-
-    /* Player actions */
-
-    .player-actions {
-      margin-top: 10px;
-      padding-top: 8px;
-      border-top: 1px solid rgba(31,41,55,0.8);
-      font-size: 0.78rem;
-    }
-
-    .player-actions-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      margin-bottom: 6px;
-    }
-
-    .player-actions-btn {
-      border-radius: var(--radius-pill);
-      border: 1px solid rgba(148,163,184,0.7);
-      background: rgba(15,23,42,0.96);
-      color: var(--text);
-      font-size: 0.72rem;
-      text-transform: uppercase;
-      letter-spacing: 0.16em;
-      padding: 4px 10px;
-      cursor: pointer;
-      box-shadow: 0 1px 3px rgba(15,23,42,0.8);
-    }
-
-    .player-actions-btn[data-kind="danger"] {
-      border-color: rgba(248,113,113,0.9);
-      color: var(--danger);
-    }
-
-    .player-actions-btn:hover {
-      background: rgba(37,99,235,0.9);
-      border-color: rgba(129,140,248,0.95);
-    }
-
-    .player-actions-note {
-      font-size: 0.74rem;
       color: var(--muted);
     }
 
     .empty-state {
       font-size: 0.8rem;
       color: var(--muted);
-      padding: 20px 4px;
-      text-align: center;
+      padding: 10px 2px;
+    }
+
+    /* Cap summary / moves tabs */
+
+    .cap-tabs {
+      display: inline-flex;
+      gap: 4px;
+      margin-top: 4px;
+      margin-bottom: 8px;
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(55,65,81,0.9);
+      padding: 2px;
+      background: rgba(15,23,42,0.96);
+    }
+
+    .cap-tab {
+      border: none;
+      background: transparent;
+      color: #9ca3af;
+      font-size: 0.74rem;
+      padding: 3px 9px;
+      border-radius: var(--radius-pill);
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-weight: 500;
+    }
+
+    .cap-tab[data-active="true"] {
+      background: rgba(34,197,94,0.18);
+      color: #e5e7eb;
+    }
+
+    /* Cap summary content */
+
+    .cap-summary-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr);
+      gap: 10px;
+      margin-top: 6px;
+    }
+
+    .cap-summary-topline {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      font-size: 0.76rem;
+    }
+
+    .cap-metric {
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(31,41,55,0.95);
+      padding: 6px 8px;
+      background: rgba(15,23,42,0.96);
+    }
+
+    .cap-metric-label {
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .cap-metric-value {
+      font-size: 0.9rem;
+      font-variant-numeric: tabular-nums;
+      font-weight: 600;
+    }
+
+    .cap-metric-sub {
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    .cap-usage-bar {
+      margin-top: 6px;
+      border-radius: 999px;
+      border: 1px solid rgba(31,41,55,0.95);
+      background: rgba(15,23,42,0.96);
+      padding: 4px;
+    }
+
+    .cap-usage-bar-track {
+      width: 100%;
+      height: 10px;
+      border-radius: 999px;
+      background: linear-gradient(
+        90deg,
+        rgba(34,197,94,0.1),
+        rgba(30,64,175,0.4)
+      );
+      overflow: hidden;
+    }
+
+    .cap-usage-bar-fill {
+      height: 100%;
+      width: 50%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #22c55e, #38bdf8);
+      transition: width 220ms ease-out;
+    }
+
+    .cap-usage-bar-label {
+      margin-top: 4px;
+      font-size: 0.74rem;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .cap-top-contracts {
+      margin-top: 8px;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(31,41,55,0.95);
+      padding: 7px 8px 6px;
+      background: rgba(15,23,42,0.96);
+    }
+
+    .cap-top-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 4px;
+    }
+
+    .cap-top-title {
+      font-size: 0.74rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: var(--muted);
+    }
+
+    .cap-top-pill {
+      font-size: 0.7rem;
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(55,65,81,0.95);
+      padding: 2px 7px;
+      color: #9ca3af;
+    }
+
+    .cap-top-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      font-size: 0.76rem;
+    }
+
+    .cap-top-item {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 2px 0;
+    }
+
+    .cap-top-name {
+      max-width: 60%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .cap-top-meta {
+      font-variant-numeric: tabular-nums;
+      color: var(--muted);
+    }
+
+    /* Player context + base vs bonus */
+
+    .cap-player-context {
+      margin-top: 10px;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(31,41,55,0.95);
+      padding: 8px 9px 7px;
+      background: rgba(15,23,42,0.96);
+    }
+
+    .cap-player-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+
+    #cap-player-name {
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
+
+    #cap-player-meta {
+      font-size: 0.74rem;
+      color: var(--muted);
+    }
+
+    #cap-player-rank-line {
+      font-size: 0.74rem;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    .player-base-bonus {
+      margin-top: 8px;
+      padding-top: 6px;
+      border-top: 1px dashed rgba(31,41,55,0.85);
+    }
+
+    .player-base-bonus-title {
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: #9ca3af;
+      margin-bottom: 4px;
+    }
+
+    .player-base-bonus-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 6px;
+      font-size: 0.76rem;
+      margin-bottom: 2px;
+    }
+
+    .player-base-bonus-row span:first-child {
+      color: #9ca3af;
+    }
+
+    .player-base-bonus-row span:last-child {
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Player actions */
+
+    .cap-player-actions {
+      margin-top: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .btn-cap-action {
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(148,163,184,0.8);
+      background: rgba(15,23,42,0.96);
+      color: var(--text);
+      font-size: 0.74rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      padding: 5px 10px;
+      cursor: pointer;
+    }
+
+    .btn-cap-action[data-variant="danger"] {
+      border-color: rgba(248,113,113,0.85);
+      background: rgba(127,29,29,0.35);
+    }
+
+    .btn-cap-action[data-variant="soft"] {
+      border-color: rgba(59,130,246,0.85);
+      background: rgba(30,64,175,0.45);
+    }
+
+    .btn-cap-action:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+
+    /* Moves log tab */
+
+    .cap-moves-note {
+      font-size: 0.74rem;
+      color: #9ca3af;
+      margin-bottom: 6px;
+    }
+
+    .cap-moves-list {
+      max-height: calc(100vh - 260px);
+      overflow: auto;
+      border-radius: 12px;
+      border: 1px solid rgba(31,41,55,0.9);
+      background: rgba(15,23,42,0.96);
+      padding: 6px 8px;
+      font-size: 0.76rem;
+    }
+
+    .cap-move-row {
+      padding: 4px 4px 6px;
+      border-bottom: 1px dashed rgba(31,41,55,0.85);
+    }
+
+    .cap-move-row:last-child {
+      border-bottom: none;
+    }
+
+    .cap-move-row[data-franchise="true"] {
+      background: rgba(34,197,94,0.12);
+    }
+
+    .cap-move-main {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 2px;
+    }
+
+    .cap-move-time {
+      color: #9ca3af;
+    }
+
+    .cap-move-team {
+      font-weight: 500;
+    }
+
+    .cap-move-player {
+      color: #e5e7eb;
+    }
+
+    .cap-move-desc {
+      color: #9ca3af;
+      margin-bottom: 2px;
+    }
+
+    .cap-move-action {
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      font-size: 0.68rem;
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(148,163,184,0.7);
+      padding: 1px 6px;
+      margin-right: 4px;
+    }
+
+    .cap-move-capline {
+      font-variant-numeric: tabular-nums;
+      color: #9ca3af;
+      font-size: 0.72rem;
     }
 
     [hidden] {
       display: none !important;
     }
 
+    /* Footer */
+
+    .contracts-footer {
+      margin-top: 10px;
+      font-size: 0.78rem;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
     @media (max-width: 1200px) {
-      .page-root {
+      .page {
         padding: 18px 18px 20px;
       }
-      .contracts-grid {
+      .cap-layout {
+        grid-template-columns: minmax(0, 1.7fr) minmax(0, 1.1fr);
+      }
+    }
+
+    @media (max-width: 960px) {
+      .cap-layout {
         grid-template-columns: minmax(0, 1fr);
+      }
+      .contracts-table-wrapper {
+        max-height: none;
       }
     }
 
     @media (max-width: 640px) {
-      .page-header {
+      .contracts-header {
         flex-direction: column;
         align-items: flex-start;
       }
-      .header-right {
+      .cap-filters {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      .cap-filters-right {
+        width: 100%;
         justify-content: flex-start;
       }
     }
   </style>
 </head>
 <body>
-  <div class="page-root">
-    <header class="page-header">
-      <div class="header-left">
-        <div id="team-name-heading">Contracts & Cap</div>
-        <div id="season-phase-line">Season — • Contracts & Cap Overview</div>
+  <div class="page" id="contracts-page-root">
+    <!-- HEADER -->
+    <header class="contracts-header">
+      <div class="contracts-header-left">
+        <div id="contracts-header-title">Contracts &amp; Cap</div>
+        <div id="contracts-header-subline">Season — • Team contracts &amp; league cap overview</div>
       </div>
-      <div class="header-right">
+      <div class="contracts-header-right">
         <div class="pill-record">
-          <span>Record</span>
-          <span id="record-pill-value">0–0</span>
+          <span class="pill-record-dot" aria-hidden="true"></span>
+          <span class="pill-record-label">Record</span>
+          <span class="pill-record-value" id="contracts-record-pill">0–0</span>
         </div>
-        <select id="contracts-team-select" class="team-select"></select>
-        <button id="btn-back-hub" class="btn-ghost" type="button">
-          Back to hub
-        </button>
+        <a href="schedule.html" class="btn-ghost">Back to schedule</a>
+        <a href="franchise.html" class="btn-ghost">Back to hub</a>
       </div>
     </header>
 
-    <main class="contracts-grid">
-      <!-- Left: player contract grid -->
-      <section class="card" aria-label="Player contracts">
-        <div class="card-header-row">
-          <div class="card-title">
-            <strong>Contracts & Cap Sheet</strong>
-          </div>
-          <div class="card-subtitle">
-            All active contracts for the selected club or the full league.
-          </div>
+    <!-- FILTER BAR -->
+    <section class="cap-filters" aria-label="Contracts filters">
+      <div class="cap-filters-left">
+        <div>
+          <span class="filter-label">Team</span>
+          <select id="cap-team-select" class="filter-select">
+            <option value="FRANCHISE">My franchise</option>
+            <option value="LEAGUE_ALL">League – all teams</option>
+            <!-- other team codes injected by JS -->
+          </select>
         </div>
+        <div>
+          <span class="filter-label">Season</span>
+          <select id="cap-season-select" class="filter-select">
+            <!-- JS will populate with seasons -->
+          </select>
+        </div>
+        <div class="segmented-toggle" id="cap-view-toggle">
+          <button type="button" data-mode="contracts" data-active="true">Contracts</button>
+          <button type="button" data-mode="cap">Cap view</button>
+        </div>
+      </div>
+      <div class="cap-filters-right">
+        <input
+          id="contracts-search"
+          class="search-input"
+          type="search"
+          placeholder="Search players / positions…"
+        />
+      </div>
+    </section>
 
-        <div class="contracts-controls">
-          <div class="season-tabs" id="contracts-season-tabs"></div>
-          <div class="view-toggle" aria-label="Cap view mode">
-            <button id="contracts-view-cap" data-view="cap" data-active="true" type="button">
-              Cap hit
-            </button>
-            <button id="contracts-view-cash" data-view="cash" type="button">
-              Cash
-            </button>
-            <button id="contracts-view-dead" data-view="dead" type="button">
-              Dead
-            </button>
+    <!-- MAIN LAYOUT -->
+    <main class="cap-layout" aria-label="Contracts and cap layout">
+      <!-- LEFT: contracts table -->
+      <section class="card" id="contracts-table-card">
+        <div class="card-title-row">
+          <div class="card-title">
+            <strong>Contracts</strong>
+          </div>
+          <div class="card-subtitle" id="contracts-table-subtitle">
+            All active deals for the selected team &amp; season.
           </div>
         </div>
 
         <div class="contracts-table-wrapper">
-          <table class="contracts-table">
+          <table class="contracts-table" id="contracts-table">
             <thead>
               <tr>
                 <th>Player</th>
                 <th>Pos</th>
                 <th>Age</th>
-                <th>OVR</th>
                 <th>Yrs</th>
                 <th>AAV</th>
-                <th>Total</th>
-                <th>Guarantee</th>
-                <th id="contracts-year-col-1">Year 1</th>
-                <th id="contracts-year-col-2">Year 2</th>
-                <th id="contracts-year-col-3">Year 3</th>
+                <th id="col-cap-yr1">Cap Y1</th>
+                <th id="col-cap-yr2">Cap Y2</th>
+                <th id="col-cap-yr3">Cap Y3</th>
+                <th>Guarantees</th>
               </tr>
             </thead>
             <tbody id="contracts-table-body">
-              <tr>
-                <td colspan="11" class="empty-state">
-                  Loading contracts…
-                </td>
-              </tr>
+              <!-- JS will fill -->
             </tbody>
           </table>
+          <div class="empty-state" id="contracts-table-empty" hidden>
+            No contracts found for this selection.
+          </div>
         </div>
       </section>
 
-      <!-- Right: team cap summary + player ranking + actions -->
-      <section class="card" aria-label="Cap summary">
-        <div class="card-header-row">
-          <div class="card-title">
-            <strong>Cap Summary</strong>
-          </div>
+      <!-- RIGHT: cap summary / moves -->
+      <section class="card" id="contracts-cap-card">
+        <div class="card-title-row">
+          <div class="card-title"><strong>Cap Summary</strong></div>
           <div class="card-subtitle">
-            Space, usage, and top deals for the selected season.
+            Space, usage, top deals, and cap moves for the selected season.
           </div>
         </div>
 
+        <!-- Tabs -->
+        <div class="cap-tabs" id="cap-tabs">
+          <button type="button" class="cap-tab" data-tab="summary" data-active="true">
+            Summary
+          </button>
+          <button type="button" class="cap-tab" data-tab="moves">
+            Moves log
+          </button>
+        </div>
+
+        <!-- SUMMARY TAB CONTENT -->
         <div id="contracts-cap-summary">
-          <div class="cap-summary-metric">
-            <span>Selected season</span>
-            <span id="cap-summary-season-label">—</span>
-          </div>
-          <div class="cap-summary-metric">
-            <span>Cap limit</span>
-            <span id="cap-summary-cap-limit">$—</span>
-          </div>
-          <div class="cap-summary-metric">
-            <span>Cap used</span>
-            <span id="cap-summary-cap-used">$—</span>
-          </div>
-          <div class="cap-summary-metric">
-            <span>Cap space</span>
-            <span id="cap-summary-cap-space">$—</span>
-          </div>
+          <div class="cap-summary-grid">
+            <div>
+              <div class="cap-summary-topline">
+                <div class="cap-metric">
+                  <div class="cap-metric-label">Cap limit</div>
+                  <div class="cap-metric-value" id="cap-limit-value">$0</div>
+                  <div class="cap-metric-sub" id="cap-limit-sub">League year —</div>
+                </div>
+                <div class="cap-metric">
+                  <div class="cap-metric-label">Cap used</div>
+                  <div class="cap-metric-value" id="cap-used-value">$0</div>
+                  <div class="cap-metric-sub" id="cap-used-sub">Active 53 + dead</div>
+                </div>
+                <div class="cap-metric">
+                  <div class="cap-metric-label">Cap space</div>
+                  <div class="cap-metric-value" id="cap-space-value">$0</div>
+                  <div class="cap-metric-sub" id="cap-space-sub">Room to maneuver</div>
+                </div>
+              </div>
 
-          <div class="cap-bar">
-            <div class="cap-bar-fill" id="cap-summary-bar-fill"></div>
-          </div>
-
-          <div class="cap-summary-section-title">Top contracts by AAV</div>
-          <ul class="cap-toplist" id="cap-summary-top-aav"></ul>
-
-          <div class="cap-summary-section-title">Top guarantees</div>
-          <ul class="cap-toplist" id="cap-summary-top-guarantee"></ul>
-
-          <div class="player-context" id="contracts-player-context" hidden>
-            <div class="player-context-title">Player contract context</div>
-            <div class="player-context-main" id="player-context-main-line"></div>
-            <div class="player-context-sub" id="player-context-sub-line"></div>
-          </div>
-
-          <div class="player-actions" id="contracts-player-actions" hidden>
-            <div class="player-context-title">Contract actions (my team only)</div>
-            <div class="player-actions-row">
-              <button
-                type="button"
-                class="player-actions-btn"
-                data-kind="danger"
-                id="btn-contract-cut-pre"
-              >
-                Cut (Pre-June)
-              </button>
-              <button
-                type="button"
-                class="player-actions-btn"
-                data-kind="danger"
-                id="btn-contract-cut-post"
-              >
-                Cut (Post-June)
-              </button>
-              <button
-                type="button"
-                class="player-actions-btn"
-                id="btn-contract-restructure"
-              >
-                Restructure
-              </button>
-              <button
-                type="button"
-                class="player-actions-btn"
-                id="btn-contract-extend"
-              >
-                Extend +1 Year
-              </button>
+              <div class="cap-usage-bar" aria-label="Cap usage">
+                <div class="cap-usage-bar-track">
+                  <div class="cap-usage-bar-fill" id="cap-usage-bar-fill"></div>
+                </div>
+                <div class="cap-usage-bar-label">
+                  <span id="cap-usage-label-left">Usage —</span>
+                  <span id="cap-usage-label-right">0% of cap</span>
+                </div>
+              </div>
             </div>
-            <div class="player-actions-note" id="player-actions-note">
-              Select a player on your team and apply an action for the current cap year.
-              These are approximate NFL-style cap treatments and are written back to your LeagueState.
+
+            <div class="cap-top-contracts">
+              <div class="cap-top-header">
+                <div class="cap-top-title">Top contracts – AAV</div>
+                <div class="cap-top-pill" id="cap-top-filter-pill">
+                  League / position rank
+                </div>
+              </div>
+              <ul class="cap-top-list" id="cap-top-aav-list">
+                <!-- JS fills with top AAV deals -->
+              </ul>
             </div>
+
+            <div class="cap-top-contracts" id="cap-top-guarantees-card">
+              <div class="cap-top-header">
+                <div class="cap-top-title">Top guarantees</div>
+                <div class="cap-top-pill">Total guarantees</div>
+              </div>
+              <ul class="cap-top-list" id="cap-top-guarantees-list">
+                <!-- JS fills -->
+              </ul>
+            </div>
+          </div>
+
+          <!-- SELECTED PLAYER CONTEXT -->
+          <div id="contracts-player-context" class="cap-player-context" hidden>
+            <div class="cap-player-header">
+              <div>
+                <div id="cap-player-name">Player name</div>
+                <div id="cap-player-meta">POS • Age • Years remaining</div>
+              </div>
+              <div style="text-align:right;">
+                <div id="cap-player-aav" style="font-size:0.82rem;font-variant-numeric:tabular-nums;">
+                  AAV —
+                </div>
+                <div id="cap-player-cap-this-year" style="font-size:0.72rem;color:var(--muted);">
+                  Cap hit Y1 —
+                </div>
+              </div>
+            </div>
+            <div id="cap-player-rank-line">
+              Ranked — among — at — by AAV and guarantees.
+            </div>
+
+            <!-- BASE VS BONUS -->
+            <div id="player-base-bonus" class="player-base-bonus" hidden>
+              <div class="player-base-bonus-title">Base vs bonus (cap)</div>
+              <div id="player-base-bonus-list">
+                <!-- JS injects rows like:
+                     2025 — Cap $X, Base $Y, Bonus $Z (P% bonus) -->
+              </div>
+            </div>
+          </div>
+
+          <!-- PLAYER ACTION BUTTONS -->
+          <div id="contracts-player-actions" class="cap-player-actions" hidden>
+            <button
+              type="button"
+              class="btn-cap-action"
+              data-variant="danger"
+              id="btn-cap-cut-pre"
+            >
+              Cut – pre June
+            </button>
+            <button
+              type="button"
+              class="btn-cap-action"
+              data-variant="danger"
+              id="btn-cap-cut-post"
+            >
+              Cut – post June
+            </button>
+            <button
+              type="button"
+              class="btn-cap-action"
+              data-variant="soft"
+              id="btn-cap-restructure"
+            >
+              Restructure
+            </button>
+            <button
+              type="button"
+              class="btn-cap-action"
+              id="btn-cap-extend"
+            >
+              Extend
+            </button>
+          </div>
+
+          <div class="empty-state" id="contracts-empty-summary" hidden>
+            No cap data for this selection yet. Once contracts are generated and
+            cap hits are assigned, summary will appear here.
           </div>
         </div>
 
-        <div id="contracts-empty-summary" class="empty-state" hidden>
-          No contracts found for this selection.
+        <!-- MOVES LOG TAB CONTENT -->
+        <div id="cap-moves-wrapper" hidden>
+          <div class="player-base-bonus-title">Cap moves log</div>
+          <div class="cap-moves-note">
+            History of recent contract actions (cuts, restructures, extensions) for this selection.
+          </div>
+          <div class="cap-moves-list" id="cap-moves-list">
+            <!-- JS will render cap moves rows here -->
+          </div>
         </div>
       </section>
     </main>
+
+    <footer class="contracts-footer">
+      <span>Franchise GM • Contracts &amp; Cap Overview</span>
+      <span id="contracts-footer-meta">Data loaded from saved LeagueState &amp; Layer 3 rosters.</span>
+    </footer>
   </div>
 
+  <!-- Wire your JS here -->
   <script type="module" src="contracts.js"></script>
 </body>
 </html>
