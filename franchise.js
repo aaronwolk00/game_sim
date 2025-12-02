@@ -486,8 +486,9 @@ function renderNextEventCard(save, leagueState) {
     if (detailEl) detailEl.textContent = "The schedule engine will populate this soon.";
     if (primaryBtn) {
       primaryBtn.textContent = "Game Day";
-      primaryBtn.disabled = true;
-      primaryBtn.onclick = null;
+      primaryBtn.onclick = function () {
+        window.location.href = "franchise_gameday.html";
+      };
     }
     if (fullScheduleBtn) {
       fullScheduleBtn.onclick = function () {
