@@ -2138,9 +2138,9 @@ function simulatePlay(state) {
 
         // --- Estimate 4th-down conversion probability by distance ---
         let convProb;
-        if (shortYds)      convProb = 0.70;
-        else if (medYds)   convProb = 0.50;
-        else               convProb = 0.30;
+        if (shortYds)      convProb = 0.65;
+        else if (medYds)   convProb = 0.40;
+        else               convProb = 0.15;
 
         // --- Expected points (base) ---
         let fgEP   = 3 * fgMakeProb;
