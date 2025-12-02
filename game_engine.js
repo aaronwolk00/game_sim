@@ -2188,7 +2188,7 @@ function simulatePlay(state) {
             wGo *= 0.6;
           } else {
             // Normal mid-game: rarely settle for chip FG
-            wFG *= 0.4;
+            wFG *= 0.3;
             wGo *= 1.2;
           }
         }
