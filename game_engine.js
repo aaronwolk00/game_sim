@@ -520,6 +520,30 @@ class RNG {
     const rel = (b.punts - cfg.puntBaselinePerTeam) / cfg.puntBaselinePerTeam;
     return clamp(rel, -0.40, 0.40); // ±40% envelope
   }
+
+  // -----------------------------------------------------------------------------
+  // Approximate drive Expected Points from a yardline (0–100 from offense goal)
+  // Smooth logistic, slightly boosted very close to the goal.
+  // Reused by 4th-down decision logic and any EP-style diagnostics.
+  // -----------------------------------------------------------------------------
+  function approxDriveEP(state, yardline) {
+    const y = clamp(Math.round(yardline), 1, 99);
+    const x = (y - 50) / 18;           // center around midfield
+
+    // Base logistic: ~[-0.8 .. ~4.5] over the field
+    let ep = -0.9 + 4.9 * (1 / (1 + Math.exp(-x)));
+
+    const toTD = 100 - y;
+
+    // Extra boost inside the 10: value of “first & goal” situations
+    if (toTD <= 10) {
+      const t = clamp((10 - toTD) / 10, 0, 1);   // 10 → 0, 0 → 1
+      ep += 0.6 * t;
+    }
+
+    return ep;
+  }
+
   
   // Team-specific kickoff touchback rate
   function getKickoffTouchbackRate(state, kickingTeam) {
@@ -2146,13 +2170,13 @@ function simulatePlay(state) {
           const t = clamp((40 - effDist) / 22, 0, 1); // 18..40 → 1..0
           fgMakeProb += 0.03 + 0.07 * t;
         }
-        fgMakeProb = clamp(fgMakeProb, 0.02, 0.995);
+        fgMakeProb = clamp(fgMakeProb, 0.00, 0.995);
 
         // --- 4th-down conversion probability by distance (still simple, but can be tuned) ---
         let convProb;
-        if (shortYds)      convProb = 0.70;
-        else if (medYds)   convProb = 0.50;
-        else               convProb = 0.30;
+        if (shortYds)      convProb = 0.65;
+        else if (medYds)   convProb = 0.40;
+        else               convProb = 0.15;
 
         // --- FG EP: make vs miss (miss gives ball to opponent) ---
         // On a miss, your code approximates: new offense at max(20, 100 - (LOS+7)).
@@ -2171,20 +2195,20 @@ function simulatePlay(state) {
         let goEP = convProb * epSuccess + (1 - convProb) * epFail;
 
         // --- Punt EP: depends on punter + field position; we approximate expected opp start ---
-        const pControl   = specialOff.punting?.control   ?? 60;
-        const pFieldFlip = specialOff.punting?.fieldFlip ?? 60;
+        const pControl   = specialOff.punting?.control   ?? 30.9;
+        const pFieldFlip = specialOff.punting?.fieldFlip ?? 41.8;
         const puntSkill  = (pControl + pFieldFlip) / 2;
 
-        const basePunt    = 42;                                       // league-ish gross
-        const skillAdj    = (puntSkill - 60) * 0.28;                  // ±~11 yds across extremes
-        const expPuntDist = clamp(basePunt + skillAdj, 30, 60);
+        const basePunt    = 47;                                       // league-ish gross
+        const skillAdj    = (puntSkill - 36.3) * 0.28;                  // ±~11 yds across extremes
+        const expPuntDist = clamp(basePunt + skillAdj, 25, 75);
 
         const grossLanding = yardline + expPuntDist;
         let   oppStartAfterPunt;
 
         if (grossLanding >= 100) {
           // Ball reaches/enters EZ: mix of touchback vs pin inside 10, based on skill.
-          const tbProb = clamp(0.65 - (puntSkill - 60) * 0.01, 0.20, 0.80);
+          const tbProb = clamp(0.65 - (puntSkill - 36.3) * 0.01, 0.20, 0.80);
           const tbY    = 20;
           const pinY   = 8;
           oppStartAfterPunt = tbProb * tbY + (1 - tbProb) * pinY;
@@ -2862,16 +2886,16 @@ function simulatePunt(state, specialOff, rng) {
     const { cfg } = state;
     const { offenseSide, offenseTeam } = getOffenseDefense(state);
   
-    const pControl   = specialOff.punting?.control   ?? 60;
-    const pFieldFlip = specialOff.punting?.fieldFlip ?? 60;
+    const pControl   = specialOff.punting?.control   ?? 30.9;
+    const pFieldFlip = specialOff.punting?.fieldFlip ?? 41.8;
   
     const base = cfg.puntBaseDistance;
-    const adv  = (pControl + pFieldFlip - 120) / 5; // around average => 0
+    const adv  = (pControl + pFieldFlip - 72.7) / 5; // around average => 0
     const mean = base + adv;
     const std  = cfg.puntStd;
   
     let distance = normal(rng, mean, std);
-    distance = clamp(distance, 25, 70);
+    distance = clamp(distance, 25, 75);
 
     // Chance they aim for a coffin corner inside opp 10, trading distance for pin
     let targetCorner = false;
