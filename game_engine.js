@@ -1909,7 +1909,11 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
             if (rng.next() < goProb) {
             return { type: basePassProb > 0.55 ? "pass" : "run" };
             }
-            // fallback conservative choice
+            // fallback choice
+            const longFG = inFgRange + 4;
+            if (longFG) {
+              return { type: "field_goal" };
+            }
             return { type: "punt" };
         }
     
@@ -1943,8 +1947,8 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
 
 function simulateKneelPlay(state, rng) {
     // Simple kneeldown: small loss, short in-play time, clock will run
-    const yards = -1;
-    const inPlayTime = rng.nextRange(1, 2); // ~1–2s
+    const yards = rng.nextRange(-3 -1);
+    const inPlayTime = rng.nextRange(1.5, 2.5); // ~1–2s
   
     return {
       playType: "run",   // treated like a run for chains logic
@@ -1969,7 +1973,7 @@ function simulateKneelPlay(state, rng) {
   
   function simulateSpikePlay(state, rng) {
     // Immediate incomplete pass to stop clock; no yards
-    const inPlayTime = rng.nextRange(1, 2); // ~1–2s
+    const inPlayTime = rng.nextRange(1, 1.5); // ~1–2s
   
     return {
       playType: "pass",  // important so the incomplete/clock logic kicks in
