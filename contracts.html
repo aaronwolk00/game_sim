@@ -7,23 +7,23 @@
   <style>
     :root {
       --bg: #020617;
-      --panel: #020617;
-      --card: #020617;
-      --card-border: #1e293b;
-      --card-border-strong: #4b5563;
+      --bg-elevated: rgba(15,23,42,0.96);
+      --bg-soft: rgba(15,23,42,0.9);
+      --border-subtle: #1f2937;
+      --border-strong: #4b5563;
+      --card-border: rgba(31,41,55,0.95);
       --text: #e5e7eb;
       --muted: #9ca3af;
       --accent: #22c55e;
       --accent-soft: rgba(34,197,94,0.18);
       --accent-alt: #38bdf8;
       --danger: #f97373;
-      --danger-soft: rgba(248,113,113,0.18);
+      --danger-soft: rgba(248,113,113,0.16);
       --radius-lg: 18px;
       --radius-md: 12px;
       --radius-pill: 999px;
-      --shadow-soft: 0 22px 45px rgba(15,23,42,0.8);
+      --shadow-soft: 0 24px 48px rgba(0,0,0,0.8);
       --shadow-sm: 0 10px 26px rgba(15,23,42,0.75);
-      --border-subtle: rgba(31,41,55,0.9);
       --font: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
         "Segoe UI", Roboto, sans-serif;
     }
@@ -32,13 +32,13 @@
       box-sizing: border-box;
     }
 
-    html,
-    body {
+    html, body {
       margin: 0;
       padding: 0;
       min-height: 100vh;
       font-family: var(--font);
-      background: radial-gradient(circle at 0% 0%, #0b1120 0, #020617 48%, #000 100%);
+      background:
+        radial-gradient(circle at 0% 0%, #0b1120 0, #020617 48%, #000 100%);
       color: var(--text);
       -webkit-font-smoothing: antialiased;
     }
@@ -48,94 +48,95 @@
       flex-direction: column;
     }
 
-    .page {
+    .page-root {
       flex: 1;
-      display: flex;
-      flex-direction: column;
       max-width: 1960px;
       margin: 0 auto;
-      padding: 24px 40px 24px;
+      padding: 24px 32px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
       position: relative;
     }
 
-    .page::before {
+    .page-root::before {
       content: "";
       position: fixed;
       inset: -40%;
-      background:
-        radial-gradient(circle at 0% 0%, rgba(56,189,248,0.14), transparent 55%),
-        radial-gradient(circle at 100% 100%, rgba(34,197,94,0.12), transparent 60%);
-      opacity: 0.85;
-      mix-blend-mode: screen;
       pointer-events: none;
-      z-index: -2;
+      z-index: -1;
+      background:
+        radial-gradient(circle at 0% 0%, rgba(56,189,248,0.16), transparent 55%),
+        radial-gradient(circle at 100% 100%, rgba(34,197,94,0.18), transparent 60%);
+      opacity: 0.9;
+      mix-blend-mode: screen;
     }
 
-    .contracts-header {
+    /* Header */
+
+    .page-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
       gap: 16px;
-      margin-bottom: 18px;
     }
 
-    .contracts-header-left {
+    .header-left {
       display: flex;
       flex-direction: column;
       gap: 4px;
     }
 
-    #contracts-header-name {
-      font-size: 1.3rem;
+    #team-name-heading {
+      font-size: 1.35rem;
       font-weight: 650;
       letter-spacing: 0.08em;
       text-transform: uppercase;
     }
 
-    #contracts-header-subline {
+    #season-phase-line {
       font-size: 0.86rem;
       color: var(--muted);
     }
 
-    .contracts-header-right {
+    .header-right {
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
-      justify-content: flex-end;
       align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
     }
 
     .pill-record {
-      border-radius: var(--radius-pill);
-      border: 1px solid rgba(34,197,94,0.8);
-      padding: 6px 14px;
-      font-size: 0.82rem;
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      background: radial-gradient(circle at 0% 0%, rgba(34,197,94,0.16), rgba(15,23,42,0.98));
-      box-shadow: 0 1px 3px rgba(15,23,42,0.8);
-      white-space: nowrap;
+      border-radius: var(--radius-pill);
+      padding: 4px 10px;
+      border: 1px solid rgba(148,163,184,0.7);
+      background: rgba(15,23,42,0.9);
+      font-size: 0.78rem;
     }
 
-    .pill-record-dot {
-      width: 7px;
-      height: 7px;
-      border-radius: 999px;
-      background: #22c55e;
-      box-shadow: 0 0 0 4px rgba(34,197,94,0.25);
-    }
-
-    .pill-record-label {
+    .pill-record span:first-child {
       text-transform: uppercase;
       letter-spacing: 0.16em;
-      font-size: 0.7rem;
-      color: rgba(187,247,208,0.95);
+      font-size: 0.72rem;
+      color: var(--muted);
     }
 
-    .pill-record-value {
-      font-variant-numeric: tabular-nums;
+    #record-pill-value {
       font-weight: 600;
+    }
+
+    .team-select {
+      min-width: 190px;
+      padding: 6px 10px;
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(148,163,184,0.8);
+      background: rgba(15,23,42,0.96);
+      color: var(--text);
+      font-size: 0.84rem;
     }
 
     .btn-ghost {
@@ -144,15 +145,15 @@
       background: rgba(15,23,42,0.9);
       color: var(--text);
       font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
       padding: 6px 14px;
-      text-decoration: none;
+      cursor: pointer;
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      cursor: pointer;
+      text-decoration: none;
       box-shadow: 0 1px 3px rgba(15,23,42,0.8);
-      text-transform: uppercase;
-      letter-spacing: 0.14em;
     }
 
     .btn-ghost:hover {
@@ -160,30 +161,30 @@
       border-color: rgba(129,140,248,0.95);
     }
 
-    /* Layout */
+    /* Main layout */
 
-    .contracts-layout {
+    .contracts-grid {
       display: grid;
-      grid-template-columns: minmax(0, 1.8fr) minmax(0, 1fr);
-      gap: 18px;
+      grid-template-columns: minmax(0, 1.8fr) minmax(0, 1.05fr);
+      gap: 16px;
       align-items: flex-start;
     }
 
     .card {
       border-radius: var(--radius-lg);
       border: 1px solid var(--card-border);
-      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.9), rgba(15,23,42,0.99));
+      background: radial-gradient(circle at 0% 0%, var(--bg-elevated), #020617);
       box-shadow: var(--shadow-soft);
       padding: 14px 16px 14px;
       position: relative;
       overflow: hidden;
     }
 
-    .card-title-row {
+    .card-header-row {
       display: flex;
       justify-content: space-between;
       align-items: baseline;
-      gap: 8px;
+      gap: 10px;
       margin-bottom: 10px;
     }
 
@@ -203,463 +204,418 @@
       color: var(--muted);
     }
 
-    /* Scope bar */
+    /* Controls row (season tabs + view toggles) */
 
-    .contracts-scope-bar {
+    .contracts-controls {
       display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
       flex-wrap: wrap;
-      gap: 8px;
-      align-items: center;
-      margin-bottom: 10px;
-      font-size: 0.8rem;
     }
 
-    .scope-group {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .scope-label {
-      color: var(--muted);
-      font-size: 0.78rem;
-    }
-
-    select {
-      background: rgba(15,23,42,0.96);
-      border-radius: 999px;
-      border: 1px solid rgba(55,65,81,0.9);
-      color: var(--text);
-      padding: 4px 10px;
-      font-size: 0.78rem;
-    }
-
-    .pill-toggle-group {
+    .season-tabs {
       display: inline-flex;
-      border-radius: 999px;
-      border: 1px solid rgba(55,65,81,0.95);
-      overflow: hidden;
+      flex-wrap: wrap;
+      gap: 4px;
     }
 
-    .pill-toggle {
+    .season-tab {
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(55,65,81,0.95);
+      background: rgba(15,23,42,0.94);
+      font-size: 0.76rem;
+      padding: 3px 10px;
+      cursor: pointer;
+      color: var(--muted);
+    }
+
+    .season-tab[data-active="true"] {
+      color: var(--text);
+      border-color: var(--accent);
+      background: radial-gradient(circle at 0% 0%, var(--accent-soft), rgba(15,23,42,0.96));
+    }
+
+    .view-toggle {
+      display: inline-flex;
+      gap: 4px;
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(55,65,81,0.95);
+      padding: 2px;
+      background: rgba(15,23,42,0.96);
+    }
+
+    .view-toggle button {
       border: none;
       background: transparent;
       color: var(--muted);
-      padding: 4px 10px;
-      font-size: 0.76rem;
-      text-transform: uppercase;
-      letter-spacing: 0.14em;
+      font-size: 0.74rem;
+      padding: 4px 9px;
+      border-radius: var(--radius-pill);
       cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
     }
 
-    .pill-toggle[data-active="true"] {
-      background: rgba(37,99,235,0.9);
-      color: #e5e7eb;
+    .view-toggle button[data-active="true"] {
+      background: var(--accent-soft);
+      color: var(--text);
     }
 
-    .checkbox-inline {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      font-size: 0.78rem;
-      color: var(--muted);
-    }
+    /* Contracts table */
 
-    /* Cap table */
-
-    .cap-table-wrapper {
+    .contracts-table-wrapper {
       border-radius: var(--radius-md);
-      border: 1px solid rgba(31,41,55,0.95);
-      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.98), rgba(15,23,42,1));
-      overflow: hidden;
+      border: 1px solid rgba(31,41,55,0.9);
+      background: linear-gradient(
+        135deg,
+        rgba(15,23,42,0.98),
+        rgba(15,23,42,0.94)
+      );
+      box-shadow: var(--shadow-sm);
+      max-height: calc(100vh - 260px);
+      overflow: auto;
     }
 
-    table {
+    table.contracts-table {
       width: 100%;
       border-collapse: collapse;
       font-size: 0.78rem;
     }
 
-    thead {
-      background: rgba(15,23,42,0.98);
+    .contracts-table thead {
       position: sticky;
       top: 0;
+      background: rgba(15,23,42,0.98);
       z-index: 1;
     }
 
-    th,
-    td {
+    .contracts-table th,
+    .contracts-table td {
       padding: 6px 8px;
-      border-bottom: 1px solid rgba(31,41,55,0.9);
-      text-align: right;
+      border-bottom: 1px solid rgba(30,64,175,0.28);
       white-space: nowrap;
     }
 
-    th:first-child,
-    td:first-child {
+    .contracts-table th {
       text-align: left;
-    }
-
-    th {
       font-weight: 500;
       color: var(--muted);
-      cursor: pointer;
-      position: relative;
-    }
-
-    th.sortable::after {
-      content: " ";
-      border: 4px solid transparent;
-      border-top-color: rgba(148,163,184,0.9);
-      position: absolute;
-      right: 6px;
-      top: 55%;
-      transform: translateY(-50%);
-      opacity: 0.5;
-    }
-
-    th[data-sort-dir="asc"].sortable::after {
-      border-top-color: transparent;
-      border-bottom-color: rgba(148,163,184,0.9);
-      top: 50%;
-    }
-
-    tbody {
-      max-height: 520px;
-      overflow-y: auto;
-      display: block;
-    }
-
-    thead tr,
-    tbody tr {
-      display: table;
-      width: 100%;
-      table-layout: fixed;
-    }
-
-    tr:nth-child(even) td {
-      background: rgba(15,23,42,0.96);
-    }
-
-    .row-user-team {
-      background: rgba(34,197,94,0.08);
-    }
-
-    .contracts-action-cell {
-      display: flex;
-      justify-content: flex-end;
-      gap: 4px;
-      flex-wrap: wrap;
-    }
-
-    .contracts-action-btn {
-      border-radius: 999px;
-      border: 1px solid rgba(75,85,99,0.9);
-      background: rgba(15,23,42,0.96);
-      color: var(--muted);
-      font-size: 0.7rem;
-      padding: 2px 8px;
-      cursor: pointer;
-    }
-
-    .contracts-action-btn:hover {
-      background: rgba(248,113,113,0.2);
-      border-color: rgba(248,113,113,0.8);
-      color: #fecaca;
-    }
-
-    .contracts-action-btn--primary {
-      border-color: rgba(37,99,235,0.9);
-      color: #bfdbfe;
-    }
-
-    .contracts-action-btn--primary:hover {
-      background: rgba(37,99,235,0.8);
-      color: #eff6ff;
-    }
-
-    .cap-footnote {
-      margin-top: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
       font-size: 0.72rem;
+    }
+
+    .contracts-table td.numeric {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .contracts-row {
+      cursor: pointer;
+    }
+
+    .contracts-row:hover {
+      background: rgba(30,64,175,0.35);
+    }
+
+    .contracts-row[data-focus="true"] {
+      background: rgba(34,197,94,0.18);
+    }
+
+    .contracts-name-cell {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+
+    .contracts-name-primary {
+      font-weight: 500;
+    }
+
+    .contracts-name-secondary {
+      color: var(--muted);
+      font-size: 0.72rem;
+    }
+
+    .contracts-tag {
+      display: inline-flex;
+      align-items: center;
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(148,163,184,0.7);
+      padding: 1px 6px;
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
       color: var(--muted);
     }
 
-    /* Sidebar */
+    /* Right column – cap summary */
 
-    .sidebar-card + .sidebar-card {
-      margin-top: 10px;
+    .cap-summary-metric {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-size: 0.78rem;
+      margin-bottom: 4px;
+      color: var(--muted);
     }
 
-    .cap-summary-table th,
-    .cap-summary-table td {
-      font-size: 0.76rem;
-      padding: 4px 6px;
+    .cap-summary-metric span:first-child {
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      font-size: 0.72rem;
+    }
+
+    .cap-summary-metric span:last-child {
+      font-variant-numeric: tabular-nums;
+      color: #e5e7eb;
     }
 
     .cap-bar {
+      margin: 8px 0 12px;
       width: 100%;
-      height: 6px;
+      height: 8px;
       border-radius: 999px;
-      background: rgba(15,23,42,0.9);
+      background: rgba(15,23,42,0.98);
+      border: 1px solid rgba(31,41,55,0.9);
       overflow: hidden;
+      position: relative;
     }
 
     .cap-bar-fill {
-      height: 100%;
-      border-radius: 999px;
-      background: linear-gradient(90deg, #22c55e, #38bdf8);
+      position: absolute;
+      inset: 0;
+      width: 0%;
+      background: linear-gradient(90deg, #22c55e, #facc15);
+      transition: width 180ms ease-out;
     }
 
-    .top-cap-list {
-      list-style: none;
-      padding: 0;
-      margin: 4px 0 0;
+    .cap-summary-section-title {
       font-size: 0.78rem;
-    }
-
-    .top-cap-item {
-      display: flex;
-      justify-content: space-between;
-      padding: 3px 0;
-      border-bottom: 1px solid rgba(31,41,55,0.7);
-    }
-
-    .top-cap-item:last-child {
-      border-bottom: none;
-    }
-
-    .top-cap-name {
-      color: rgba(209,213,219,0.96);
-    }
-
-    .top-cap-meta {
-      color: var(--muted);
-    }
-
-    /* No-franchise state */
-
-    .no-franchise {
-      margin-top: 40px;
-      border-radius: var(--radius-lg);
-      border: 1px solid var(--card-border-strong);
-      background: radial-gradient(circle at 0% 0%, rgba(15,23,42,0.85), rgba(15,23,42,0.98));
-      padding: 22px 22px 18px;
-      max-width: 480px;
-      box-shadow: var(--shadow-soft);
-    }
-
-    .no-franchise-title {
-      font-size: 1rem;
-      font-weight: 600;
-      margin-bottom: 6px;
-    }
-
-    .no-franchise-text {
-      font-size: 0.86rem;
-      color: var(--muted);
-      margin-bottom: 12px;
-    }
-
-    .no-franchise-btn {
-      border-radius: var(--radius-pill);
-      border: 1px solid rgba(148,163,184,0.8);
-      background: rgba(15,23,42,0.95);
-      color: var(--text);
-      font-size: 0.8rem;
       text-transform: uppercase;
       letter-spacing: 0.16em;
-      padding: 7px 16px;
-      cursor: pointer;
+      color: var(--muted);
+      margin-top: 6px;
+      margin-bottom: 4px;
     }
 
-    .contracts-footer {
-      margin-top: 10px;
-      font-size: 0.78rem;
-      color: var(--muted);
+    .cap-toplist {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      font-size: 0.76rem;
+    }
+
+    .cap-toplist li {
       display: flex;
       justify-content: space-between;
-      gap: 8px;
-      flex-wrap: wrap;
+      gap: 6px;
+      padding: 3px 0;
+      border-bottom: 1px dashed rgba(31,41,55,0.8);
+    }
+
+    .cap-toplist li span:last-child {
+      font-variant-numeric: tabular-nums;
+      color: var(--muted);
+    }
+
+    .player-context {
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(31,41,55,0.8);
+      font-size: 0.78rem;
+    }
+
+    .player-context-title {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .player-context-main {
+      font-size: 0.86rem;
+      margin-bottom: 4px;
+    }
+
+    .player-context-sub {
+      color: var(--muted);
+    }
+
+    .badge-small {
+      border-radius: var(--radius-pill);
+      padding: 2px 7px;
+      border: 1px solid rgba(148,163,184,0.65);
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--muted);
+    }
+
+    .badge-small--accent {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .empty-state {
+      font-size: 0.8rem;
+      color: var(--muted);
+      padding: 20px 4px;
+      text-align: center;
     }
 
     [hidden] {
       display: none !important;
     }
 
-    @media (max-width: 1100px) {
-      .page {
+    @media (max-width: 1200px) {
+      .page-root {
         padding: 18px 18px 20px;
       }
-      .contracts-layout {
+      .contracts-grid {
         grid-template-columns: minmax(0, 1fr);
       }
     }
 
     @media (max-width: 640px) {
-      .contracts-header {
+      .page-header {
         flex-direction: column;
         align-items: flex-start;
       }
-      .contracts-scope-bar {
-        flex-direction: column;
-        align-items: flex-start;
+      .header-right {
+        justify-content: flex-start;
       }
     }
   </style>
 </head>
 <body>
-  <div class="page" id="contracts-page-root">
-    <header class="contracts-header" id="contracts-header">
-      <div class="contracts-header-left">
-        <div id="contracts-header-name">Franchise Team</div>
-        <div id="contracts-header-subline">Season — • Contracts &amp; Cap Overview</div>
+  <div class="page-root">
+    <header class="page-header">
+      <div class="header-left">
+        <div id="team-name-heading">Contracts & Cap</div>
+        <div id="season-phase-line">Season — • Contracts & Cap Overview</div>
       </div>
-      <div class="contracts-header-right">
+      <div class="header-right">
         <div class="pill-record">
-          <span class="pill-record-dot" aria-hidden="true"></span>
-          <span class="pill-record-label">Record</span>
-          <span class="pill-record-value" id="contracts-record-value">0–0</span>
+          <span>Record</span>
+          <span id="record-pill-value">0–0</span>
         </div>
-        <a href="schedule.html" class="btn-ghost" id="btn-contracts-back-schedule">Back to schedule</a>
-        <a href="franchise.html" class="btn-ghost" id="btn-contracts-back-hub">Back to hub</a>
+        <select id="contracts-team-select" class="team-select"></select>
+        <button id="btn-back-hub" class="btn-ghost" type="button">
+          Back to hub
+        </button>
       </div>
     </header>
 
-    <main class="contracts-layout" id="contracts-main">
-      <!-- Left: cap sheet / league rankings -->
-      <section class="card" id="contracts-main-card" aria-label="Contracts & cap sheet">
-        <div class="card-title-row">
-          <div class="card-title"><strong>Contracts &amp; Cap Sheet</strong></div>
-          <div class="card-subtitle" id="contracts-card-subtitle">
-            Team contracts and cap hits for the selected season.
+    <main class="contracts-grid">
+      <!-- Left: player contract grid -->
+      <section class="card" aria-label="Player contracts">
+        <div class="card-header-row">
+          <div class="card-title">
+            <strong>Contracts & Cap Sheet</strong>
+          </div>
+          <div class="card-subtitle">
+            All active contracts for the selected club or the full league.
           </div>
         </div>
 
-        <div class="contracts-scope-bar">
-          <div class="scope-group">
-            <span class="scope-label">Team</span>
-            <select id="contracts-team-select"></select>
+        <div class="contracts-controls">
+          <div class="season-tabs" id="contracts-season-tabs"></div>
+          <div class="view-toggle" aria-label="Cap view mode">
+            <button id="contracts-view-cap" data-view="cap" data-active="true" type="button">
+              Cap hit
+            </button>
+            <button id="contracts-view-cash" data-view="cash" type="button">
+              Cash
+            </button>
+            <button id="contracts-view-dead" data-view="dead" type="button">
+              Dead
+            </button>
           </div>
-
-          <div class="scope-group">
-            <span class="scope-label">Season</span>
-            <select id="contracts-year-select"></select>
-          </div>
-
-          <div class="scope-group">
-            <span class="scope-label">View</span>
-            <div class="pill-toggle-group">
-              <button type="button" class="pill-toggle" id="contracts-view-team" data-mode="team" data-active="true">
-                Team Cap Sheet
-              </button>
-              <button type="button" class="pill-toggle" id="contracts-view-league" data-mode="league" data-active="false">
-                League Rankings
-              </button>
-            </div>
-          </div>
-
-          <div class="scope-group">
-            <span class="scope-label">Position</span>
-            <select id="contracts-position-filter">
-              <option value="ALL">All</option>
-              <option value="QB">QB</option>
-              <option value="RB">RB</option>
-              <option value="WR">WR</option>
-              <option value="TE">TE</option>
-              <option value="OL">OL</option>
-              <option value="DL">DL</option>
-              <option value="LB">LB</option>
-              <option value="DB">DB</option>
-              <option value="ST">ST</option>
-            </select>
-          </div>
-
-          <div class="scope-group">
-            <span class="scope-label">Metric</span>
-            <select id="contracts-metric-filter">
-              <option value="aav">AAV (APY)</option>
-              <option value="total">Total value</option>
-              <option value="guarantees">Total guarantees</option>
-            </select>
-          </div>
-
-          <label class="checkbox-inline">
-            <input type="checkbox" id="contracts-hide-zero" />
-            Hide $0 cap hit
-          </label>
         </div>
 
-        <div class="cap-table-wrapper">
-          <table id="contracts-cap-table">
+        <div class="contracts-table-wrapper">
+          <table class="contracts-table">
             <thead>
-              <tr id="contracts-cap-header-row">
-                <!-- Filled by JS; different for team vs league view -->
+              <tr>
+                <th>Player</th>
+                <th>Pos</th>
+                <th>Age</th>
+                <th>OVR</th>
+                <th>Yrs</th>
+                <th>AAV</th>
+                <th>Total</th>
+                <th>Guarantee</th>
+                <th id="contracts-year-col-1">Year 1</th>
+                <th id="contracts-year-col-2">Year 2</th>
+                <th id="contracts-year-col-3">Year 3</th>
               </tr>
             </thead>
-            <tbody id="contracts-cap-tbody">
-              <!-- Rows injected by JS -->
+            <tbody id="contracts-table-body">
+              <tr>
+                <td colspan="11" class="empty-state">
+                  Loading contracts…
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
-        <div class="cap-footnote" id="contracts-footnote">
-          Cap hits and dead money values are in millions of dollars. Actions below write back to saved league state.
-        </div>
       </section>
 
-      <!-- Right: cap summary & top hits -->
-      <aside>
-        <section class="card sidebar-card" id="contracts-summary-card">
-          <div class="card-title-row">
-            <div class="card-title"><strong>Cap Summary</strong></div>
-            <div class="card-subtitle" id="contracts-summary-subtitle">
-              Cap space by season for the selected team.
-            </div>
+      <!-- Right: team cap summary + player ranking -->
+      <section class="card" aria-label="Cap summary">
+        <div class="card-header-row">
+          <div class="card-title">
+            <strong>Cap Summary</strong>
           </div>
-          <div class="cap-table-wrapper" style="max-height: 260px;">
-            <table class="cap-summary-table">
-              <thead>
-                <tr>
-                  <th>Year</th>
-                  <th>League cap</th>
-                  <th>Team cap</th>
-                  <th>Space</th>
-                </tr>
-              </thead>
-              <tbody id="contracts-cap-summary-tbody">
-                <!-- Filled by JS -->
-              </tbody>
-            </table>
+          <div class="card-subtitle">
+            Space, usage, and top deals for the selected season.
           </div>
-        </section>
+        </div>
 
-        <section class="card sidebar-card" id="contracts-top-card">
-          <div class="card-title-row">
-            <div class="card-title"><strong>Top Cap Hits</strong></div>
-            <div class="card-subtitle" id="contracts-top-subtitle">
-              Largest cap charges for this season.
-            </div>
+        <div id="contracts-cap-summary">
+          <div class="cap-summary-metric">
+            <span>Selected season</span>
+            <span id="cap-summary-season-label">—</span>
           </div>
-          <ul class="top-cap-list" id="contracts-top-cap-list">
-            <!-- Filled by JS -->
-          </ul>
-        </section>
-      </aside>
+          <div class="cap-summary-metric">
+            <span>Cap limit</span>
+            <span id="cap-summary-cap-limit">$—</span>
+          </div>
+          <div class="cap-summary-metric">
+            <span>Cap used</span>
+            <span id="cap-summary-cap-used">$—</span>
+          </div>
+          <div class="cap-summary-metric">
+            <span>Cap space</span>
+            <span id="cap-summary-cap-space">$—</span>
+          </div>
+
+          <div class="cap-bar">
+            <div class="cap-bar-fill" id="cap-summary-bar-fill"></div>
+          </div>
+
+          <div class="cap-summary-section-title">Top contracts by AAV</div>
+          <ul class="cap-toplist" id="cap-summary-top-aav"></ul>
+
+          <div class="cap-summary-section-title">Top guarantees</div>
+          <ul class="cap-toplist" id="cap-summary-top-guarantee"></ul>
+
+          <div class="player-context" id="contracts-player-context" hidden>
+            <div class="player-context-title">Player contract context</div>
+            <div class="player-context-main" id="player-context-main-line"></div>
+            <div class="player-context-sub" id="player-context-sub-line"></div>
+          </div>
+        </div>
+
+        <div id="contracts-empty-summary" class="empty-state" hidden>
+          No contracts found for this selection.
+        </div>
+      </section>
     </main>
-
-    <section class="no-franchise" id="contracts-no-franchise" hidden>
-      <div class="no-franchise-title">No active franchise found</div>
-      <div class="no-franchise-text">
-        There’s no active franchise in this slot. Return to the main menu to start a new franchise or continue an existing one.
-      </div>
-      <button type="button" class="no-franchise-btn" id="contracts-btn-main-menu">
-        Back to main menu
-      </button>
-    </section>
-
-    <footer class="contracts-footer">
-      <span>Franchise GM • Contracts &amp; Cap Overview</span>
-      <span id="contracts-footer-meta">Data from saved league state. Contract data is currently mock/seeded.</span>
-    </footer>
   </div>
 
   <script type="module" src="contracts.js"></script>
