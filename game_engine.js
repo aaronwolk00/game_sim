@@ -1814,348 +1814,419 @@ function simulatePlay(state) {
 
   
 
-// Choose between run / pass / FG / punt with realistic FG distribution
-function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) {
-  const {
-    down,
-    distance,
-    yardline,
-    quarter,
-    clockSec,
-    scoreDiff,
-    puntBias: _puntBias = 0,
-    offMomentum = 0,
-    clockIntent = null,
-  } = situation;
+  // Choose between run / pass / FG / punt with realistic FG distribution
+  function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) {
+    const {
+      down,
+      distance,
+      yardline,
+      quarter,
+      clockSec,
+      scoreDiff,
+      puntBias: _puntBias = 0,
+      offMomentum = 0,
+      clockIntent = null,
+      timeoutsOffense = 0,
+    } = situation;
 
-  const offPass  = offenseUnits.pass?.overall     ?? 60;
-  const offRun   = offenseUnits.run?.overall      ?? 60;
-  const defCover = defenseUnits.coverage?.overall ?? 60;
-  const defRun   = defenseUnits.runFit?.overall   ?? 60;
+    const offPass  = offenseUnits.pass?.overall     ?? 60;
+    const offRun   = offenseUnits.run?.overall      ?? 60;
+    const defCover = defenseUnits.coverage?.overall ?? 60;
+    const defRun   = defenseUnits.runFit?.overall   ?? 60;
 
-  // ---------------- Hard clock overrides: kneel / spike ----------------
-  if (clockIntent) {
-    if (clockIntent.forceKneel && clockSec > 0 && down >= 1 && down <= 4) {
-      return { type: "kneel" };
+    // ---------------- Hard clock overrides: kneel / spike ----------------
+    if (clockIntent) {
+      if (clockIntent.forceKneel && clockSec > 0 && down >= 1 && down <= 4) {
+        return { type: "kneel" };
+      }
+      if (clockIntent.forceSpike && clockSec > 0 && down >= 1 && down <= 3) {
+        return { type: "spike" };
+      }
     }
-    if (clockIntent.forceSpike && clockSec > 0 && down >= 1 && down <= 3) {
-      return { type: "spike" };
+
+    // ---------------- Momentum wiring ----------------
+    const m = clamp(offMomentum, -1, 1);
+    const basePuntBias = clamp(_puntBias, -0.40, 0.40);
+    const puntBias = clamp(basePuntBias - 0.20 * m, -0.40, 0.40);
+
+    // ---------------- Base run/pass tendency ----------------
+    const passAdv = (offPass - defCover) / 18;
+    let basePassProb = logistic(passAdv) - 0.14;
+
+    const isObviousPass =
+      (down === 3 && distance >= 6) ||
+      (down === 4 && distance >= 3);
+
+    const isObviousRun =
+      distance <= 2 && down <= 3 && yardline <= 80;
+
+    if (isObviousPass) basePassProb = Math.max(basePassProb, 0.65);
+    if (isObviousRun)  basePassProb = Math.min(basePassProb, 0.32);
+
+    if (quarter >= 4 && clockSec <= 120 && scoreDiff < 0) {
+      basePassProb = Math.max(basePassProb, 0.75);
     }
-  }
 
-  // ---------------- Momentum wiring ----------------
-  const m = clamp(offMomentum, -1, 1);
-  const basePuntBias = clamp(_puntBias, -0.40, 0.40);
-  const puntBias = clamp(basePuntBias - 0.20 * m, -0.40, 0.40);
-
-  // ---------------- Base run/pass tendency ----------------
-  const passAdv = (offPass - defCover) / 18;
-  let basePassProb = logistic(passAdv) - 0.14;
-
-  const isObviousPass =
-    (down === 3 && distance >= 6) ||
-    (down === 4 && distance >= 3);
-
-  const isObviousRun =
-    distance <= 2 && down <= 3 && yardline <= 80;
-
-  if (isObviousPass) basePassProb = Math.max(basePassProb, 0.65);
-  if (isObviousRun)  basePassProb = Math.min(basePassProb, 0.32);
-
-  if (quarter >= 4 && clockSec <= 120 && scoreDiff < 0) {
-    basePassProb = Math.max(basePassProb, 0.75);
-  }
-
-  basePassProb += 0.03 * m;
-  basePassProb = clamp(basePassProb, 0.30, 0.72);
-
-  // ---------------------------------------------------------------------
-  // 4th-DOWN LOGIC (FG / PUNT / GO) – tuned for realistic FG attempt
-  // distribution by LOS.
-  // ---------------------------------------------------------------------
-  if (down === 4) {
-    const yardsToGoal = 100 - yardline;
-    const rawKickDist = yardsToGoal + 17; // LOS + 17
-
-    // --- Kicker range model (team + kicker + environment) ---
-    const kAcc = Number.isFinite(situation.kickerAcc)
-      ? situation.kickerAcc
-      : (specialOff.kicking?.accuracy ?? 31.5);
-
-    const kPow = Number.isFinite(situation.kickerPow)
-      ? situation.kickerPow
-      : (specialOff.kicking?.power ?? 38.6);
-
-    // League baselines for z-scores – define “average”
-    const meanAcc = 31.5;
-    const stdAcc  = 10.08;
-    const meanPow = 38.63;
-    const stdPow  = 10.26;
-
-    const accZ = stdAcc > 0 ? (kAcc - meanAcc) / stdAcc : 0;
-    const powZ = stdPow > 0 ? (kPow - meanPow) / stdPow : 0;
-    const legZ = 0.3 * accZ + 0.7 * powZ;
-
-    // Base + spread come from config (via situation),
-    // so you can tune league-wide aggressiveness per season.
-    const baseMax = situation.fgBaseMaxDist   ?? 56;
-    const spread  = situation.fgMaxDistSpread ?? 4.5;
-
-    let maxFgDist = baseMax + spread * legZ;
-
-    // Environment / weather hook: thin air, wind, rain, etc.
-    const envAdj = Number.isFinite(situation.fgEnvAdjust)
-      ? situation.fgEnvAdjust
-      : 0;
-    maxFgDist += envAdj;
-
-    // Hard floor/ceiling for sanity
-    maxFgDist = clamp(maxFgDist, 45, 72);
-
-    const inFgRange = rawKickDist <= maxFgDist;
+    basePassProb += 0.03 * m;
+    basePassProb = clamp(basePassProb, 0.30, 0.72);
 
     // -------------------------------------------------------------------
-    // Approximate FG make probability for decision-making.
-    // Mirrors your simulateFieldGoal shape (incl. long-range fade).
+    // Late-clock FG override on ANY down (1st–3rd as well as 4th)
     // -------------------------------------------------------------------
-    const powerShift = 4.5 * legZ;
-    const effDist    = Math.max(18, rawKickDist - powerShift - envAdj);
+    (function lateClockFgOverride() {
+      const isEndOfHalf = (quarter === 2 || quarter === 4);
+      if (!isEndOfHalf || clockSec <= 0) return;
 
-    const tooFarMult = clamp(1 - (effDist - 65) / 10, 0, 1); // kills 70+ yds
+      // Only consider very late situations
+      const veryLate  = clockSec <= 6;   // one realistic snap left
+      const lateWindow = clockSec <= 12; // "maybe one play + FG" range
 
-    const baseCenter     = 56;  // ~50/50 for an average leg
-    const baseScale      = 6.0;
-    const accCenterShift = 1.4 * accZ;
-    const center         = baseCenter + accCenterShift;
+      // Basic FG range model matching the 4th-down block
+      const yardsToGoalLate = 100 - yardline;
+      const rawKickDistLate = yardsToGoalLate + 17; // LOS + 17
 
-    const xFG = (effDist - center) / baseScale;
-    let fgMakeProb = (1 / (1 + Math.exp(xFG))) * tooFarMult;
+      const kAcc = Number.isFinite(situation.kickerAcc)
+        ? situation.kickerAcc
+        : (specialOff.kicking?.accuracy ?? 31.5);
 
-    // Short-range smoothing (chip shots are very reliable but not perfect)
-    if (effDist <= 40) {
-      const tChip = clamp((40 - effDist) / 22, 0, 1); // 18..40 → 1..0
-      fgMakeProb += 0.03 + 0.07 * tChip;
+      const kPow = Number.isFinite(situation.kickerPow)
+        ? situation.kickerPow
+        : (specialOff.kicking?.power ?? 38.6);
+
+      const meanAcc = 31.5;
+      const stdAcc  = 10.08;
+      const meanPow = 38.63;
+      const stdPow  = 10.26;
+
+      const accZ = stdAcc > 0 ? (kAcc - meanAcc) / stdAcc : 0;
+      const powZ = stdPow > 0 ? (kPow - meanPow) / stdPow : 0;
+      const legZ = 0.3 * accZ + 0.7 * powZ;
+
+      const baseMax = situation.fgBaseMaxDist   ?? 56;
+      const spread  = situation.fgMaxDistSpread ?? 4.5;
+
+      let maxFgDist = baseMax + spread * legZ;
+
+      const envAdj = Number.isFinite(situation.fgEnvAdjust)
+        ? situation.fgEnvAdjust
+        : 0;
+      maxFgDist += envAdj;
+
+      maxFgDist = clamp(maxFgDist, 45, 72);
+
+      const inFgRangeLate = rawKickDistLate <= maxFgDist;
+      if (!inFgRangeLate) return;
+
+      // For Q4: FG must tie or take lead to be a no-brainer
+      const postDiff = scoreDiff + 3;
+      const fgHelpsInQ4 =
+        scoreDiff <= 0 && postDiff >= 0; // losing/tied, FG ties or leads
+
+      let shouldKickNow = false;
+
+      if (quarter === 4) {
+        // Example: down 2 with 0:02 at opp 20 → always kick
+        if (veryLate && fgHelpsInQ4) {
+          shouldKickNow = true;
+        }
+      } else {
+        // End of 2nd: strong bias to take points if little time,
+        // especially with no timeouts.
+        if (veryLate || (lateWindow && timeoutsOffense === 0)) {
+          shouldKickNow = true;
+        }
+      }
+
+      if (shouldKickNow) {
+        // Immediate override: choose FG on any down.
+        // This covers your 1st & 10, 0:02, down 2 scenario.
+        // We just return a FG decision from the IIFE via closure.
+        situation._forceFieldGoal = true;
+      }
+    })();
+
+    if (situation._forceFieldGoal) {
+      return { type: "field_goal" };
     }
 
-    fgMakeProb = clamp(fgMakeProb, 0.02, 0.995);
+    // ---------------------------------------------------------------------
+    // 4th-DOWN LOGIC (FG / PUNT / GO) – tuned for realistic FG attempt
+    // distribution by LOS.
+    // ---------------------------------------------------------------------
+    if (down === 4) {
+      const yardsToGoal = 100 - yardline;
+      const rawKickDist = yardsToGoal + 17; // LOS + 17
+      // --- Kicker range model (team + kicker + environment) ---
+      const kAcc = Number.isFinite(situation.kickerAcc)
+        ? situation.kickerAcc
+        : (specialOff.kicking?.accuracy ?? 31.5);
 
-    const secLeft = clockSec;
-    const oneScore = Math.abs(scoreDiff) <= 8;
-    const under2   = (quarter >= 4 && secLeft <= 120);
-    const under5   = (quarter >= 4 && secLeft <= 300);
+      const kPow = Number.isFinite(situation.kickerPow)
+        ? situation.kickerPow
+        : (specialOff.kicking?.power ?? 38.6);
 
-    const deepOwn  = yardline <= 35;
-    const midField = yardline > 35 && yardline < 60;
-    const plusTerr = yardline >= 60;
+      // League baselines for z-scores – just define what “average” means.
+      const meanAcc = 31.5;
+      const stdAcc  = 10.08;
+      const meanPow = 38.63;
+      const stdPow  = 10.26;
 
-    const shortYds = distance <= 2;
-    const medYds   = distance > 2 && distance <= 5;
-    const longYds  = distance > 5;
+      const accZ = stdAcc > 0 ? (kAcc - meanAcc) / stdAcc : 0;
+      const powZ = stdPow > 0 ? (kPow - meanPow) / stdPow : 0;
+      const legZ = 0.3 * accZ + 0.7 * powZ;
 
-    // Helper to choose go play
-    const goPlayType = () => (rng.next() < basePassProb ? "pass" : "run");
+      // Base + spread come from config (via situation),
+      // so you can tune league-wide aggressiveness per season.
+      const baseMax = situation.fgBaseMaxDist   ?? 56;
+      const spread  = situation.fgMaxDistSpread ?? 4.5;
 
-    // ----------------------------
-    // HARD end-game overrides
-    // ----------------------------
+      let maxFgDist = baseMax + spread * legZ;
 
-    // (A) Very late, one-score game: never punt; FG only if it ties / takes lead.
-    if (quarter === 4 && oneScore && secLeft <= 90) {
-      // FG ties or takes the lead and we’re in range?
-      if (inFgRange && scoreDiff >= -3 && scoreDiff <= 0) {
+      // Environment / weather hook: thin air, wind, rain, etc.
+      const envAdj = Number.isFinite(situation.fgEnvAdjust)
+        ? situation.fgEnvAdjust
+        : 0;
+      maxFgDist += envAdj;
+
+      // Hard floor/ceiling for sanity
+      maxFgDist = clamp(maxFgDist, 45, 72);
+
+
+      const inFgRange = rawKickDist <= maxFgDist;
+
+      const secLeft = clockSec;
+      const oneScore = Math.abs(scoreDiff) <= 8;
+      const under2   = (quarter >= 4 && secLeft <= 120);
+      const under5   = (quarter >= 4 && secLeft <= 300);
+
+      const deepOwn  = yardline <= 35;
+      const midField = yardline > 35 && yardline < 60;
+      const plusTerr = yardline >= 60;
+
+      const shortYds = distance <= 2;
+      const medYds   = distance > 2 && distance <= 5;
+      const longYds  = distance > 5;
+
+      // Helper to choose go play
+      const goPlayType = () => (rng.next() < basePassProb ? "pass" : "run");
+
+      // ----------------------------
+      // HARD end-game overrides
+      // ----------------------------
+
+      // (A) Very late, one-score game: never punt; FG only if it ties / takes lead.
+      if (quarter === 4 && oneScore && secLeft <= 90) {
+        // FG ties or takes the lead and we’re in range?
+        if (inFgRange && scoreDiff >= -3 && scoreDiff <= 0) {
+          if (shortYds) {
+            // Some coaches still go on 4th & short
+            let goProb = 0.30;
+            goProb += (-puntBias) * 0.20;
+            goProb = clamp(goProb, 0.10, 0.65);
+            if (rng.next() < goProb) return { type: goPlayType() };
+          }
+          return { type: "field_goal" };
+        }
+
+        // If FG doesn’t tie or lead (down 4–8), must go.
+        return { type: goPlayType() };
+      }
+
+      // (B) Trailing by any amount with <=60s: punting is pointless
+      if (quarter === 4 && scoreDiff < 0 && secLeft <= 60) {
+        return { type: goPlayType() };
+      }
+
+      // (C) Down 2+ scores late: never punt
+      if (quarter === 4 && scoreDiff <= -9 && secLeft <= 210) {
+        return { type: goPlayType() };
+      }
+
+      // ----------------------------
+      // 1) Deep in own territory
+      // ----------------------------
+      if (deepOwn) {
+        const desperate = quarter >= 3 && scoreDiff < -14 && shortYds;
+        let goProb = desperate ? 0.25 : 0.03;
+        goProb += (-puntBias) * (desperate ? 0.20 : 0.08);
+        goProb = clamp(goProb, 0.00, 0.55);
+
+        if (rng.next() < goProb) return { type: goPlayType() };
+        return { type: "punt" };
+      }
+
+      // ----------------------------
+      // 2) Midfield (own 36 – opp 39)
+      // ----------------------------
+      if (midField) {
+        // Midfield FGs in NFL are rare (LOS ~40–45 → 57–62 yds).
+        // Only allow them when:
+        //  - in range for your leg model, AND
+        //  - late/close game.
+        if (inFgRange && rawKickDist >= 63) {
+          const lateClose = (quarter >= 4 && oneScore);
+          if (lateClose) {
+            let kickProb = 0.50;
+            if (scoreDiff < 0) kickProb += 0.10;
+            kickProb += (puntBias) * 0.10;
+            kickProb = clamp(kickProb, 0.30, 0.75);
+
+            if (rng.next() < kickProb) return { type: "field_goal" };
+          }
+          // Otherwise, treat as go or punt
+        }
+
+        // 4th-and-short: mix go vs punt
         if (shortYds) {
-          // Some coaches still go on 4th & short
-          let goProb = 0.30;
-          goProb += (-puntBias) * 0.20;
-          goProb = clamp(goProb, 0.10, 0.65);
+          let goProb = 0.25;
+          if (quarter >= 2) goProb += 0.10;
+          if (scoreDiff < 0) goProb += 0.15;
+          if (under5 && oneScore && scoreDiff < 0) goProb += 0.20;
+          goProb += (-puntBias) * 0.25;
+          goProb = clamp(goProb, 0.25, 0.75);
+
           if (rng.next() < goProb) return { type: goPlayType() };
+          return { type: "punt" };
         }
-        return { type: "field_goal" };
-      }
 
-      // If FG doesn’t tie or lead (down 4–8), must go.
-      return { type: goPlayType() };
-    }
-
-    // (B) Trailing by any amount with <=60s: punting is pointless
-    if (quarter === 4 && scoreDiff < 0 && secLeft <= 60) {
-      return { type: goPlayType() };
-    }
-
-    // (C) Down 2+ scores late: never punt
-    if (quarter === 4 && scoreDiff <= -9 && secLeft <= 210) {
-      return { type: goPlayType() };
-    }
-
-    // ----------------------------
-    // 1) Deep in own territory
-    // ----------------------------
-    if (deepOwn) {
-      const desperate = quarter >= 3 && scoreDiff < -14 && shortYds;
-      let goProb = desperate ? 0.25 : 0.03;
-      goProb += (-puntBias) * (desperate ? 0.20 : 0.08);
-      goProb = clamp(goProb, 0.00, 0.55);
-
-      if (rng.next() < goProb) return { type: goPlayType() };
-      return { type: "punt" };
-    }
-
-    // ----------------------------
-    // 2) Midfield (own 36 – opp 39)
-    // ----------------------------
-    if (midField) {
-      // Midfield FGs in NFL are rare (LOS ~40–45 → 57–62 yds).
-      // Only allow them when:
-      //  - in range for your leg model, AND
-      //  - late/close game.
-      if (inFgRange && rawKickDist >= 63) {
-        const lateClose = (quarter >= 4 && oneScore);
-        if (lateClose) {
-          let kickProb = 0.50;
-          if (scoreDiff < 0) kickProb += 0.10;
-          // tilt by actual make prob: bombs with 15% vs 40% shouldn't be treated equal
-          kickProb += (fgMakeProb - 0.25) * 0.40;
-          kickProb += (puntBias) * 0.10;
-          kickProb = clamp(kickProb, 0.10, 0.75);
-
-          if (rng.next() < kickProb) return { type: "field_goal" };
-        }
-        // Otherwise, treat as go or punt
-      }
-
-      // 4th-and-short: mix go vs punt
-      if (shortYds) {
-        let goProb = 0.25;
-        if (quarter >= 2) goProb += 0.10;
-        if (scoreDiff < 0) goProb += 0.15;
-        if (under5 && oneScore && scoreDiff < 0) goProb += 0.20;
-        goProb += (-puntBias) * 0.25;
-        goProb = clamp(goProb, 0.25, 0.75);
-
-        if (rng.next() < goProb) return { type: goPlayType() };
+        // 4th & medium/long at midfield: usually punt, with some YOLO flavor
+        const yolo = clamp((-puntBias) * 0.20, 0.00, 0.30);
+        if (rng.next() < yolo) return { type: goPlayType() };
         return { type: "punt" };
       }
 
-      // 4th & medium/long at midfield: usually punt, with some YOLO flavor
-      const yolo = clamp((-puntBias) * 0.20, 0.00, 0.30);
-      if (rng.next() < yolo) return { type: goPlayType() };
-      return { type: "punt" };
-    }
+      // ----------------------------
+      // 3) Plus territory (opp 40+)
+      // This is where most NFL FGs live.
+      // ----------------------------
+      if (plusTerr) {
+        const yardsToGoal = 100 - yardline;
+        const isRedZone   = yardsToGoal <= 20;
+        const inside10    = yardsToGoal <= 10;
 
-    // ----------------------------
-    // 3) Plus territory (opp 40+)
-    // This is where most NFL FGs live.
-    // ----------------------------
-    if (plusTerr) {
-      const yardsToGoalPlus = 100 - yardline;
-      const isRedZone   = yardsToGoalPlus <= 20;
-      const inside10    = yardsToGoalPlus <= 10;
+        // --- Determine scoring “zones” ---
+        const sweetSpot = (yardline >= 60 && yardline <= 95); // opp 40–15
+        const chipZone  = isRedZone && inside10;              // inside opp 10
+        const longZone  = yardline < 60 && inFgRange;         // 40–45 yard line → 57–62 yd FG
 
-      const oneScoreGame = Math.abs(scoreDiff) <= 8;
-      const late4        = (quarter === 4 && secLeft <= 300);
+        const goPlayType = () => (rng.next() < basePassProb ? "pass" : "run");
 
-      // If even with this kicker's leg we're out of range, no FG option: go vs punt only.
-      if (!inFgRange) {
-        let goProb = 0.60;
-        if (scoreDiff < 0) goProb += 0.10;  // trailing → more aggressive
-        if (quarter < 3)  goProb -= 0.10;  // early game → more conservative
-        goProb += (-puntBias) * 0.25;      // aggressive teams go more
-        goProb = clamp(goProb, 0.35, 0.90);
+        // --- Approximate FG make probability using the same model as simulateFieldGoal ---
+        const yardsToGoalPlus = 100 - yardline;
+        const rawKickDist = yardsToGoalPlus + 17;
 
-        if (rng.next() < goProb) return { type: goPlayType() };
+        const powerShift = 4.5 * ((0.3 * accZ) + (0.7 * powZ));
+        const effDist = Math.max(18, rawKickDist - powerShift);
+
+        const tooFarMult = clamp(1 - (effDist - 65) / 10, 0, 1);
+        const baseCenter = 56;
+        const baseScale  = 6.0;
+        const accCenterShift = 1.4 * accZ;
+        const center = baseCenter + accCenterShift;
+
+        const xFG = (effDist - center) / baseScale;
+        let fgMakeProb = (1 / (1 + Math.exp(xFG))) * tooFarMult;
+        if (effDist <= 40) {
+          const t = clamp((40 - effDist) / 22, 0, 1);
+          fgMakeProb += 0.03 + 0.07 * t;
+        }
+        fgMakeProb = clamp(fgMakeProb, 0.02, 0.995);
+
+        // --- Estimate conversion probabilities by distance ---
+        let convProb;
+        if (shortYds)      convProb = 0.70;
+        else if (medYds)   convProb = 0.50;
+        else               convProb = 0.30;
+
+        // --- Estimate expected points for each option ---
+        const fgEP   = 3 * fgMakeProb;
+        const goEP   = convProb * (isRedZone ? 4.2 : 3.6);
+        const puntEP = 1.0; // rough average after pinning the opponent deep
+
+        // --- Apply game context ---
+        const lateQ4 = (quarter === 4 && clockSec <= 300);
+        const oneScore = Math.abs(scoreDiff) <= 8;
+
+        if (lateQ4 && scoreDiff < 0) {
+          // trailing one score → slightly favor going for it
+          convProb += 0.05;
+        } else if (lateQ4 && scoreDiff > 0) {
+          // protecting a lead → favor safer plays
+          fgEP += 0.1;
+          puntEP += 0.2;
+        }
+
+        // --- Adjust for team style (puntBias) ---
+        const style = clamp(puntBias, -0.4, 0.4);
+        if (style > 0) { // conservative teams
+          fgEP   *= 1 + 0.2 * style;
+          goEP   *= 1 - 0.3 * style;
+          puntEP *= 1 + 0.4 * style;
+        } else { // aggressive teams
+          fgEP   *= 1 + 0.1 * style;
+          goEP   *= 1 - 0.7 * style;
+          puntEP *= 1 + 0.3 * style;
+        }
+
+        // --- Convert expected points to soft decision weights ---
+        const temp = 0.9; // decision “temperature”: smaller = more deterministic
+        let wFG = Math.exp(fgEP / temp);
+        let wGo = Math.exp(goEP / temp);
+        let wP  = Math.exp(puntEP / temp);
+
+        // --- Game-specific modifiers ---
+        if (chipZone && shortYds) {
+          // Teams rarely kick short chip FGs unless it's to end a half or protect lead
+          if ((quarter === 2 && clockSec <= 40) || (quarter === 4 && scoreDiff >= 0 && clockSec <= 180)) {
+            wFG *= 1.4;  // “take the points” end-of-half
+            wGo *= 0.6;
+          } else {
+            wFG *= 0.4;  // normal situation: mostly go for TD
+            wGo *= 1.2;
+          }
+        }
+
+        if (rawKickDist >= 55) {
+          // Long attempts are rare even if in range
+          const longFactor = clamp(1 - (rawKickDist - 55) / 12, 0.15, 1);
+          wFG *= longFactor;
+        }
+
+        // --- Normalize and pick outcome ---
+        const totalW = wFG + wGo + wP;
+        const r = rng.next() * totalW;
+
+        if (r < wFG) return { type: "field_goal" };
+        if (r < wFG + wGo) return { type: goPlayType() };
         return { type: "punt" };
       }
 
-      // Approximate 4th-down conversion probability by yards to go
-      let convProb;
-      if (shortYds)      convProb = 0.68; // 4th & 1–2
-      else if (medYds)   convProb = 0.48; // 4th & 3–5
-      else               convProb = 0.32; // longer
 
-      // Slightly more aggressive in plus territory
-      convProb += 0.04;
-      convProb = clamp(convProb, 0.10, 0.85);
+      // ----------------------------
+      // 4) Fallback conservative behavior between plusTerr & deepOwn
+      // This handles weird edge cases.
+      // ----------------------------
+      if (inFgRange && !shortYds) {
+        // This bucket corresponds roughly to LOS in the 20–25 range, which is
+        // part of that big NFL FG cluster. We allow a decent number of kicks here.
+        let kickProb = 0.65;
+        if (scoreDiff >= 0 && under5) kickProb += 0.05;
+        kickProb += (puntBias) * 0.05;
+        kickProb = clamp(kickProb, 0.45, 0.85);
 
-      // Coarse expected points proxies:
-      const fgEP   = 3 * fgMakeProb;
-      const goEP   = convProb * (isRedZone ? 4.2 : 3.6);
-      const puntEP = 1.0; // pin them deep
-
-      // Convert EPs to decision weights (softmax-ish)
-      const temp = 1.1; // smaller → more deterministic
-      let wFG = Math.exp(fgEP   / temp);
-      let wGo = Math.exp(goEP   / temp);
-      let wP  = Math.exp(puntEP / temp);
-
-      // Protecting a narrow lead late → bump FG/punt, reduce GO
-      if (late4 && scoreDiff > 0 && oneScoreGame) {
-        wFG *= 1.35;
-        wGo *= 0.85;
+        if (rng.next() < kickProb) return { type: "field_goal" };
+        return { type: goPlayType() };
       }
 
-      // Trailing one score late → bump GO vs FG
-      if (late4 && scoreDiff < 0 && oneScoreGame) {
-        wGo *= 1.25;
-        wFG *= 0.90;
-      }
-
-      // Inside the 10 on 4th & short: modern coaches go a lot here
-      if (inside10 && shortYds) {
-        wGo *= 1.30;
-        wFG *= 0.60;
-      }
-
-      // Very long attempts (55+ raw) stay rare even if technically “in range”
-      if (rawKickDist >= 55) {
-        const longFactor = clamp(1 - (rawKickDist - 55) / 10, 0.20, 1.0);
-        wFG *= longFactor;
-      }
-
-      // Team style: puntBias > 0 = conservative; < 0 = aggressive
-      if (puntBias !== 0) {
-        const c = clamp(puntBias, -0.40, 0.40);
-        if (c > 0) {
-          // Conservative: more punt, slightly more FG, less GO
-          wP  *= 1 + 0.6 * c;
-          wFG *= 1 + 0.2 * c;
-        } else {
-          // Aggressive: scale up GO weight
-          wGo *= 1 + (-0.9 * c);
-        }
-      }
-
-      const totalW = wFG + wGo + wP;
-      const r = rng.next() * totalW;
-
-      if (r < wFG)             return { type: "field_goal" };
-      if (r < wFG + wGo)       return { type: goPlayType() };
+      const tinyGo = clamp((-puntBias) * 0.10, 0.00, 0.25);
+      if (rng.next() < tinyGo) return { type: goPlayType() };
       return { type: "punt" };
     }
 
-    // ----------------------------
-    // 4) Fallback conservative behavior between plusTerr & deepOwn
-    // This handles weird edge cases.
-    // ----------------------------
-    if (inFgRange && !shortYds) {
-      // Anchor FG tendency to kicker's make chance instead of a fixed %
-      let kickProb = 0.55 + 0.6 * (fgMakeProb - 0.5); // ~0.55 at 50%, ~0.79 at 90%
-      if (scoreDiff >= 0 && under5) kickProb += 0.05; // protecting a lead late
-      kickProb += (puntBias) * 0.05;
-      kickProb = clamp(kickProb, 0.40, 0.90);
-
-      if (rng.next() < kickProb) return { type: "field_goal" };
-      return { type: goPlayType() };
-    }
-
-    const tinyGo = clamp((-puntBias) * 0.10, 0.00, 0.25);
-    if (rng.next() < tinyGo) return { type: goPlayType() };
-    return { type: "punt" };
+    // ---------------- Non-4th downs: run vs pass ----------------
+    return rng.next() < basePassProb ? { type: "pass" } : { type: "run" };
   }
 
-
-  // ---------------- Non-4th downs: run vs pass ----------------
-  return rng.next() < basePassProb ? { type: "pass" } : { type: "run" };
-}
 
 
   // ------------------------ Clock-management plays -----------------------------
