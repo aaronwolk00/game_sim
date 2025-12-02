@@ -1756,187 +1756,169 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
     // Cap extremes a bit for variety
     basePassProb = clamp(basePassProb, 0.30, 0.72);
   
-    // ---------------- 4th down decisions ----------------
-    if (down === 4) {
-        const yardsToGoal = 100 - yardline;
-        const kAcc = specialOff.kicking?.accuracy ?? 31.5;
-    
-        // Approximate max "reasonable" FG distance as a function of kicker.
-        // This is distance from LOS: yardsToGoal + 17.
-        const rawKickDist = yardsToGoal + 17;
-    
-        // 40–100 accuracy → max distance from ~50–57 yards
-        const maxFgDist = 54 + 0.12 * (kAcc - 31.5); // soft: ~48–57 range
-        const inFgRange = rawKickDist <= maxFgDist;
-    
-        const oneScoreGame = Math.abs(scoreDiff) <= 8;
-        const under2 = (quarter >= 4 && clockSec <= 120);
-        const under5 = (quarter >= 4 && clockSec <= 300);
-    
-        // Field position bands
-        const deepOwn   = yardline <= 35;       // backed up
-        const midField  = yardline > 35 && yardline < 60;
-        const plusTerr  = yardline >= 60;       // opp 40 and in
-        const redZone   = yardsToGoal <= 20;
-    
-        const shortYds  = distance <= 2;
-        const medYds    = distance > 2 && distance <= 6;
-        const longYds   = distance > 6;
-    
-        // ---------- HARD MUST-GO OVERRIDES (fix end-game weirdness) ----------
-        const secondsLeft = clockSec;
-    
-        // Trailing (or tied) by one score very late: never punt / try long FG.
-        if (quarter === 4 && oneScoreGame && scoreDiff <= 0 && secondsLeft <= 90) {
-        return { type: shortYds ? "run" : "pass" };
-        }
-    
-        // Trailing by any amount with ~:40 or less: do not punt.
-        if (quarter === 4 && scoreDiff < 0 && secondsLeft <= 40) {
-        return { type: longYds ? "pass" : "run" };
-        }
-    
-        // Down two scores late: don’t punt unless truly extreme.
-        if (quarter === 4 && scoreDiff <= -9 && secondsLeft <= 120) {
-        // If you somehow are at your own 5 and it’s 4th & 25+, allow a tiny punt chance.
-        if (!(yardline < 20 && distance >= 25)) {
-            return { type: longYds ? "pass" : "run" };
-        }
-        }
-    
-        // ----- MUST-GO situations (soft) -----
-        // 4th-and-goal / very close in 4Q one-score when not leading → go-heavy.
-        if (quarter >= 4 && oneScoreGame && redZone && scoreDiff <= 0) {
-        let goProb = shortYds ? 0.80 : 0.60;
-        // puntBias: if team punts more (positive), reduce go; if punts less (negative), increase go
-        goProb += (-puntBias) * 0.20;
-        goProb = clamp(goProb, 0.40, 0.90);
-    
-        if (rng.next() < goProb) {
-            return { type: shortYds ? "run" : "pass" };
-        }
-        if (inFgRange) return { type: "field_goal" };
-        return { type: shortYds ? "run" : "pass" };
-        }
-    
-        // ----- Normal 4th-down logic (not must-go) -----
-    
-        // 1) Deep in own territory: very conservative → punt almost always.
-        if (deepOwn) {
-        // Rare YOLO when trailing big in 2H on 4th & short
-        const desperate = quarter >= 3 && scoreDiff < -14 && shortYds;
-        let goProb = desperate ? 0.25 : 0.02; // ~never, unless desperate
-        goProb += (-puntBias) * (desperate ? 0.15 : 0.08);
-        goProb = clamp(goProb, 0.00, 0.60);
-    
-        if (rng.next() < goProb) {
-            return { type: shortYds ? "run" : "pass" };
-        }
-        return { type: "punt" };
-        }
-    
-        // 2) Midfield (own 36–opp 39)
-        if (midField) {
-        // If in solid FG range and distance > 1, lean FG
-        if (inFgRange && !shortYds) {
-            // Slightly more aggressive to go when trailing
-            let goProb = scoreDiff < 0 ? 0.25 : 0.10;
-            goProb += (-puntBias) * 0.15;              // anti-punt teams go a bit more
-            goProb = clamp(goProb, 0.05, 0.50);
-    
-            if (rng.next() < goProb) {
-            return { type: longYds ? "pass" : "run" };
-            }
-            return { type: "field_goal" };
-        }
-    
-        // 4th-and-short around midfield: mix go/punt
-        if (shortYds) {
-            // More likely to go if trailing or 2H
-            let goProb = 0.15;
-            if (quarter >= 2) goProb += 0.10;
-            if (scoreDiff < 0) goProb += 0.15;
-            if (under5 && oneScoreGame && scoreDiff < 0) goProb += 0.20;
-            goProb += (-puntBias) * 0.25;              // key lever
-            goProb = clamp(goProb, 0.20, 0.70);
-    
-            if (rng.next() < goProb) {
-            return { type: basePassProb > 0.55 ? "pass" : "run" };
-            }
-            return { type: "punt" };
-        }
-    
-        // 4th & medium/long at midfield → usually punt (but let anti-punt teams go a bit)
-        const yoloGoProb = clamp((-puntBias) * 0.15, 0.00, 0.15);
-        if (rng.next() < yoloGoProb) {
-            return { type: basePassProb > 0.55 ? "pass" : "run" };
-        }
-        return { type: "punt" };
-        }
-    
-        // 3) Plus territory (opp 40+)
-        if (plusTerr) {
-          // --- NEW rule: inside opponent 35 → always FG or go-for-it, never punt ---
-          if (inFgRange) {
-            // Only punt if impossible FG (wind, extreme distance, or injury)
-            const puntOverride = rng.next() < 0.02; // 2% ultra-rare
-            if (!puntOverride) {
-              if (shortYds) {
-                let goProb = 0.35;
-                if (scoreDiff < 0 || !scoreDiff == -3) goProb += 0.15;
-                if (quarter >= 4) goProb += 0.10;
-                if (under5 && oneScoreGame && scoreDiff < 0) goProb += 0.20;
-                goProb += (-puntBias) * 0.25;
-                goProb = clamp(goProb, 0.25, 0.85);
-                if (rng.next() < goProb) {
-                  return { type: basePassProb > 0.55 ? "pass" : "run" };
-                }
-              }
-              return { type: "field_goal" };
-            }
-          }
+  // ----------------------
+  // 4th-Down Decision Logic (v3.0 – FG-aware, NFL-like)
+  // ----------------------
+  if (down === 4) {
+    const yardsToGoal = 100 - yardline;
+    const rawKickDist = yardsToGoal + 17; // LOS→uprights distance
 
-    
-        // Out of normal range (really long FG):
-        // - Short/medium distance: go a decent chunk of the time
-        if (shortYds || medYds ) {
-            let goProb = 0.60;
-            if (scoreDiff < 0) goProb += 0.10;
-            if (quarter >= 3) goProb += 0.10;
-            goProb += (-puntBias) * 0.20;              // anti-punt teams go even more
-            goProb = clamp(goProb, 0.50, 0.85);
-    
-            if (rng.next() < goProb) {
-            return { type: basePassProb > 0.55 ? "pass" : "run" };
-            }
-            // fallback choice
-            const longFG = inFgRange + 4;
-            if (longFG) {
-              return { type: "field_goal" };
-            }
-            return { type: "punt" };
-        }
-    
-        // Long distance + out of range: mostly punt (but allow anti-punt flavor)
-        const antiPuntGoProbPlus = clamp((-puntBias) * 0.20, 0.00, 0.30);
-        if (rng.next() < antiPuntGoProbPlus) {
-            return { type: basePassProb > 0.55 ? "pass" : "run" };
-        }
-        return { type: "punt" };
-        }
-    
-        // Fallback (shouldn’t really hit, but just in case):
-        // treat as midfield conservative
-        if (inFgRange && !shortYds) {
-        return { type: "field_goal" };
-        }
-        // tiny anti-punt bias even here
-        const finalGoProb = clamp((-puntBias) * 0.10, 0.00, 0.20);
-        if (rng.next() < finalGoProb) {
-        return { type: basePassProb > 0.55 ? "pass" : "run" };
-        }
-        return { type: "punt" };
+    // --- Kicker model (uses both accuracy & power) ---
+    const kAcc = specialOff.kicking?.accuracy ?? 31.5;
+    const kPow = specialOff.kicking?.power ?? 38.6;
+
+    const accZ = (kAcc - 31.5) / 10.1;
+    const powZ = (kPow - 38.6) / 10.3;
+    const legZ = 0.4 * accZ + 0.6 * powZ;
+
+    // League avg max ~56; elite legs can reach 64–65
+    let maxFgDist = 56 + 4.5 * legZ;
+    maxFgDist = Math.min(Math.max(maxFgDist, 48), 65);
+
+    const inFgRange = rawKickDist <= maxFgDist;
+
+    // Context flags
+    const oneScore = Math.abs(scoreDiff) <= 8;
+    const under2 = (quarter >= 4 && clockSec <= 120);
+    const under5 = (quarter >= 4 && clockSec <= 300);
+
+    const deepOwn = yardline <= 35;
+    const midField = yardline > 35 && yardline < 60;
+    const plusTerr = yardline >= 60;
+    const redZone = yardsToGoal <= 20;
+
+    const shortYds = distance <= 2;
+    const medYds = distance > 2 && distance <= 5;
+    const longYds = distance > 5;
+
+    const chipFG = redZone && rawKickDist <= 22;
+
+    // ----------------------------
+    // HARD end-game overrides
+    // ----------------------------
+    const secLeft = clockSec;
+
+    // Must-go situations
+    if (quarter === 4 && oneScore && scoreDiff <= 0 && secLeft <= 90)
+      return { type: shortYds ? "run" : "pass" };
+
+    if (quarter === 4 && scoreDiff < 0 && secLeft <= 40)
+      return { type: longYds ? "pass" : "run" };
+
+    if (quarter === 4 && scoreDiff <= -9 && secLeft <= 120) {
+      if (!(yardline < 20 && distance >= 25))
+        return { type: longYds ? "pass" : "run" };
     }
+
+    // ----------------------------
+    // 1) Deep in own territory
+    // ----------------------------
+    if (deepOwn) {
+      const desperate = quarter >= 3 && scoreDiff < -14 && shortYds;
+      let goProb = desperate ? 0.25 : 0.03;
+      goProb += (-puntBias) * (desperate ? 0.20 : 0.08);
+      goProb = clamp(goProb, 0.00, 0.60);
+      if (rng.next() < goProb) return { type: shortYds ? "run" : "pass" };
+      return { type: "punt" };
+    }
+
+    // ----------------------------
+    // 2) Midfield (own 36 – opp 39)
+    // ----------------------------
+    if (midField) {
+      if (inFgRange && !shortYds) {
+        let goProb = scoreDiff < 0 ? 0.25 : 0.10;
+        goProb += (-puntBias) * 0.20;
+        goProb = clamp(goProb, 0.05, 0.55);
+        if (rng.next() < goProb)
+          return { type: longYds ? "pass" : "run" };
+        return { type: "field_goal" };
+      }
+
+      if (shortYds) {
+        let goProb = 0.25;
+        if (quarter >= 2) goProb += 0.10;
+        if (scoreDiff < 0) goProb += 0.15;
+        if (under5 && oneScore && scoreDiff < 0) goProb += 0.20;
+        goProb += (-puntBias) * 0.25;
+        goProb = clamp(goProb, 0.25, 0.75);
+        if (rng.next() < goProb)
+          return { type: basePassProb > 0.55 ? "pass" : "run" };
+        return { type: "punt" };
+      }
+
+      const yolo = clamp((-puntBias) * 0.20, 0.00, 0.30);
+      if (rng.next() < yolo)
+        return { type: basePassProb > 0.55 ? "pass" : "run" };
+      return { type: "punt" };
+    }
+
+    // ----------------------------
+    // 3) Plus territory (opp 40+)
+    // ----------------------------
+    if (plusTerr) {
+      const autoFgZone = yardline >= 65; // opp 35 or closer (~52-yard LOS)
+
+      // --- chip shots ---
+      if (chipFG && shortYds) {
+        let goProb = 0.70;
+        if (scoreDiff < 0) goProb += 0.10;
+        if (quarter >= 4 && oneScore) goProb += 0.10;
+        goProb += (-puntBias) * 0.20;
+        goProb = clamp(goProb, 0.55, 0.95);
+        if (rng.next() < goProb)
+          return { type: basePassProb > 0.55 ? "pass" : "run" };
+        return { type: "field_goal" };
+      }
+
+      // --- normal plus territory behavior ---
+      if (autoFgZone && inFgRange) {
+        // Inside 35 always FG or go; no punts
+        let goProb = 0.25;
+        if (shortYds) goProb += 0.10;
+        if (scoreDiff < 0) goProb += 0.10;
+        if (quarter >= 4) goProb += 0.10;
+        goProb += (-puntBias) * 0.20;
+        goProb = clamp(goProb, 0.10, 0.55);
+        if (rng.next() < goProb)
+          return { type: basePassProb > 0.55 ? "pass" : "run" };
+        return { type: "field_goal" };
+      }
+
+      // --- long FG zone (beyond 52–53, up to ~65) ---
+      if (!autoFgZone && inFgRange) {
+        let goProb = 0.30; // ~70% kick here
+        if (scoreDiff < 0) goProb -= 0.05;
+        if (quarter >= 4 && oneScore && scoreDiff <= 0) goProb -= 0.05;
+        goProb += (-puntBias) * 0.10;
+        goProb = clamp(goProb, 0.10, 0.80);
+        if (rng.next() < goProb)
+          return { type: "field_goal" };
+        return { type: "punt" };
+      }
+
+      // --- beyond range ---
+      let goProb = 0.55;
+      if (scoreDiff > 7) goProb -= 0.10;
+      if (quarter < 3) goProb -= 0.10;
+      goProb += (-puntBias) * 0.25;
+      goProb = clamp(goProb, 0.35, 0.85);
+      if (rng.next() < goProb)
+        return { type: basePassProb > 0.55 ? "pass" : "run" };
+      return { type: "punt" };
+    }
+
+    // ----------------------------
+    // Fallback conservative
+    // ----------------------------
+    if (inFgRange && !shortYds) return { type: "field_goal" };
+    const tinyGo = clamp((-puntBias) * 0.10, 0.00, 0.25);
+    if (rng.next() < tinyGo)
+      return { type: basePassProb > 0.55 ? "pass" : "run" };
+    return { type: "punt" };
+  }
+
+
     
   
     // ---------------- Non-4th downs: run vs pass ----------------
