@@ -1853,7 +1853,7 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
         // 4th-and-short around midfield: mix go/punt
         if (shortYds) {
             // More likely to go if trailing or 2H
-            let goProb = 0.25;
+            let goProb = 0.15;
             if (quarter >= 2) goProb += 0.10;
             if (scoreDiff < 0) goProb += 0.15;
             if (under5 && oneScoreGame && scoreDiff < 0) goProb += 0.20;
@@ -1867,7 +1867,7 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
         }
     
         // 4th & medium/long at midfield → usually punt (but let anti-punt teams go a bit)
-        const yoloGoProb = clamp((-puntBias) * 0.15, 0.00, 0.25);
+        const yoloGoProb = clamp((-puntBias) * 0.15, 0.00, 0.15);
         if (rng.next() < yoloGoProb) {
             return { type: basePassProb > 0.55 ? "pass" : "run" };
         }
@@ -1883,7 +1883,7 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
             if (!puntOverride) {
               if (shortYds) {
                 let goProb = 0.35;
-                if (scoreDiff < 0) goProb += 0.15;
+                if (scoreDiff < 0 || !scoreDiff == -3) goProb += 0.15;
                 if (quarter >= 4) goProb += 0.10;
                 if (under5 && oneScoreGame && scoreDiff < 0) goProb += 0.20;
                 goProb += (-puntBias) * 0.25;
