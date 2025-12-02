@@ -1,17 +1,20 @@
-// contracts.js
+// contracts_cap.js
 // -----------------------------------------------------------------------------
-// Franchise GM – Contracts & Cap Overview
+// Franchise GM – Contracts & Cap Overview (new UI wiring)
 //
 // - Loads FranchiseSave + LeagueState from localStorage.
 // - Loads the Layer3 league (same CSV as game day).
 // - If LeagueState.contracts is missing, seeds contracts for every player on
 //   every team, fitting roughly under a cap per club.
 // - Renders a cap-sheet style grid for the selected team or the full league.
-// - Allows per-player contract actions (my team only):
+// - Right side: cap summary (cap limit, used, space, top AAV & guarantees).
+// - Per-player pane: rank by position, base vs bonus (approx) by year.
+// - Contract actions (my team only):
 //   • Cut (Pre-June)
 //   • Cut (Post-June)
-//   • Restructure (current year)
-//   • Extend +1 Year
+//   • Restructure
+//   • Extend +1 year
+// - Logs each action into LeagueState.capMoves and shows it in "Moves log" tab.
 // -----------------------------------------------------------------------------
 
 import { loadLeague } from "./data_models.js";
@@ -112,7 +115,7 @@ function ensureLeagueLoaded() {
 }
 
 // ---------------------------------------------------------------------------
-// DOM helpers
+// DOM & formatting helpers
 // ---------------------------------------------------------------------------
 
 function getEl(id) {
@@ -153,38 +156,6 @@ const DEFAULT_CAP_START = 255_000_000; // starting cap this season
 const DEFAULT_CAP_GROWTH = 0.04;       // +4% / year
 const CONTRACT_YEARS = 4;              // how many forward seasons to model
 
-/**
- * @typedef {Object} ContractYear
- * @property {number} seasonYear
- * @property {number} capHit
- * @property {number} cash
- * @property {number} deadIfCut
- */
-
-/**
- * @typedef {Object} PlayerContract
- * @property {string} playerId
- * @property {string} name
- * @property {string} pos
- * @property {string} teamCode
- * @property {number|null} age
- * @property {number|null} overall
- * @property {number} years
- * @property {number} totalValue
- * @property {number} guaranteed
- * @property {number} aav
- * @property {ContractYear[]} schedule
- * @property {number|undefined} releasedYear   // optional – first year player is off roster
- */
-
-/**
- * @typedef {Object} LeagueContracts
- * @property {number} version
- * @property {number} baseSeasonYear
- * @property {Object.<string, number>} capBySeason
- * @property {Object.<string, PlayerContract[]>} byTeam   // teamCode -> contracts
- */
-
 // Try to extract a "players" array from the loaded league model
 function extractPlayersArray(league) {
   if (!league) return [];
@@ -192,7 +163,6 @@ function extractPlayersArray(league) {
   if (Array.isArray(league.roster)) return league.roster;
   if (Array.isArray(league.allPlayers)) return league.allPlayers;
 
-  // Fallback: aggregate from team rosters if present
   const aggregated = [];
   if (Array.isArray(league.teams)) {
     for (const t of league.teams) {
@@ -363,8 +333,7 @@ function baseAavMillionsFor(pos, overall) {
   };
 
   const [min, max] = ranges[posGroup][tier];
-  // simple deterministic-ish jitter: use overall as seed factor
-  const t = (o % 10) / 10;
+  const t = (o % 10) / 10; // deterministic-ish jitter
   return min + (max - min) * t;
 }
 
@@ -381,7 +350,6 @@ function ensureContractsModel(leagueState, league, seasonYear) {
     return leagueState.contracts;
   }
 
-  /** @type {LeagueContracts} */
   const model = {
     version: CONTRACTS_MODEL_VERSION,
     baseSeasonYear: seasonYear,
@@ -475,13 +443,12 @@ function ensureContractsModel(leagueState, league, seasonYear) {
       for (let i = 0; i < years; i++) {
         const season = seasonYear + i;
         const capYear = model.capBySeason[season] || capYear1;
-        // Give a slightly backloaded structure
+        // Slightly backloaded structure
         const pct =
           0.22 + (i / Math.max(1, years - 1)) * 0.16 + 0.02 * (idx % 3);
         const capHit = Math.min(capYear * 0.18, aav * (0.9 + pct));
         const cash = aav * (0.9 + pct * 0.25);
 
-        // Simple guarantee amortization
         const thisYearGuarantee =
           i === years - 1
             ? remainingGuarantee
@@ -496,7 +463,6 @@ function ensureContractsModel(leagueState, league, seasonYear) {
         });
       }
 
-      /** @type {PlayerContract} */
       const contract = {
         playerId: p.playerId,
         name: p.name,
@@ -514,7 +480,6 @@ function ensureContractsModel(leagueState, league, seasonYear) {
       contracts.push(contract);
     });
 
-    // Sort within team by AAV descending so best players bubble up
     contracts.sort((a, b) => b.aav - a.aav);
     model.byTeam[teamCode] = contracts;
   }
@@ -527,20 +492,18 @@ function ensureContractsModel(leagueState, league, seasonYear) {
 // Page state
 // ---------------------------------------------------------------------------
 
-/** @type {FranchiseSave|null} */
 let gSave = null;
-/** @type {any} */
 let gLeagueState = null;
-/** @type {LeagueContracts|null} */
 let gContracts = null;
 
-let gSelectedTeamCode = "FRANCHISE"; // or "LEAGUE_ALL"
+let gSelectedTeamCode = "";
 let gSelectedSeasonYear = 0;
-let gViewMode = "cap"; // "cap" | "cash" | "dead"
+let gViewMode = "cap"; // "cap" or "dead" (what Y1–Y3 columns show)
+let gSearchTerm = "";
 
-let gCurrentContracts = []; // currently displayed contracts (team or league slice)
-let gPlayerRankingsByPos = {}; // pos -> sorted list for league rankings
-let gFocusedPlayerKey = null;
+let gCurrentContracts = [];         // slice currently rendered in the table
+let gPlayerRankingsByPos = {};      // pos -> [{ teamCode, playerId, aav, guaranteed }]
+let gFocusedPlayerKey = null;       // `${teamCode}|${playerId or name}`
 let gFranchiseTeamCodeUpper = "";
 
 // ---------------------------------------------------------------------------
@@ -574,7 +537,7 @@ function buildLeagueRankings(contractsModel) {
 }
 
 // ---------------------------------------------------------------------------
-// Rendering – header + controls
+// Rendering – header + filters
 // ---------------------------------------------------------------------------
 
 function getTeamNameFromSave(save) {
@@ -585,26 +548,32 @@ function getTeamNameFromSave(save) {
 
 function renderHeader() {
   if (!gSave) return;
-  setText("team-name-heading", getTeamNameFromSave(gSave));
-  const year = gSave.seasonYear || "";
-  setText(
-    "season-phase-line",
-    `${year} • Contracts & Cap Overview`
-  );
-  const record = gSave.record || "0-0";
-  setText("record-pill-value", record);
+
+  const titleEl = getEl("contracts-header-title");
+  const subEl = getEl("contracts-header-subline");
+  const recordEl = getEl("contracts-record-pill");
+
+  if (titleEl) {
+    titleEl.textContent = `${getTeamNameFromSave(gSave)} – Contracts & Cap`;
+  }
+  if (subEl) {
+    const year = gSave.seasonYear || "";
+    subEl.textContent = `${year} • Contracts & Cap Overview`;
+  }
+  if (recordEl) {
+    recordEl.textContent = gSave.record || "0–0";
+  }
 }
 
 function renderTeamSelect() {
-  const select = getEl("contracts-team-select");
+  const select = getEl("cap-team-select");
   if (!select || !gContracts) return;
 
   const teamCodes = Object.keys(gContracts.byTeam || {}).sort();
+  const franchiseCode = (gSave?.teamCode || "").toUpperCase();
 
   select.innerHTML = "";
 
-  // Franchise team first
-  const franchiseCode = (gSave?.teamCode || "").toUpperCase();
   if (franchiseCode && teamCodes.includes(franchiseCode)) {
     const opt = document.createElement("option");
     opt.value = franchiseCode;
@@ -612,13 +581,11 @@ function renderTeamSelect() {
     select.appendChild(opt);
   }
 
-  // League All
   const leagueOpt = document.createElement("option");
   leagueOpt.value = "LEAGUE_ALL";
   leagueOpt.textContent = "League – All teams";
   select.appendChild(leagueOpt);
 
-  // Remaining teams (excluding franchise if already added)
   teamCodes.forEach((code) => {
     if (code === franchiseCode) return;
     const opt = document.createElement("option");
@@ -627,7 +594,6 @@ function renderTeamSelect() {
     select.appendChild(opt);
   });
 
-  // Initial selection
   gSelectedTeamCode = franchiseCode || "LEAGUE_ALL";
   select.value = gSelectedTeamCode;
 
@@ -639,82 +605,152 @@ function renderTeamSelect() {
     const actions = getEl("contracts-player-actions");
     if (actions) actions.hidden = true;
     renderContractsView();
+    renderMovesLog();
   });
 }
 
-function renderSeasonTabs() {
-  const tabsRoot = getEl("contracts-season-tabs");
-  if (!tabsRoot || !gContracts) return;
-
-  tabsRoot.innerHTML = "";
+function renderSeasonSelect() {
+  const select = getEl("cap-season-select");
+  if (!select || !gContracts) return;
 
   const seasons = Object.keys(gContracts.capBySeason || {})
-    .map((s) => Number(s))
+    .map(Number)
     .sort((a, b) => a - b);
 
   if (!seasons.length) return;
 
+  select.innerHTML = "";
+  seasons.forEach((yr) => {
+    const opt = document.createElement("option");
+    opt.value = String(yr);
+    opt.textContent = String(yr);
+    select.appendChild(opt);
+  });
+
   if (!gSelectedSeasonYear) {
     gSelectedSeasonYear = seasons[0];
   }
+  if (!seasons.includes(gSelectedSeasonYear)) {
+    gSelectedSeasonYear = seasons[0];
+  }
 
-  seasons.forEach((yr) => {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "season-tab";
-    btn.dataset.active = yr === gSelectedSeasonYear ? "true" : "false";
-    btn.textContent = `${yr} Cap`;
-    btn.addEventListener("click", () => {
-      gSelectedSeasonYear = yr;
-      gFocusedPlayerKey = null;
-      const ctx = getEl("contracts-player-context");
-      if (ctx) ctx.hidden = true;
-      const actions = getEl("contracts-player-actions");
-      if (actions) actions.hidden = true;
-      renderSeasonTabs();
-      renderContractsView();
-    });
-    tabsRoot.appendChild(btn);
+  select.value = String(gSelectedSeasonYear);
+
+  select.addEventListener("change", () => {
+    gSelectedSeasonYear = Number(select.value);
+    gFocusedPlayerKey = null;
+    const ctx = getEl("contracts-player-context");
+    if (ctx) ctx.hidden = true;
+    const actions = getEl("contracts-player-actions");
+    if (actions) actions.hidden = true;
+    renderContractsView();
+    renderMovesLog();
   });
 }
 
-function bindViewToggleButtons() {
-  const buttons = [
-    getEl("contracts-view-cap"),
-    getEl("contracts-view-cash"),
-    getEl("contracts-view-dead")
-  ].filter(Boolean);
+function bindViewToggle() {
+  const root = getEl("cap-view-toggle");
+  if (!root) return;
+  const buttons = Array.from(root.querySelectorAll("button"));
+
+  const applyMode = (mode) => {
+    // "contracts" => show cap hits; "cap" => show dead if cut
+    gViewMode = mode === "cap" ? "dead" : "cap";
+    buttons.forEach((btn) => {
+      const m = btn.getAttribute("data-mode");
+      btn.dataset.active = m === mode ? "true" : "false";
+    });
+    renderContractsView();
+  };
 
   buttons.forEach((btn) => {
     btn.addEventListener("click", () => {
-      const view = btn.getAttribute("data-view") || "cap";
-      gViewMode = view;
-      buttons.forEach((b) => {
-        b.dataset.active = b === btn ? "true" : "false";
-      });
-      renderContractsView();
+      const mode = btn.getAttribute("data-mode") || "contracts";
+      applyMode(mode);
     });
+  });
+
+  // Initialize
+  applyMode("contracts");
+}
+
+function bindSearchInput() {
+  const input = getEl("contracts-search");
+  if (!input) return;
+  input.addEventListener("input", () => {
+    gSearchTerm = input.value || "";
+    renderContractsView();
   });
 }
 
+function bindCapTabs() {
+  const tabsRoot = getEl("cap-tabs");
+  if (!tabsRoot) return;
+  const tabs = Array.from(tabsRoot.querySelectorAll(".cap-tab"));
+  const summary = getEl("contracts-cap-summary");
+  const moves = getEl("cap-moves-wrapper");
+
+  const switchTo = (tabName) => {
+    tabs.forEach((t) => {
+      t.dataset.active = t.getAttribute("data-tab") === tabName ? "true" : "false";
+    });
+    if (summary) summary.hidden = tabName !== "summary";
+    if (moves) moves.hidden = tabName !== "moves";
+  };
+
+  tabs.forEach((t) => {
+    t.addEventListener("click", () => {
+      const tab = t.getAttribute("data-tab") || "summary";
+      switchTo(tab);
+    });
+  });
+
+  switchTo("summary");
+}
+
 // ---------------------------------------------------------------------------
-// Rendering – contracts table
+// Slice helpers
 // ---------------------------------------------------------------------------
 
 function getCurrentSliceContracts() {
   if (!gContracts) return [];
+
+  let contracts = [];
 
   if (gSelectedTeamCode === "LEAGUE_ALL") {
     const all = [];
     for (const [teamCode, list] of Object.entries(gContracts.byTeam || {})) {
       list.forEach((c) => all.push({ ...c, teamCode }));
     }
-    // For league view, show top 150 by AAV for sanity
     all.sort((a, b) => b.aav - a.aav);
-    return all.slice(0, 150);
+    contracts = all;
+  } else {
+    contracts = (gContracts.byTeam[gSelectedTeamCode] || []).map((c) => ({
+      ...c,
+      teamCode: c.teamCode || gSelectedTeamCode
+    }));
   }
 
-  return gContracts.byTeam[gSelectedTeamCode] || [];
+  if (gSearchTerm && gSearchTerm.trim().length) {
+    const q = gSearchTerm.trim().toLowerCase();
+    contracts = contracts.filter((c) => {
+      const name = (c.name || "").toLowerCase();
+      const pos = (c.pos || "").toLowerCase();
+      const tm = (getTeamDisplayName(c.teamCode || "") || "").toLowerCase();
+      return (
+        name.includes(q) ||
+        pos.includes(q) ||
+        tm.includes(q)
+      );
+    });
+  }
+
+  // For league view, hard cap list length to avoid huge tables
+  if (gSelectedTeamCode === "LEAGUE_ALL") {
+    contracts = contracts.slice(0, 200);
+  }
+
+  return contracts;
 }
 
 function findYearEntry(contract, seasonYear) {
@@ -722,25 +758,46 @@ function findYearEntry(contract, seasonYear) {
   return contract.schedule.find((y) => y.seasonYear === seasonYear) || null;
 }
 
+// ---------------------------------------------------------------------------
+// Rendering – contracts table
+// ---------------------------------------------------------------------------
+
+function renderContractsSubtitle(count) {
+  const el = getEl("contracts-table-subtitle");
+  if (!el) return;
+  const teamLabel =
+    gSelectedTeamCode === "LEAGUE_ALL"
+      ? "League – all teams"
+      : getTeamDisplayName(gSelectedTeamCode) || gSelectedTeamCode;
+  const sliceText = gSearchTerm && gSearchTerm.trim()
+    ? `${count} contracts (filtered)`
+    : `${count} contracts`;
+  el.textContent = `${sliceText} • ${teamLabel} • ${gSelectedSeasonYear}`;
+}
+
 function renderContractsTable() {
   const tbody = getEl("contracts-table-body");
-  if (!tbody) return;
+  const emptyEl = getEl("contracts-table-empty");
+  if (!tbody || !gContracts) return;
 
-  const col1 = getEl("contracts-year-col-1");
-  const col2 = getEl("contracts-year-col-2");
-  const col3 = getEl("contracts-year-col-3");
+  const col1 = getEl("col-cap-yr1");
+  const col2 = getEl("col-cap-yr2");
+  const col3 = getEl("col-cap-yr3");
 
-  const seasons = Object.keys(gContracts?.capBySeason || {})
-    .map((s) => Number(s))
+  const seasons = Object.keys(gContracts.capBySeason || {})
+    .map(Number)
     .sort((a, b) => a - b);
-  const baseline = seasons.indexOf(gSelectedSeasonYear);
-  const yr1 = seasons[baseline] ?? seasons[0];
-  const yr2 = seasons[baseline + 1] ?? seasons[1] ?? seasons[0];
-  const yr3 = seasons[baseline + 2] ?? seasons[2] ?? seasons[0];
 
-  if (col1) col1.textContent = yr1 ? String(yr1) : "Yr 1";
-  if (col2) col2.textContent = yr2 ? String(yr2) : "Yr 2";
-  if (col3) col3.textContent = yr3 ? String(yr3) : "Yr 3";
+  const baselineIndex = Math.max(0, seasons.indexOf(gSelectedSeasonYear));
+  const yr1 = seasons[baselineIndex] ?? seasons[0];
+  const yr2 = seasons[baselineIndex + 1] ?? seasons[baselineIndex] ?? seasons[0];
+  const yr3 = seasons[baselineIndex + 2] ?? seasons[baselineIndex + 1] ?? seasons[0];
+
+  const labelSuffix = gViewMode === "dead" ? "Dead" : "Cap";
+
+  if (col1) col1.textContent = `${yr1} ${labelSuffix}`;
+  if (col2) col2.textContent = `${yr2} ${labelSuffix}`;
+  if (col3) col3.textContent = `${yr3} ${labelSuffix}`;
 
   const contracts = getCurrentSliceContracts();
   gCurrentContracts = contracts.slice();
@@ -748,23 +805,26 @@ function renderContractsTable() {
   tbody.innerHTML = "";
 
   if (!contracts.length) {
-    const tr = document.createElement("tr");
-    const td = document.createElement("td");
-    td.colSpan = 11;
-    td.className = "empty-state";
-    td.textContent = "No contracts found for this selection.";
-    tr.appendChild(td);
-    tbody.appendChild(tr);
+    if (emptyEl) emptyEl.hidden = false;
+    renderContractsSubtitle(0);
     return;
   }
 
+  if (emptyEl) emptyEl.hidden = true;
+  renderContractsSubtitle(contracts.length);
+
+  const pickField = (y) => {
+    if (!y) return "—";
+    if (gViewMode === "cap") return formatMoney(y.capHit);
+    return formatMoney(y.deadIfCut);
+  };
+
   contracts.forEach((c) => {
     const tr = document.createElement("tr");
-    tr.className = "contracts-row";
 
-    const key = `${c.teamCode || ""}|${c.playerId || c.name}`;
+    const key = `${(c.teamCode || "").toUpperCase()}|${c.playerId || c.name}`;
     if (gFocusedPlayerKey === key) {
-      tr.dataset.focus = "true";
+      tr.dataset.selected = "true";
     }
 
     const y1 = findYearEntry(c, yr1);
@@ -782,9 +842,9 @@ function renderContractsTable() {
         ? ` • Released ${c.releasedYear}`
         : "";
     nameTd.innerHTML = `
-      <div class="contracts-name-cell">
-        <div class="contracts-name-primary">${c.name}</div>
-        <div class="contracts-name-secondary">
+      <div class="contracts-player-name-cell">
+        <div class="contracts-player-name">${c.name}</div>
+        <div class="contracts-player-meta">
           ${teamLabel}${ovrLabel}${releasedTag}
         </div>
       </div>
@@ -794,60 +854,34 @@ function renderContractsTable() {
     posTd.textContent = c.pos || "—";
 
     const ageTd = document.createElement("td");
-    ageTd.className = "numeric";
     ageTd.textContent =
       c.age != null && Number.isFinite(c.age) ? String(c.age) : "—";
 
-    const ovrTd = document.createElement("td");
-    ovrTd.className = "numeric";
-    ovrTd.textContent =
-      c.overall != null && Number.isFinite(c.overall)
-        ? String(c.overall)
-        : "—";
-
     const yrsTd = document.createElement("td");
-    yrsTd.className = "numeric";
     yrsTd.textContent = String(c.years);
 
     const aavTd = document.createElement("td");
-    aavTd.className = "numeric";
     aavTd.textContent = formatMoney(c.aav);
-
-    const totalTd = document.createElement("td");
-    totalTd.className = "numeric";
-    totalTd.textContent = formatMoney(c.totalValue);
-
-    const gTd = document.createElement("td");
-    gTd.className = "numeric";
-    gTd.textContent = formatMoney(c.guaranteed);
 
     const y1Td = document.createElement("td");
     const y2Td = document.createElement("td");
     const y3Td = document.createElement("td");
-    y1Td.className = y2Td.className = y3Td.className = "numeric";
-
-    const pickField = (y) => {
-      if (!y) return "—";
-      if (gViewMode === "cap") return formatMoney(y.capHit);
-      if (gViewMode === "cash") return formatMoney(y.cash);
-      return formatMoney(y.deadIfCut);
-    };
-
     y1Td.textContent = pickField(y1);
     y2Td.textContent = pickField(y2);
     y3Td.textContent = pickField(y3);
 
+    const gTd = document.createElement("td");
+    gTd.textContent = formatMoney(c.guaranteed);
+
     tr.appendChild(nameTd);
     tr.appendChild(posTd);
     tr.appendChild(ageTd);
-    tr.appendChild(ovrTd);
     tr.appendChild(yrsTd);
     tr.appendChild(aavTd);
-    tr.appendChild(totalTd);
-    tr.appendChild(gTd);
     tr.appendChild(y1Td);
     tr.appendChild(y2Td);
     tr.appendChild(y3Td);
+    tr.appendChild(gTd);
 
     tr.addEventListener("click", () => {
       gFocusedPlayerKey = key;
@@ -855,8 +889,8 @@ function renderContractsTable() {
       const modelContract = getFocusedModelContract();
       if (modelContract) {
         renderPlayerContext(modelContract);
+        renderPlayerActionsVisibility();
       }
-      renderPlayerActionsVisibility();
     });
 
     tbody.appendChild(tr);
@@ -864,23 +898,22 @@ function renderContractsTable() {
 }
 
 // ---------------------------------------------------------------------------
-// Rendering – cap summary + player context
+// Rendering – cap summary
 // ---------------------------------------------------------------------------
 
 function renderCapSummary() {
-  const capRoot = getEl("contracts-cap-summary");
+  const root = getEl("contracts-cap-summary");
   const empty = getEl("contracts-empty-summary");
-  if (!capRoot || !empty || !gContracts) return;
+  if (!root || !gContracts) return;
 
   const contracts = getCurrentSliceContracts();
   if (!contracts.length) {
-    capRoot.hidden = true;
-    empty.hidden = false;
+    if (root) root.hidden = true;
+    if (empty) empty.hidden = false;
     return;
   }
-
-  capRoot.hidden = false;
-  empty.hidden = true;
+  root.hidden = false;
+  if (empty) empty.hidden = true;
 
   const capLimit = gContracts.capBySeason[gSelectedSeasonYear] ?? null;
 
@@ -888,67 +921,172 @@ function renderCapSummary() {
   contracts.forEach((c) => {
     const yr = findYearEntry(c, gSelectedSeasonYear);
     if (yr) {
-      capUsed += yr.capHit;
+      capUsed += yr.capHit || 0;
     }
   });
-
   const capSpace = capLimit != null ? capLimit - capUsed : null;
 
+  setText("cap-limit-value", formatMoney(capLimit ?? NaN));
+  setText("cap-limit-sub", `League year ${gSelectedSeasonYear}`);
+  setText("cap-used-value", formatMoney(capUsed));
+  setText("cap-used-sub", "Active roster + dead");
+  setText("cap-space-value", formatMoney(capSpace ?? NaN));
   setText(
-    "cap-summary-season-label",
-    String(gSelectedSeasonYear)
+    "cap-space-sub",
+    capSpace != null && capSpace < 0 ? "Over the cap" : "Room to maneuver"
   );
-  setText("cap-summary-cap-limit", formatMoney(capLimit ?? NaN));
-  setText("cap-summary-cap-used", formatMoney(capUsed));
-  setText("cap-summary-cap-space", formatMoney(capSpace ?? NaN));
 
-  const barFill = getEl("cap-summary-bar-fill");
+  const barFill = getEl("cap-usage-bar-fill");
+  const leftLabel = getEl("cap-usage-label-left");
+  const rightLabel = getEl("cap-usage-label-right");
+
+  let pct = 0;
+  if (capLimit && capLimit > 0) {
+    pct = capUsed / capLimit;
+  }
+  const pctClamped = Math.max(0, Math.min(1.15, pct));
   if (barFill) {
-    const pct =
-      capLimit && capLimit > 0 ? Math.min(1.15, capUsed / capLimit) : 0;
-    barFill.style.width = `${Math.max(0, Math.min(1, pct)) * 100}%`;
+    barFill.style.width = `${Math.max(0, Math.min(1, pctClamped)) * 100}%`;
+  }
+  if (leftLabel) {
+    leftLabel.textContent = `Used: ${formatMoney(capUsed)}`;
+  }
+  if (rightLabel) {
+    rightLabel.textContent =
+      capLimit && capLimit > 0 ? `${formatPercent(pct * 100)} of cap` : "—";
   }
 
-  // Top contracts by AAV (within slice)
-  const topAav = [...contracts]
-    .sort((a, b) => b.aav - a.aav)
-    .slice(0, 6);
-  const topG = [...contracts]
+  // Top lists
+  const sliceContracts = contracts.slice();
+  const topAav = sliceContracts.sort((a, b) => b.aav - a.aav).slice(0, 6);
+  const topG = contracts
+    .slice()
     .sort((a, b) => b.guaranteed - a.guaranteed)
     .slice(0, 6);
 
-  const aavList = getEl("cap-summary-top-aav");
-  const gList = getEl("cap-summary-top-guarantee");
+  const aavList = getEl("cap-top-aav-list");
+  const gList = getEl("cap-top-guarantees-list");
+  const pill = getEl("cap-top-filter-pill");
+
+  if (pill) {
+    pill.textContent =
+      gSelectedTeamCode === "LEAGUE_ALL"
+        ? "Slice: League"
+        : `Slice: ${getTeamDisplayName(gSelectedTeamCode) || gSelectedTeamCode}`;
+  }
+
   if (aavList) {
     aavList.innerHTML = "";
     topAav.forEach((c) => {
       const li = document.createElement("li");
+      li.className = "cap-top-item";
       li.innerHTML = `
-        <span>${c.name} (${c.pos || "—"})</span>
-        <span>${formatMoney(c.aav)}</span>
+        <span class="cap-top-name">${c.name} (${c.pos || "—"})</span>
+        <span class="cap-top-meta">${formatMoney(c.aav)} • ${getTeamDisplayName(
+          c.teamCode || ""
+        )}</span>
       `;
       aavList.appendChild(li);
     });
   }
+
   if (gList) {
     gList.innerHTML = "";
     topG.forEach((c) => {
       const li = document.createElement("li");
+      li.className = "cap-top-item";
       li.innerHTML = `
-        <span>${c.name} (${c.pos || "—"})</span>
-        <span>${formatMoney(c.guaranteed)}</span>
+        <span class="cap-top-name">${c.name} (${c.pos || "—"})</span>
+        <span class="cap-top-meta">${formatMoney(
+          c.guaranteed
+        )} • ${getTeamDisplayName(c.teamCode || "")}</span>
       `;
       gList.appendChild(li);
     });
   }
 }
 
+// ---------------------------------------------------------------------------
+// Rendering – player context + base vs bonus
+// ---------------------------------------------------------------------------
+
+function renderBaseVsBonus(contract) {
+  const container = getEl("player-base-bonus");
+  const list = getEl("player-base-bonus-list");
+  if (!container || !list) return;
+
+  const schedule = contract.schedule || [];
+  if (!schedule.length) {
+    container.hidden = true;
+    return;
+  }
+
+  const rows = schedule
+    .slice()
+    .sort((a, b) => a.seasonYear - b.seasonYear)
+    .map((y) => {
+      const cap = y.capHit || 0;
+      const dead = y.deadIfCut || 0;
+      const bonus = Math.max(0, Math.min(dead, cap));
+      const base = Math.max(0, cap - bonus);
+      const pct = cap > 0 ? (bonus / cap) * 100 : 0;
+      return `
+        <div class="player-base-bonus-row">
+          <span>${y.seasonYear}</span>
+          <span>Cap ${formatMoney(cap)}</span>
+          <span>Base ${formatMoney(base)}</span>
+          <span>Bonus ${formatMoney(bonus)} (${pct.toFixed(0)}% bonus)</span>
+        </div>
+      `;
+    })
+    .join("");
+
+  list.innerHTML = rows;
+  container.hidden = false;
+}
+
 function renderPlayerContext(contract) {
   const root = getEl("contracts-player-context");
-  const mainLine = getEl("player-context-main-line");
-  const subLine = getEl("player-context-sub-line");
-  if (!root || !mainLine || !subLine || !contract) return;
+  if (!root || !contract) return;
 
+  const nameEl = getEl("cap-player-name");
+  const metaEl = getEl("cap-player-meta");
+  const aavEl = getEl("cap-player-aav");
+  const capThisYearEl = getEl("cap-player-cap-this-year");
+  const rankLineEl = getEl("cap-player-rank-line");
+
+  if (nameEl) nameEl.textContent = contract.name;
+
+  const yearsRemaining = (contract.schedule || []).filter(
+    (y) => y.seasonYear >= gSelectedSeasonYear && (y.capHit || y.deadIfCut)
+  ).length;
+
+  if (metaEl) {
+    const ageStr =
+      contract.age != null && Number.isFinite(contract.age)
+        ? `Age ${contract.age}`
+        : "Age —";
+    metaEl.textContent = `${contract.pos || "UNK"} • ${ageStr} • ${
+      yearsRemaining || 0
+    } yrs remaining (model)`;
+  }
+
+  if (aavEl) {
+    aavEl.textContent = `${formatMoney(contract.aav)} AAV`;
+  }
+
+  const thisYear = findYearEntry(contract, gSelectedSeasonYear);
+  if (capThisYearEl) {
+    if (!thisYear) {
+      capThisYearEl.textContent = `No cap entry in ${gSelectedSeasonYear}`;
+    } else {
+      capThisYearEl.textContent = `Cap hit ${gSelectedSeasonYear}: ${formatMoney(
+        thisYear.capHit
+      )}`;
+    }
+  }
+
+  // Ranking within position by AAV (league-wide)
   const pos = contract.pos || "UNK";
   const rankings = gPlayerRankingsByPos[pos] || [];
   const idx = rankings.findIndex(
@@ -958,33 +1096,45 @@ function renderPlayerContext(contract) {
         String(contract.teamCode || "").toUpperCase()
   );
 
-  let rankStr = "League data unavailable at this position.";
-  if (idx >= 0) {
-    const rank = idx + 1;
-    const total = rankings.length || 1;
-    const pct = ((total - rank + 1) / total) * 100; // high rank => high percentile
-    rankStr = `#${rank} of ${total} ${pos}s by AAV (${formatPercent(pct)} percentile).`;
+  if (rankLineEl) {
+    if (idx < 0 || !rankings.length) {
+      rankLineEl.textContent =
+        "League ranking data unavailable at this position.";
+    } else {
+      const rank = idx + 1;
+      const total = rankings.length;
+      const pct = ((total - rank + 1) / total) * 100; // high rank => high percentile
+      rankLineEl.textContent = `#${rank} of ${total} ${pos}s by AAV (${formatPercent(
+        pct
+      )} percentile)`;
+    }
   }
 
-  const aavStr = formatMoney(contract.aav);
-  const gStr = formatMoney(contract.guaranteed);
-
-  mainLine.textContent = `${contract.name} (${pos}) – ${aavStr} AAV, ${gStr} guaranteed.`;
-  subLine.textContent = rankStr;
-
+  renderBaseVsBonus(contract);
   root.hidden = false;
 }
 
-// Show or hide action buttons depending on whether this is your team
+// ---------------------------------------------------------------------------
+// Player actions visibility
+// ---------------------------------------------------------------------------
+
 function renderPlayerActionsVisibility(message) {
   const actionsRoot = getEl("contracts-player-actions");
-  const noteEl = getEl("player-actions-note");
   if (!actionsRoot) return;
 
-  const franchiseCode = gFranchiseTeamCodeUpper;
+  let noteEl = document.getElementById("player-actions-note");
+  if (!noteEl) {
+    noteEl = document.createElement("div");
+    noteEl.id = "player-actions-note";
+    noteEl.style.fontSize = "0.72rem";
+    noteEl.style.color = "#9ca3af";
+    noteEl.style.marginTop = "4px";
+    actionsRoot.appendChild(noteEl);
+  }
+
   const canEdit =
     gFocusedPlayerKey &&
-    gSelectedTeamCode === franchiseCode;
+    gSelectedTeamCode === gFranchiseTeamCodeUpper;
 
   if (!canEdit) {
     actionsRoot.hidden = true;
@@ -992,11 +1142,9 @@ function renderPlayerActionsVisibility(message) {
   }
 
   actionsRoot.hidden = false;
-  if (noteEl) {
-    noteEl.textContent =
-      message ||
-      "Actions apply to the selected player for the current cap year and are written back to LeagueState.";
-  }
+  noteEl.textContent =
+    message ||
+    "Actions apply to the selected player for the current cap year and are saved to LeagueState.";
 }
 
 // ---------------------------------------------------------------------------
@@ -1018,7 +1166,7 @@ function ensureCapForYear(year) {
   if (!gContracts) return;
   if (gContracts.capBySeason[year]) return;
   const keys = Object.keys(gContracts.capBySeason)
-    .map((s) => Number(s))
+    .map(Number)
     .sort((a, b) => a - b);
   if (!keys.length) {
     gContracts.capBySeason[year] = DEFAULT_CAP_START;
@@ -1033,6 +1181,30 @@ function ensureCapForYear(year) {
   }
 }
 
+// Simple cap move log entry
+function recordCapMove(contract, action, message, capDeltaThisYear) {
+  if (!gLeagueState) return;
+  if (!Array.isArray(gLeagueState.capMoves)) {
+    gLeagueState.capMoves = [];
+  }
+
+  const move = {
+    timestampIso: new Date().toISOString(),
+    seasonYear: gSelectedSeasonYear,
+    teamCode: contract.teamCode || gSelectedTeamCode,
+    playerId: contract.playerId || contract.name,
+    playerName: contract.name,
+    pos: contract.pos || "UNK",
+    action,
+    message,
+    capDeltaThisYear: Number.isFinite(capDeltaThisYear)
+      ? Math.round(capDeltaThisYear)
+      : 0
+  };
+
+  gLeagueState.capMoves.push(move);
+}
+
 // Pre-June cut: accelerate all remaining guarantees into current year.
 function applyCutPreJune(contract) {
   const schedule = contract.schedule || [];
@@ -1040,11 +1212,17 @@ function applyCutPreJune(contract) {
     (y) => y.seasonYear === gSelectedSeasonYear
   );
   if (idx < 0) {
-    return "No cap year for this season; pre-June cut not applied.";
+    return {
+      message: "No cap year for this season; pre-June cut not applied.",
+      capDeltaThisYear: 0
+    };
   }
 
   if (contract.releasedYear && gSelectedSeasonYear >= contract.releasedYear) {
-    return `Already released in ${contract.releasedYear}.`;
+    return {
+      message: `Already released in ${contract.releasedYear}.`,
+      capDeltaThisYear: 0
+    };
   }
 
   const current = schedule[idx];
@@ -1052,7 +1230,7 @@ function applyCutPreJune(contract) {
     .slice(idx)
     .reduce((sum, y) => sum + (y.deadIfCut || 0), 0);
 
-  const originalCapThisYear = current.capHit;
+  const originalCapThisYear = current.capHit || 0;
   const newCapThisYear = totalRemainingDead;
 
   current.capHit = newCapThisYear;
@@ -1072,9 +1250,13 @@ function applyCutPreJune(contract) {
     delta >= 0
       ? `cap charge increases by ${formatMoney(delta)} this year.`
       : `cap savings of ${formatMoney(-delta)} this year.`;
-  return `Pre-June cut applied in ${gSelectedSeasonYear}: ${formatMoney(
-    newCapThisYear
-  )} cap this season, all future years cleared; ${deltaStr}`;
+
+  return {
+    message: `Pre-June cut applied in ${gSelectedSeasonYear}: ${formatMoney(
+      newCapThisYear
+    )} cap this season, all future years cleared; ${deltaStr}`,
+    capDeltaThisYear: delta
+  };
 }
 
 // Post-June cut: current year's dead-only, future guarantees pushed to next year.
@@ -1084,15 +1266,21 @@ function applyCutPostJune(contract) {
     (y) => y.seasonYear === gSelectedSeasonYear
   );
   if (idx < 0) {
-    return "No cap year for this season; post-June cut not applied.";
+    return {
+      message: "No cap year for this season; post-June cut not applied.",
+      capDeltaThisYear: 0
+    };
   }
 
   if (contract.releasedYear && gSelectedSeasonYear >= contract.releasedYear) {
-    return `Already released in ${contract.releasedYear}.`;
+    return {
+      message: `Already released in ${contract.releasedYear}.`,
+      capDeltaThisYear: 0
+    };
   }
 
   const current = schedule[idx];
-  const originalCapThisYear = current.capHit;
+  const originalCapThisYear = current.capHit || 0;
   const thisYearDead = current.deadIfCut || 0;
   const futureDead = schedule
     .slice(idx + 1)
@@ -1103,7 +1291,7 @@ function applyCutPostJune(contract) {
   current.cash = 0;
   current.deadIfCut = thisYearDead;
 
-  // Future years: zero cap/cash/dead, then push all futureDead into next year
+  // Future years: zero everything, then push all futureDead into next year (if exists)
   if (idx + 1 < schedule.length) {
     for (let j = idx + 1; j < schedule.length; j++) {
       schedule[j].capHit = 0;
@@ -1118,15 +1306,20 @@ function applyCutPostJune(contract) {
   contract.releasedYear = gSelectedSeasonYear;
 
   const delta = current.capHit - originalCapThisYear;
+  const targetYear = schedule[idx + 1]?.seasonYear || "future";
   const deltaStr =
     delta >= 0
       ? `cap charge increases by ${formatMoney(delta)} this year.`
       : `cap savings of ${formatMoney(-delta)} this year.`;
-  return `Post-June cut applied in ${gSelectedSeasonYear}: ${formatMoney(
-    current.capHit
-  )} cap this season, remaining ${formatMoney(
-    futureDead
-  )} pushed into ${schedule[idx + 1]?.seasonYear || "future"}; ${deltaStr}`;
+
+  return {
+    message: `Post-June cut applied in ${gSelectedSeasonYear}: ${formatMoney(
+      current.capHit
+    )} cap this season, remaining ${formatMoney(
+      futureDead
+    )} pushed into ${targetYear}; ${deltaStr}`,
+    capDeltaThisYear: delta
+  };
 }
 
 // Restructure: convert ~30% of this year's cap hit into bonus spread over remaining years
@@ -1136,22 +1329,34 @@ function applyRestructure(contract) {
     (y) => y.seasonYear === gSelectedSeasonYear
   );
   if (idx < 0) {
-    return "No cap year for this season; restructure not applied.";
+    return {
+      message: "No cap year for this season; restructure not applied.",
+      capDeltaThisYear: 0
+    };
   }
 
   if (contract.releasedYear && gSelectedSeasonYear >= contract.releasedYear) {
-    return "Cannot restructure a player who has already been released.";
+    return {
+      message: "Cannot restructure a player who has already been released.",
+      capDeltaThisYear: 0
+    };
   }
 
   const current = schedule[idx];
   const remaining = schedule.slice(idx);
   if (!remaining.length) {
-    return "No remaining years to spread restructuring over.";
+    return {
+      message: "No remaining years to spread restructuring over.",
+      capDeltaThisYear: 0
+    };
   }
 
   const restructurable = current.capHit * 0.3; // 30% of cap hit
   if (!Number.isFinite(restructurable) || restructurable <= 0) {
-    return "No restructurable cap in this season.";
+    return {
+      message: "No restructurable cap in this season.",
+      capDeltaThisYear: 0
+    };
   }
 
   const originalCapThisYear = current.capHit;
@@ -1171,18 +1376,24 @@ function applyRestructure(contract) {
   // Guarantees effectively increase by restructurable
   contract.guaranteed += Math.round(restructurable);
 
-  return `Restructure applied in ${gSelectedSeasonYear}: moved ${formatMoney(
-    restructurable
-  )} into bonus over remaining years, saving ${formatMoney(
-    savings
-  )} in this season.`;
+  return {
+    message: `Restructure applied in ${gSelectedSeasonYear}: moved ${formatMoney(
+      restructurable
+    )} into bonus over remaining years, saving ${formatMoney(
+      savings
+    )} in this season.`,
+    capDeltaThisYear: newCapThisYear - originalCapThisYear
+  };
 }
 
 // Extend by +1 year with a simple new year based on current AAV
 function applyExtendOneYear(contract) {
   const schedule = contract.schedule || [];
   if (!schedule.length) {
-    return "No existing schedule to extend from.";
+    return {
+      message: "No existing schedule to extend from.",
+      capDeltaThisYear: 0
+    };
   }
 
   const lastYearObj = schedule.reduce((a, b) =>
@@ -1193,7 +1404,8 @@ function applyExtendOneYear(contract) {
   ensureCapForYear(newSeasonYear);
   const capForNewYear = gContracts.capBySeason[newSeasonYear];
 
-  const base = contract.aav || (contract.totalValue / contract.years) || 5_000_000;
+  const base =
+    contract.aav || contract.totalValue / contract.years || 5_000_000;
   const capHit = Math.min(capForNewYear * 0.18, base * 0.9);
   const dead = base * 0.8;
   const cash = base * 0.95;
@@ -1212,34 +1424,39 @@ function applyExtendOneYear(contract) {
   contract.guaranteed += Math.round(dead);
   contract.aav = Math.round(contract.totalValue / contract.years);
 
-  return `Extension added for ${newSeasonYear}: approx ${formatMoney(
-    capHit
-  )} cap hit, ${formatMoney(dead)} dead, updating AAV to ${formatMoney(
-    contract.aav
-  )}.`;
+  return {
+    message: `Extension added for ${newSeasonYear}: approx ${formatMoney(
+      capHit
+    )} cap hit, ${formatMoney(dead)} dead, updating AAV to ${formatMoney(
+      contract.aav
+    )}.`,
+    capDeltaThisYear: 0
+  };
 }
 
 // ---------------------------------------------------------------------------
-// Contract actions – binding
+// Contract actions – bind buttons
 // ---------------------------------------------------------------------------
 
 function bindContractActionButtons() {
-  const btnPre = getEl("btn-contract-cut-pre");
-  const btnPost = getEl("btn-contract-cut-post");
-  const btnRestruct = getEl("btn-contract-restructure");
-  const btnExtend = getEl("btn-contract-extend");
+  const btnPre = getEl("btn-cap-cut-pre");
+  const btnPost = getEl("btn-cap-cut-post");
+  const btnRestruct = getEl("btn-cap-restructure");
+  const btnExtend = getEl("btn-cap-extend");
 
   if (btnPre) {
     btnPre.addEventListener("click", () => {
       if (gSelectedTeamCode !== gFranchiseTeamCodeUpper) return;
       const c = getFocusedModelContract();
       if (!c) return;
-      const msg = applyCutPreJune(c);
+      const { message, capDeltaThisYear } = applyCutPreJune(c);
+      recordCapMove(c, "CUT_PRE", message, capDeltaThisYear);
       buildLeagueRankings(gContracts);
       saveLeagueState(gLeagueState);
       renderContractsView();
       renderPlayerContext(c);
-      renderPlayerActionsVisibility(msg);
+      renderPlayerActionsVisibility(message);
+      renderMovesLog();
     });
   }
 
@@ -1248,12 +1465,14 @@ function bindContractActionButtons() {
       if (gSelectedTeamCode !== gFranchiseTeamCodeUpper) return;
       const c = getFocusedModelContract();
       if (!c) return;
-      const msg = applyCutPostJune(c);
+      const { message, capDeltaThisYear } = applyCutPostJune(c);
+      recordCapMove(c, "CUT_POST", message, capDeltaThisYear);
       buildLeagueRankings(gContracts);
       saveLeagueState(gLeagueState);
       renderContractsView();
       renderPlayerContext(c);
-      renderPlayerActionsVisibility(msg);
+      renderPlayerActionsVisibility(message);
+      renderMovesLog();
     });
   }
 
@@ -1262,12 +1481,14 @@ function bindContractActionButtons() {
       if (gSelectedTeamCode !== gFranchiseTeamCodeUpper) return;
       const c = getFocusedModelContract();
       if (!c) return;
-      const msg = applyRestructure(c);
+      const { message, capDeltaThisYear } = applyRestructure(c);
+      recordCapMove(c, "RESTRUCTURE", message, capDeltaThisYear);
       buildLeagueRankings(gContracts);
       saveLeagueState(gLeagueState);
       renderContractsView();
       renderPlayerContext(c);
-      renderPlayerActionsVisibility(msg);
+      renderPlayerActionsVisibility(message);
+      renderMovesLog();
     });
   }
 
@@ -1276,14 +1497,87 @@ function bindContractActionButtons() {
       if (gSelectedTeamCode !== gFranchiseTeamCodeUpper) return;
       const c = getFocusedModelContract();
       if (!c) return;
-      const msg = applyExtendOneYear(c);
+      const { message, capDeltaThisYear } = applyExtendOneYear(c);
+      recordCapMove(c, "EXTEND", message, capDeltaThisYear);
       buildLeagueRankings(gContracts);
       saveLeagueState(gLeagueState);
       renderContractsView();
       renderPlayerContext(c);
-      renderPlayerActionsVisibility(msg);
+      renderPlayerActionsVisibility(message);
+      renderMovesLog();
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Moves log rendering
+// ---------------------------------------------------------------------------
+
+function renderMovesLog() {
+  const listEl = getEl("cap-moves-list");
+  if (!listEl || !gLeagueState) return;
+
+  const moves = Array.isArray(gLeagueState.capMoves)
+    ? gLeagueState.capMoves.slice()
+    : [];
+
+  const filtered = moves
+    .filter((m) => {
+      if (m.seasonYear !== gSelectedSeasonYear) return false;
+      if (gSelectedTeamCode === "LEAGUE_ALL") return true;
+      return (m.teamCode || "").toUpperCase() === gSelectedTeamCode;
+    })
+    .sort((a, b) => {
+      const ta = a.timestampIso || "";
+      const tb = b.timestampIso || "";
+      return tb.localeCompare(ta);
+    });
+
+  if (!filtered.length) {
+    listEl.innerHTML =
+      '<div class="empty-state">No cap moves recorded yet for this slice.</div>';
+    return;
+  }
+
+  const rows = filtered
+    .map((m) => {
+      const d = m.timestampIso ? new Date(m.timestampIso) : null;
+      const dateStr = d && !isNaN(d.getTime())
+        ? d.toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric"
+          })
+        : "—";
+      const teamCode = (m.teamCode || "").toUpperCase();
+      const isFranchise = teamCode === gFranchiseTeamCodeUpper;
+      const delta = m.capDeltaThisYear || 0;
+      const deltaLabel =
+        delta === 0
+          ? "No immediate cap change."
+          : `${delta > 0 ? "Cap charge +" : "Cap savings"} ${formatMoney(
+              Math.abs(delta)
+            )} this year.`;
+
+      return `
+        <div class="cap-move-row" data-franchise="${isFranchise ? "true" : "false"}">
+          <div class="cap-move-main">
+            <span class="cap-move-time">${dateStr}</span>
+            <span class="cap-move-team">${teamCode}</span>
+            <span class="cap-move-player">${
+              m.playerName || "Unknown player"
+            }</span>
+          </div>
+          <div class="cap-move-desc">
+            <span class="cap-move-action">${m.action || "MOVE"}</span>
+            <span>${m.message || ""}</span>
+          </div>
+          <div class="cap-move-capline">${deltaLabel}</div>
+        </div>
+      `;
+    })
+    .join("");
+
+  listEl.innerHTML = rows;
 }
 
 // ---------------------------------------------------------------------------
@@ -1294,10 +1588,11 @@ function renderContractsView() {
   renderContractsTable();
   renderCapSummary();
 
-  // If a focus exists but the player is no longer in the slice, clear context
   if (gFocusedPlayerKey) {
     const stillHere = gCurrentContracts.some((c) => {
-      const key = `${c.teamCode || ""}|${c.playerId || c.name}`;
+      const key = `${(c.teamCode || "").toUpperCase()}|${
+        c.playerId || c.name
+      }`;
       return key === gFocusedPlayerKey;
     });
     if (!stillHere) {
@@ -1325,23 +1620,18 @@ async function initContractsPage() {
   if (!save) {
     console.warn("[Contracts] No active franchise found.");
     const tbody = getEl("contracts-table-body");
-    if (tbody) {
-      tbody.innerHTML = `
-        <tr><td colspan="11" class="empty-state">
-          No active franchise found. Return to the main menu to start or load a franchise.
-        </td></tr>`;
+    const emptyEl = getEl("contracts-table-empty");
+    if (tbody) tbody.innerHTML = "";
+    if (emptyEl) {
+      emptyEl.hidden = false;
+      emptyEl.textContent =
+        "No active franchise found. Return to the main menu to start or load a franchise.";
     }
     const capRoot = getEl("contracts-cap-summary");
     const empty = getEl("contracts-empty-summary");
     if (capRoot && empty) {
       capRoot.hidden = true;
       empty.hidden = false;
-    }
-    const back = getEl("btn-back-hub");
-    if (back) {
-      back.addEventListener("click", () => {
-        window.location.href = "index.html";
-      });
     }
     return;
   }
@@ -1359,9 +1649,9 @@ async function initContractsPage() {
     leagueState.seasonYear = save.seasonYear || leagueState.seasonYear;
   }
 
-  // Make sure the league has schedules for all teams this season,
-  // then grab this franchise's schedule (for team codes).
+  // Make sure the league has schedules for all teams this season
   await ensureAllTeamSchedules(leagueState, leagueState.seasonYear);
+  leagueState.capMoves = leagueState.capMoves || [];
   saveLeagueState(leagueState);
 
   // Load league (rosters) then seed contract model
@@ -1377,22 +1667,18 @@ async function initContractsPage() {
   // Build league-wide positional rankings
   buildLeagueRankings(gContracts);
 
-  // Initial header + controls
+  // Initial UI wiring
   renderHeader();
   renderTeamSelect();
-  renderSeasonTabs();
-  bindViewToggleButtons();
+  renderSeasonSelect();
+  bindViewToggle();
+  bindSearchInput();
+  bindCapTabs();
   bindContractActionButtons();
-
-  const backBtn = getEl("btn-back-hub");
-  if (backBtn) {
-    backBtn.addEventListener("click", () => {
-      window.location.href = "franchise.html";
-    });
-  }
 
   // First render
   renderContractsView();
+  renderMovesLog();
 }
 
 // ---------------------------------------------------------------------------
