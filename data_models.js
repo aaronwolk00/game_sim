@@ -389,11 +389,11 @@ function toNumber(v, fallback = 0) {
         },
         run: {
           overall:
-            0.35 * rbRun +
+            0.30 * rbRun +
             0.15 * rbInside +
-            0.10 * rbReceiving +
-            0.10 * fbLead +
-            0.30 * olRun,
+            0.08 * rbReceiving +
+            0.07 * fbLead +
+            0.40 * olRun,
           rbRun, rbInside, rbReceiving,
           fbLead, olRun, olMental,
         },
