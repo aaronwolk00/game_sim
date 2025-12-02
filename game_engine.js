@@ -2181,8 +2181,8 @@ function simulatePlay(state) {
         // --- Special-case tweaks inside chip zone (inside opp 10) ---
         if (chipZone && shortYds) {
           // Normal: teams strongly prefer going for TD instead of chip FG.
-          if ((quarter === 2 && clockSec <= 40) ||
-              (quarter === 4 && scoreDiff >= 0 && clockSec <= 180)) {
+          if ((quarter === 2 && clockSec <= 40 && yardsToGoalPlus >= 4) ||
+              (quarter === 4 && scoreDiff >= -3 && clockSec <= 180 && yardsToGoalPlus >= 2)) {
             // End of half / protecting lead: more “take the points”
             wFG *= 1.4;
             wGo *= 0.6;
