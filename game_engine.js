@@ -217,6 +217,10 @@ class RNG {
     // FG (kept but unused by new FG model)
     fgBaseProb: 0.82,          // unused now
     fgAccuracyWeight: 0.0025,  // unused now
+
+    // FG range tuning for 4th-down decisions (not make %)
+    fgBaseMaxDist: 56,         // avg “max realistic attempt” for a middling K
+    fgMaxDistSpread: 4.5,      // how many yards legIndex can shift range
   
     // Punting realism
     puntBaseDistance: 45,
@@ -1224,22 +1228,20 @@ function consumeTimeout(state, side, reason = "timeout", displayClockSec = state
  * Defense can "ice" the kicker before a high-leverage FG.
  * If used, logs a timeout and sets a one-shot flag that FG sim will read.
  */
-function maybeIceKicker(state, offenseSide, defenseSide) {
+ function maybeIceKicker(state, offenseSide, defenseSide) {
   const q = state.quarter;
   const snapClock = state.clockSec;
   const hk = halfKeyForQuarter(q);
   const defTO = state.timeouts?.[defenseSide]?.[hk] ?? 0;
 
-  // Score context from defense POV
   const offScore = offenseSide === "home" ? state.score.home : state.score.away;
   const defScore = offenseSide === "home" ? state.score.away : state.score.home;
   const margin = Math.abs(offScore - defScore);
 
-  // Late halves and one-score / high-leverage spots → often ice
   const lateHalf = (q === 2 && snapClock <= 60) || (q === 4);
   if (!lateHalf || defTO <= 0) return false;
 
-  // Be selective; don't burn it frivolously.
+  // Only ice in high-leverage, one-score-ish spots
   const shouldIce = (margin <= 3) || (q === 4 && snapClock <= 180);
   if (!shouldIce) return false;
 
@@ -1248,22 +1250,24 @@ function maybeIceKicker(state, offenseSide, defenseSide) {
   return ok;
 }
 
+
 /**
  * Decide pace (hurry vs milk), sideline preference, and whether to call an
  * immediate timeout after this snap. Called each snap; its outputs are used
  * by between-play timing and to insert admin plays.
  */
-function clockManager(state, preState, outcomeOrNull, offenseSide, defenseSide, { clockStopsAfterPlay }) {
-  const q = preState?.quarter ?? state.quarter;
-  const snapClock = preState?.clockSec ?? state.clockSec;
+ function clockManager(state, preState, outcomeOrNull, offenseSide, defenseSide, { clockStopsAfterPlay }) {
+  const q          = preState?.quarter ?? state.quarter;
+  const snapClock  = preState?.clockSec ?? state.clockSec;
 
   const offScore = offenseSide === "home" ? state.score.home : state.score.away;
   const defScore = offenseSide === "home" ? state.score.away : state.score.home;
-  const lead = offScore - defScore;
+  const lead     = offScore - defScore; // from offense POV
 
   const offTO = getTimeouts(state, offenseSide);
+  const defTO = getTimeouts(state, defenseSide);
 
-  // Pace target (seconds between snaps) baseline
+  // ---- Pace target (hurry vs normal vs milk) ----
   let paceTarget = isLateGameHurry(state, offenseSide)
     ? (state.cfg.betweenPlayHurryMin + state.cfg.betweenPlayHurryMax) * 0.35
     : (state.cfg.betweenPlayNormalMin + state.cfg.betweenPlayNormalMax) * 0.35;
@@ -1278,23 +1282,48 @@ function clockManager(state, preState, outcomeOrNull, offenseSide, defenseSide, 
   if (q === 4 && snapClock <= 300 && lead < 0) {
     paceTarget -= 6;
   }
-  paceTarget = clamp(paceTarget, 4, 38); // sensible envelope
+  paceTarget = clamp(paceTarget, 4, 38);
 
-  // Bounds preference mirrors late-game intent
-  const boundsPreference = ( (q === 2 || q === 4) && snapClock <= 120 && lead <= 0 )
-    ? "sideline"
-    : "normal";
+  // Bounds preference (used by your run/pass OOB modeling)
+  const boundsPreference =
+    ((q === 2 || q === 4) && snapClock <= 120 && lead <= 0)
+      ? "sideline"
+      : "normal";
 
-  // Post-play timeout (offense) if clock would otherwise run & we need it
-  let timeoutNow = null;
-  if (!clockStopsAfterPlay && (q === 2 || q === 4) && snapClock > 0 && offTO > 0) {
-    const urgent = (snapClock <= 120 && lead <= 0);       // one-score drill
-    const saveHalf = (q === 2 && snapClock <= 35);        // pocket 30–35s before half
-    if (urgent || saveHalf) timeoutNow = offenseSide;
+  // ---- Timeouts after this play (offense *or* defense) ----
+  let timeoutOffense = false;
+  let timeoutDefense = false;
+
+  if (!clockStopsAfterPlay && (q === 2 || q === 4) && snapClock > 0) {
+    // Offensive 2-minute drill / save-half timeout
+    if (offTO > 0) {
+      const urgent   = (snapClock <= 120 && lead <= 0); // behind/tied late in half
+      const saveHalf = (q === 2 && snapClock <= 35);    // pocket ~30–35s before half
+      if (urgent || saveHalf) {
+        timeoutOffense = true;
+      }
+    }
+
+    // Defensive “stop the clock” timeouts when trailing late
+    if (defTO > 0 && lead > 0) { // defense is behind
+      // Very rough: use TOs in last ~2:30 of 4Q or last ~1:00 of 2Q
+      const late4  = (q === 4 && snapClock <= 150);
+      const late2  = (q === 2 && snapClock <= 60);
+      if (late4 || late2) {
+        timeoutDefense = true;
+      }
+    }
   }
 
-  return { paceTargetSec: paceTarget, boundsPreference, timeoutNow, tenSecRunoff: false /* hook */ };
+  return {
+    paceTargetSec: paceTarget,
+    boundsPreference,
+    timeoutOffense,
+    timeoutDefense,
+    tenSecRunoff: false, // hook if you ever want 10-second runoff logic
+  };
 }
+
 
   
 
@@ -1614,6 +1643,32 @@ function simulatePlay(state) {
   }
 
   // Situation context passed into the play-caller
+  // Identify kicker for this offense
+  const kicker =
+    offenseSide === "home" ? state.homeKicker : state.awayKicker;
+
+  // Prefer player-level ratings; fall back to unit profile; then league-ish defaults
+  const kickerAcc =
+    kicker && Number.isFinite(kicker.rating_K_accuracy)
+      ? kicker.rating_K_accuracy
+      : (specialOff.kicking?.accuracy ?? 31.5);
+
+  const kickerPow =
+    kicker && Number.isFinite(kicker.rating_K_power)
+      ? kicker.rating_K_power
+      : (specialOff.kicking?.power ?? 38.6);
+
+  // Environment hook: you can set these on state.environment or state.weather later.
+  const fgEnvAdjust =
+    (state.environment && Number.isFinite(state.environment.fgRangeDelta))
+      ? state.environment.fgRangeDelta
+      : (state.weather && Number.isFinite(state.weather.fgRangeDelta))
+        ? state.weather.fgRangeDelta
+        : 0;
+
+  const fgBaseMaxDist   = state.cfg.fgBaseMaxDist ?? 56;
+  const fgMaxDistSpread = state.cfg.fgMaxDistSpread ?? 4.5;
+
   const situation = {
     down:     preState.down,
     distance: preState.distance,
@@ -1629,7 +1684,15 @@ function simulatePlay(state) {
     timeoutsOffense,
     timeoutsDefense,
     clockIntent:   state.clockIntent?.[offenseSide] ?? null,
+
+    // NEW: FG decision context
+    kickerAcc,
+    kickerPow,
+    fgEnvAdjust,
+    fgBaseMaxDist,
+    fgMaxDistSpread,
   };
+
 
   const decision = choosePlayType(
     situation,
@@ -1747,19 +1810,41 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
   // distribution by LOS.
   // ---------------------------------------------------------------------
   if (down === 4) {
-    const yardsToGoal = 100 - yardline;
-    const rawKickDist = yardsToGoal + 17; // LOS + 17
+    // --- Kicker range model (team + kicker + environment) ---
+    const kAcc = Number.isFinite(situation.kickerAcc)
+      ? situation.kickerAcc
+      : (specialOff.kicking?.accuracy ?? 31.5);
 
-    // --- Kicker range model (same as your FG function) ---
-    const kAcc = specialOff.kicking?.accuracy ?? 31.5;
-    const kPow = specialOff.kicking?.power   ?? 38.6;
+    const kPow = Number.isFinite(situation.kickerPow)
+      ? situation.kickerPow
+      : (specialOff.kicking?.power ?? 38.6);
 
-    const accZ = (kAcc - 31.5) / 10.08;
-    const powZ = (kPow - 38.63) / 10.26;
+    // League baselines for z-scores – just define what “average” means.
+    const meanAcc = 31.5;
+    const stdAcc  = 10.08;
+    const meanPow = 38.63;
+    const stdPow  = 10.26;
+
+    const accZ = stdAcc > 0 ? (kAcc - meanAcc) / stdAcc : 0;
+    const powZ = stdPow > 0 ? (kPow - meanPow) / stdPow : 0;
     const legZ = 0.3 * accZ + 0.7 * powZ;
 
-    let maxFgDist = 56 + 4.5 * legZ; // league “max realistic attempt”
-    maxFgDist = clamp(maxFgDist, 50, 70);
+    // Base + spread come from config (via situation),
+    // so you can tune league-wide aggressiveness per season.
+    const baseMax = situation.fgBaseMaxDist   ?? 56;
+    const spread  = situation.fgMaxDistSpread ?? 4.5;
+
+    let maxFgDist = baseMax + spread * legZ;
+
+    // Environment / weather hook: thin air, wind, rain, etc.
+    const envAdj = Number.isFinite(situation.fgEnvAdjust)
+      ? situation.fgEnvAdjust
+      : 0;
+    maxFgDist += envAdj;
+
+    // Hard floor/ceiling for sanity
+    maxFgDist = clamp(maxFgDist, 45, 72);
+
 
     const inFgRange = rawKickDist <= maxFgDist;
 
@@ -1880,7 +1965,7 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
       //  - Inside 10 → mostly go; only late/close chip FGs
       //  - LOS 40–45 (55–60 yds) → rare long attempts
 
-      const sweetSpot = (yardline >= 60 && yardline <= 85); // opp 40–15
+      const sweetSpot = (yardline >= 60 && yardline <= 95); // opp 40–15
       const chipZone  = isRedZone && inside10;              // inside opp 10
       const longZone  = yardline < 60 && inFgRange;         // just outside opp 40
 
@@ -1892,11 +1977,11 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
           (quarter === 2 && secLeft <= 40);
 
         // Only favor FG in “take the points” situations
-        let goProb = 0.90; // 90% go by default here
-        if (lateProtectLead || endOfHalfSafe) goProb = 0.55;
+        let goProb = 0.80; // 90% go by default here
+        if (lateProtectLead || endOfHalfSafe) goProb = 0.45;
 
         goProb += (-puntBias) * 0.15;
-        goProb = clamp(goProb, 0.40, 0.98);
+        goProb = clamp(goProb, 0.30, 0.98);
 
         if (rng.next() < goProb) return { type: goPlayType() };
         return { type: "field_goal" };
@@ -2408,81 +2493,100 @@ function simulateFieldGoal(state, offenseUnits, specialOff, rng) {
   const { cfg } = state;
   const { offenseSide } = getOffenseDefense(state);
 
+  // Geometric distance: LOS -> goalposts
   const yardsToGoal = 100 - state.ballYardline;
-  const rawDistance = yardsToGoal + 17; // LOS + 17 (standard NFL)
+  const rawDistance = yardsToGoal + 17; // standard NFL: LOS + 17
 
-  const kAcc = specialOff.kicking?.accuracy ?? 31.5;
-  const kPow = specialOff.kicking?.power   ?? 38.6;
+  // ---- Kicker ability: prefer player ratings if present, else unit profile ----
+  const kicker = offenseSide === "home" ? state.homeKicker : state.awayKicker;
 
-  // --- Leg / distance model ---
-  // Stronger leg effectively "shrinks" distance a bit
-  // 60 -> -2.5 yds, 70 -> 0, 90 -> +5 yds, 100 -> +7.5 yds
-  const legShift = (kPow - 38.5) * 0.25;
-  const effDist  = Math.max(18, rawDistance - legShift);
+  const unitAcc = specialOff?.kicking?.accuracy;
+  const unitPow = specialOff?.kicking?.power;
 
-  const accZ = (kAcc - 31.5) / 10.08;   // std ≈ 10.08
-  const powZ = (kPow - 38.63) / 10.26;  // std ≈ 10.26
-  const legZ = 0.3 * accZ + 0.7 * powZ;
+  // Defaults are based on your league-wide means for K units
+  let kAcc = Number.isFinite(unitAcc) ? unitAcc : 31.5;
+  let kPow = Number.isFinite(unitPow) ? unitPow : 38.5;
 
-  // League-average max around 56; big legs can push 64–65
-  let maxFgDist = 56 + 4.5 * legZ;
-  let tooFarMult = clamp(1 - (effDist - maxFgDist) / 10, 0, 1) 
+  if (kicker) {
+    // If your player objects carry these fields, we prefer them
+    if (Number.isFinite(kicker.rating_K_accuracy)) {
+      kAcc = kicker.rating_K_accuracy;
+    }
+    if (Number.isFinite(kicker.rating_K_power)) {
+      kPow = kicker.rating_K_power;
+    }
+  }
 
-  // Smooth baseline make rate vs distance using a logistic curve:
-  //   - centerBase ~ where an average NFL kicker is ~50/50
-  //   - powerCenterShift pushes that out for big legs
-  const centerBase        = 56;                 // avg kicker inflection around 45 yds
-  const powerCenterShift  = (kPow - 38.5) * 0.10; // big legs move curve outward ~±4–5 yds
-  const center            = centerBase + powerCenterShift;
-  const scale             = 4.5;                // yards per e-fold change in odds
+  // Normalize vs league-ish distribution (from your table)
+  const MEAN_ACC = 31.5;
+  const STD_ACC  = 10.1;
+  const MEAN_POW = 38.6;
+  const STD_POW  = 10.3;
 
-  const x        = (effDist - center) / scale;
-  let baseProb   = (1 / (1 + Math.exp(x))) * tooFarMult;       // 0–1, ~0.5 at "center"
+  const accZ = STD_ACC > 0 ? (kAcc - MEAN_ACC) / STD_ACC : 0;
+  const powZ = STD_POW > 0 ? (kPow - MEAN_POW) / STD_POW : 0;
 
-  // --- Accuracy tweak ---
-  // Scale the curve up/down slightly based on accuracy.
-  //  kAcc 60 → factor ~0.85, 75 → 1.0, 90 → 1.15, 100 → ~1.25
-  const accNorm   = (kAcc - 31.5) / 25;           // roughly -0.6..1.0 for 60–100
-  const accFactor = 1 + accNorm * 0.15;
-  let prob        = 1 - (1 - baseProb) * (2 - accFactor);
+  // Leg index: mostly power, some accuracy
+  const legIndex = 0.6 * powZ + 0.4 * accZ;
 
-  // --- Context pressure: close, late, long -> a bit harder ---
-  const lateQuarter = state.quarter >= 4;
+  // Stronger leg "shrinks" the effective distance in a smooth way
+  // Roughly ±6–7 yds for extremes, usually ±2–4 yds
+  const powerShift = 4.5 * legIndex;
+  const effDist    = Math.max(18, rawDistance - powerShift);
+
+  // ---- Smooth logistic baseline (no hard-coded per-distance table) ----
+  // Think: average NFL-ish kicker is around 50/50 somewhere in low-50s.
+  const baseCenter = 53;   // effective distance where an average leg is ~50/50
+  const baseScale  = 6.0;  // smaller => steeper drop with distance
+
+  // More accurate kickers shift the center *out* a bit (they stay good longer)
+  const accCenterShift = 1.4 * accZ;  // ± few yards for extremes
+  const center         = baseCenter + accCenterShift;
+
+  // Logistic make curve
+  const x    = (effDist - center) / baseScale;
+  let makeP  = 1 / (1 + Math.exp(x));
+
+  // ---- Short-range smoothing (chip shots are *very* reliable, but not perfect) ----
+  if (effDist <= 40) {
+    // 40 → +~0.03, 18 → +~0.10, scaled smoothly
+    const t = clamp((40 - effDist) / 22, 0, 1);  // 18..40 → 1..0
+    makeP += 0.03 + 0.07 * t;
+  }
+
+  // ---- Long-range damping (65+ becomes truly low percentage, but continuous) ----
+  if (rawDistance >= 65) {
+    const extra = (rawDistance - 65) / 5;  // 65 → 0, 70 → +1, etc
+    const factor = Math.exp(-0.7 - 0.30 * extra); // smooth exponential shrink
+    makeP *= factor;
+  }
+
+  // ---- Context pressure: late + close + long slightly harder ----
+  const lateQuarter = state.quarter === 4 || (state.quarter === 2 && state.clockSec <= 60);
   const closeGame   = Math.abs(state.score.home - state.score.away) <= 3;
-  const longKick    = effDist >= 54;
+  const longKick    = effDist >= 45;
 
   if (lateQuarter && closeGame && longKick) {
-    prob -= 0.02;
+    makeP *= 0.97;  // small tilt, not a step function
   }
 
-  // If the defense iced the kicker just before this snap, apply a small penalty
+  // ---- Icing the kicker: one-shot penalty when _icedKicker is set ----
   if (state._icedKicker) {
-    prob -= (cfg.iceKickerPenalty ?? 0.02);
-    state._icedKicker = false; // one-shot
+    const icePenalty = cfg.iceKickerPenalty ?? 0.02; // default ~2%
+    makeP *= (1 - icePenalty);
+    state._icedKicker = false; // consume flag
   }
 
-  // --- Extreme distance caps ---
-  // Even with a monster leg, 65+ should be rare, 68–70 almost never.
-  if (rawDistance >= 70) {
-    prob = Math.min(prob, 0.02);   // ≤ 2% at 70+ even for elite guys
-  } else if (rawDistance >= 68) {
-    prob = Math.min(prob, 0.06);   // ≤ 6% at 68–69
-  } else if (rawDistance >= 65) {
-    prob = Math.min(prob, 0.12);   // ≤ 14% at 65–67
-  }
+  // Final clamp: smooth, but never 0 or 1
+  makeP = clamp(makeP, 0.02, 0.995);
 
-  // Final clamp: allow true longshots, but no guaranteed makes
-  prob = clamp(prob, 0.00, 0.999);
+  const made = rng.next() < makeP;
 
-  const made = rng.next() < prob;
-
-  // Live clock on FGs: snap → whistle + brief admin
+  // Live clock on FGs: 5–9 seconds is a good range
   const timeElapsed = rng.nextRange(5, 9);
 
   // Kicker stats
-  const kicker =
-    offenseSide === "home" ? state.homeKicker : state.awayKicker;
-  const kickerRow  = kicker ? ensurePlayerRow(state, kicker, offenseSide) : null;
+  const kickerRow = kicker ? ensurePlayerRow(state, kicker, offenseSide) : null;
   const kickerId   = getPlayerKey(kicker);
   const kickerName = getPlayerName(kicker);
 
@@ -2491,6 +2595,7 @@ function simulateFieldGoal(state, offenseUnits, specialOff, rng) {
     if (made) kickerRow.fgMade += 1;
   }
 
+  // Scoring handled in applyPlayOutcomeToState
   return {
     playType: "field_goal",
     yardsGained: 0,
@@ -2502,12 +2607,15 @@ function simulateFieldGoal(state, offenseUnits, specialOff, rng) {
     fieldGoalGood: made,
     punt: false,
     endOfDrive: true,
-    kickDistance: rawDistance,
+    kickDistance: rawDistance, // for charts by distance
+    effectiveDistance: effDist,
+    makeProb: makeP,           // handy for debugging / calibration
     offenseSide,
     kickerId,
     kickerName,
   };
 }
+
 
   
   
@@ -2705,20 +2813,28 @@ function computeMomentumImpact(outcome, preState, offenseSide, state) {
       state, preState, outcome, offenseSide, defenseSide,
       { clockStopsAfterPlay }
     );
-    state._clockPlan = plan;
-  
-    // Between-play runoff (0 when the clock is stopped awaiting next snap)
+    state._clockPlan = plan; // so between-play timing can read paceTargetSec, etc.
+    
     let between = clockStopsAfterPlay
       ? 0
       : estimateBetweenPlayTime(state, outcome, preState, rng, offenseSide);
-  
-    // Late-half offense timeout to stop a running clock (if plan says so)
-    if (!clockStopsAfterPlay && plan.timeoutNow === offenseSide && state.clockSec > 0) {
-      const ok = consumeTimeout(state, offenseSide, "save clock", state.clockSec);
-      if (ok) {
-        between = 0; // timeout stops the game clock right now
+    
+    // Timeouts AFTER the play, before the next snap.
+    // We treat both offense and defense symmetrically here.
+    if (!clockStopsAfterPlay && state.clockSec > 0) {
+      if (plan.timeoutOffense) {
+        const ok = consumeTimeout(state, offenseSide, "save clock", state.clockSec);
+        if (ok) {
+          between = 0; // timeout stops the clock instead of letting runoff happen
+        }
+      } else if (plan.timeoutDefense) {
+        const ok = consumeTimeout(state, defenseSide, "stop clock", state.clockSec);
+        if (ok) {
+          between = 0;
+        }
       }
     }
+    
   
     // Apply total runoff, enforce 2:00 warnings in 2Q and 4Q
     let newClock = Math.max(0, prevClock - (inPlayTime + between));
