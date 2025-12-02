@@ -1759,7 +1759,7 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
     const legZ = 0.3 * accZ + 0.7 * powZ;
 
     let maxFgDist = 56 + 4.5 * legZ; // league “max realistic attempt”
-    maxFgDist = clamp(maxFgDist, 45, 68);
+    maxFgDist = clamp(maxFgDist, 50, 70);
 
     const inFgRange = rawKickDist <= maxFgDist;
 
@@ -1802,12 +1802,12 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
     }
 
     // (B) Trailing by any amount with <=40s: punting is pointless
-    if (quarter === 4 && scoreDiff < 0 && secLeft <= 40) {
+    if (quarter === 4 && scoreDiff < 0 && secLeft <= 60) {
       return { type: goPlayType() };
     }
 
     // (C) Down 2+ scores late: never punt
-    if (quarter === 4 && scoreDiff <= -9 && secLeft <= 120) {
+    if (quarter === 4 && scoreDiff <= -9 && secLeft <= 210) {
       return { type: goPlayType() };
     }
 
@@ -1832,7 +1832,7 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
       // Only allow them when:
       //  - in range for your leg model, AND
       //  - late/close game.
-      if (inFgRange && rawKickDist >= 58) {
+      if (inFgRange && rawKickDist >= 63) {
         const lateClose = (quarter >= 4 && oneScore);
         if (lateClose) {
           let kickProb = 0.50;
