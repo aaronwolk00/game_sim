@@ -2153,6 +2153,7 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
       const yardsToGoalPlus = 100 - yardline;
       const isRedZone       = yardsToGoalPlus <= 20;
       const inside10        = yardsToGoalPlus <= 10;
+      const goalLine        = yardsToGoalPlus <= 2;   // 1–2 yard line
 
       const sweetSpot = (yardline >= 60 && yardline <= 95); // opp 40–15
       const chipZone  = isRedZone && inside10;
@@ -2160,6 +2161,26 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
 
       const goPlayTypeLocal = () =>
         rng.next() < basePassProb ? "pass" : "run";
+
+      // -------- HARD goal-line anti-chip-FG rule ----------
+      // If it's 4th and short at the 1–2, you basically never kick
+      // *unless* the clock situation absolutely forces "take the points".
+      if (goalLine && shortYds) {
+        // FG ties or takes the lead from offense POV
+        const fgSwingsGame =
+          scoreDiff <= 0 && (scoreDiff + 3) >= 0;
+
+        const endOfHalfDesperation =
+          (quarter === 2 && clockSec <= 15);
+
+        const endOfGameCritical =
+          (quarter === 4 && clockSec <= 35 && fgSwingsGame);
+
+        // In all other situations: just *go* from the 1–2.
+        if (!endOfHalfDesperation && !endOfGameCritical) {
+          return { type: goPlayType() };
+        }
+      }
 
       // ---- Approximate FG make probability (same flavor as simulateFieldGoal) ----
       const rawKickDistFG = yardsToGoalPlus + 17;
