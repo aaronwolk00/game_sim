@@ -2447,13 +2447,21 @@ function simulateFieldGoal(state, offenseUnits, specialOff, rng) {
   const rawDistance = yardsToGoal + 17; // LOS + 17 (standard NFL)
 
   const kAcc = specialOff.kicking?.accuracy ?? 31.5;
-  const kPow = specialOff.kicking?.power   ?? 38.5;
+  const kPow = specialOff.kicking?.power   ?? 38.6;
 
   // --- Leg / distance model ---
   // Stronger leg effectively "shrinks" distance a bit
   // 60 -> -2.5 yds, 70 -> 0, 90 -> +5 yds, 100 -> +7.5 yds
   const legShift = (kPow - 38.5) * 0.25;
   const effDist  = Math.max(18, rawDistance - legShift);
+
+  const accZ = (kAcc - 31.5) / 10.08;   // std ≈ 10.08
+  const powZ = (kPow - 38.63) / 10.26;  // std ≈ 10.26
+  const legZ = 0.3 * accZ + 0.7 * powZ;
+
+  // League-average max around 56; big legs can push 64–65
+  let maxFgDist = 56 + 4.5 * legZ;
+  let tooFarMult = clamp(1 - (effDist - maxFgDist) / 10, 0, 1) 
 
   // Smooth baseline make rate vs distance using a logistic curve:
   //   - centerBase ~ where an average NFL kicker is ~50/50
@@ -2464,7 +2472,7 @@ function simulateFieldGoal(state, offenseUnits, specialOff, rng) {
   const scale             = 4.5;                // yards per e-fold change in odds
 
   const x        = (effDist - center) / scale;
-  let baseProb   = 1 / (1 + Math.exp(x));       // 0–1, ~0.5 at "center"
+  let baseProb   = (1 / (1 + Math.exp(x))) * tooFarMult;       // 0–1, ~0.5 at "center"
 
   // --- Accuracy tweak ---
   // Scale the curve up/down slightly based on accuracy.
