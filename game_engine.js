@@ -522,6 +522,43 @@ class RNG {
   }
 
   // -----------------------------------------------------------------------------
+  // Diagnostics: log 4th-down decisions for offline analysis.
+  // Writes to state.events when keepPlayByPlay is enabled.
+  // -----------------------------------------------------------------------------
+  function logFourthDownDecision(state, info) {
+    if (!state.cfg?.keepPlayByPlay) return;
+    try {
+      state.events.push({
+        type: "fourth_down_decision",
+        quarter: info.quarter,
+        clockSec: info.clockSec,
+        offenseSide: info.offenseSide,
+        offenseTeamId: info.offenseTeamId,
+        offenseTeamName: info.offenseTeamName,
+        defenseTeamId: info.defenseTeamId,
+        defenseTeamName: info.defenseTeamName,
+        down: info.down,
+        distance: info.distance,
+        yardline: info.yardline,
+        scoreDiff: info.scoreDiff,
+        inFgRange: info.inFgRange,
+        rawKickDist: info.rawKickDist,
+        decision: info.decision,          // "field_goal" | "punt" | "go_for_it"
+        epFG: info.epFG ?? null,
+        epGo: info.epGo ?? null,
+        epPunt: info.epPunt ?? null,
+        fgMakeProb: info.fgMakeProb ?? null,
+        convProb: info.convProb ?? null,
+        puntSkill: info.puntSkill ?? null,
+      });
+    } catch (e) {
+      // don't blow up sim if logging fails
+      console.warn("4th-down decision logging failed:", e);
+    }
+  }
+
+
+  // -----------------------------------------------------------------------------
   // Approximate drive Expected Points from a yardline (0–100 from offense goal)
   // Smooth logistic, slightly boosted very close to the goal.
   // Reused by 4th-down decision logic and any EP-style diagnostics.
@@ -2135,21 +2172,6 @@ function simulatePlay(state) {
 
         const goPlayType = () => (rng.next() < basePassProb ? "pass" : "run");
 
-        // --- Small helper: approximate drive EP from a yardline (0–100 from offense goal) ---
-        const approxDriveEP = (spot) => {
-          const y = clamp(Math.round(spot), 1, 99);
-          const x = (y - 50) / 18;           // center around midfield
-          let ep  = -0.9 + 4.9 * (1 / (1 + Math.exp(-x))); // smooth logistic ~[-0.5 .. ~4]
-          const toTD = 100 - y;
-
-          // Extra boost very close to the goal line
-          if (toTD <= 10) {
-            const t = clamp((10 - toTD) / 10, 0, 1);   // 10 → 0, 0 → 1
-            ep += 0.6 * t;                             // up to +0.6 EP inside the 10
-          }
-          return ep;
-        };
-
         // --- Approximate FG make probability using same logic as simulateFieldGoal ---
         const fgKickDist = yardsToGoalPlus + 17; // geometric LOS->posts
 
@@ -2167,34 +2189,33 @@ function simulatePlay(state) {
 
         // Short-range smoothing: chip shots are very reliable, but not perfect
         if (effDist <= 40) {
-          const t = clamp((40 - effDist) / 22, 0, 1); // 18..40 → 1..0
-          fgMakeProb += 0.03 + 0.07 * t;
+          const tChip = clamp((40 - effDist) / 22, 0, 1); // 18..40 → 1..0
+          fgMakeProb += 0.03 + 0.07 * tChip;
         }
-        fgMakeProb = clamp(fgMakeProb, 0.00, 0.995);
+        fgMakeProb = clamp(fgMakeProb, 0.02, 0.995);
 
         // --- 4th-down conversion probability by distance (still simple, but can be tuned) ---
         let convProb;
-        if (shortYds)      convProb = 0.65;
-        else if (medYds)   convProb = 0.40;
-        else               convProb = 0.15;
+        if (shortYds)      convProb = 0.70;
+        else if (medYds)   convProb = 0.50;
+        else               convProb = 0.30;
 
-        // --- FG EP: make vs miss (miss gives ball to opponent) ---
-        // On a miss, your code approximates: new offense at max(20, 100 - (LOS+7)).
+        // --- FG EP: make vs miss (miss gives ball to opponent at approx LOS+7) ---
         const oppStartOnMiss = Math.max(20, 100 - Math.min(99, yardline + 7));
-        const epOnMiss       = -approxDriveEP(oppStartOnMiss);         // from current offense POV
+        const epOnMiss       = -approxDriveEP(state, oppStartOnMiss);         // from current offense POV
         let   fgEP           = fgMakeProb * 3 + (1 - fgMakeProb) * epOnMiss;
 
         // --- Go-for-it EP: convert → new series, fail → opponent takes over at spot ---
-        const convGain = shortYds ? 2.5 : medYds ? 4.0 : 5.5;          // average gain on a successful 4th
-        const yardIfConv = clamp(yardline + convGain, 1, 99);
-        const epSuccess  = approxDriveEP(yardIfConv);
+        const convGain    = shortYds ? 2.5 : medYds ? 4.0 : 5.5;
+        const yardIfConv  = clamp(yardline + convGain, 1, 99);
+        const epSuccess   = approxDriveEP(state, yardIfConv);
 
         const oppStartOnFail = 100 - yardline;                         // they take over at that spot
-        const epFail         = -approxDriveEP(oppStartOnFail);
+        const epFail         = -approxDriveEP(state, oppStartOnFail);
 
         let goEP = convProb * epSuccess + (1 - convProb) * epFail;
 
-        // --- Punt EP: depends on punter + field position; we approximate expected opp start ---
+        // --- Punt EP: depends on punter + field position; approximate expected opp start ---
         const pControl   = specialOff.punting?.control   ?? 30.9;
         const pFieldFlip = specialOff.punting?.fieldFlip ?? 41.8;
         const puntSkill  = (pControl + pFieldFlip) / 2;
@@ -2217,7 +2238,7 @@ function simulatePlay(state) {
           oppStartAfterPunt = Math.max(5, 100 - grossLanding);
         }
 
-        const oppEpAfterPunt = approxDriveEP(oppStartAfterPunt);
+        const oppEpAfterPunt = approxDriveEP(state, oppStartAfterPunt);
         let   puntEP         = -oppEpAfterPunt;                       // from current offense POV
 
         // --- Game context tweaks (small, smooth nudges) ---
@@ -2228,7 +2249,7 @@ function simulatePlay(state) {
           // Trailing one score late: extra value in keeping the ball / scoring 7.
           goEP += 0.35;
         } else if (lateQ4 && scoreDiff > 0 && oneScore) {
-          // Protecting a small lead: safer “take the points / pin them” strategies get a bit better.
+          // Protecting a small lead: safer “take the points / pin them” strategies a bit better.
           fgEP   += 0.15;
           puntEP += 0.20;
         }
@@ -2269,14 +2290,49 @@ function simulatePlay(state) {
         let wGo = Math.exp(goEP / temp);
         let wP  = Math.exp(puntEP / temp);
 
-        // Normalize and pick a decision
         const totalW = wFG + wGo + wP;
-        const r = rng.next() * totalW;
+        const rChoice = rng.next() * totalW;
 
-        if (r < wFG) return { type: "field_goal" };
-        if (r < wFG + wGo) return { type: goPlayType() };
+        let decisionType;
+        if (rChoice < wFG) {
+          decisionType = "field_goal";
+        } else if (rChoice < wFG + wGo) {
+          decisionType = "go_for_it";
+        } else {
+          decisionType = "punt";
+        }
+
+        // ---- Log the 4th-down decision for diagnostics ----
+        const { offenseTeam, defenseTeam, offenseSide } = getOffenseDefense(state);
+        logFourthDownDecision(state, {
+          quarter,
+          clockSec,
+          offenseSide,
+          offenseTeamId: offenseTeam.teamId,
+          offenseTeamName: offenseTeam.teamName,
+          defenseTeamId: defenseTeam.teamId,
+          defenseTeamName: defenseTeam.teamName,
+          down,
+          distance,
+          yardline,
+          scoreDiff,
+          inFgRange,
+          rawKickDist: fgKickDist,
+          decision: decisionType,
+          epFG: fgEP,
+          epGo: goEP,
+          epPunt: puntEP,
+          fgMakeProb,
+          convProb,
+          puntSkill,
+        });
+
+        // ---- Return the actual play call ----
+        if (decisionType === "field_goal") return { type: "field_goal" };
+        if (decisionType === "go_for_it")  return { type: goPlayType() };
         return { type: "punt" };
       }
+
 
 
 
