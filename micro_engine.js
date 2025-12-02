@@ -83,13 +83,13 @@ function clamp(x, lo, hi) {
    */
   export function sampleCoverageMatchup(params, rng) {
     const {
-      wrRouteRating = 60,
-      wrReleaseRating = 60,
-      wrSpeedRating = 60,
-      dbManRating = 60,
-      dbZoneRating = 60,
-      dbPressRating = 60,
-      dbSpeedRating = 60,
+      wrRouteRating = 50,
+      wrReleaseRating = 50,
+      wrSpeedRating = 50,
+      dbManRating = 50,
+      dbZoneRating = 50,
+      dbPressRating = 50,
+      dbSpeedRating = 50,
       coverageType = 'mixed',
       leverage = 0,
       targetDepth = 10,
@@ -161,10 +161,10 @@ function clamp(x, lo, hi) {
    */
   export function samplePressureTime(params, rng) {
     const {
-      olPassBlockRating = 60,
-      dlPassRushRating = 60,
-      qbPocketMovementRating = 60,
-      qbSackAvoidanceRating = 60,
+      olPassBlockRating = 50,
+      dlPassRushRating = 50,
+      qbPocketMovementRating = 50,
+      qbSackAvoidanceRating = 50,
       situationalAggression = 0.5,
     } = params || {};
   
@@ -220,9 +220,9 @@ function clamp(x, lo, hi) {
     const {
       separation = 0,
       ballPlacementStd = 1.0,
-      wrHands = 60,
-      wrContestedCatch = 60,
-      dbBallSkills = 60,
+      wrHands = 50,
+      wrContestedCatch = 50,
+      dbBallSkills = 50,
       throwAggressiveness = 0.5,
     } = params || {};
   
@@ -300,13 +300,13 @@ function clamp(x, lo, hi) {
    */
    export function sampleTackleOutcome(params, rng) {
     const {
-      carrierPower = 60,
-      carrierElusiveness = 60,
-      carrierBalance = 60,
-      carrierSpeed = 60,
-      tacklerTackling = 60,
-      tacklerPursuit = 60,
-      tacklerAgility = 60,
+      carrierPower = 50,
+      carrierElusiveness = 50,
+      carrierBalance = 50,
+      carrierSpeed = 50,
+      tacklerTackling = 50,
+      tacklerPursuit = 50,
+      tacklerAgility = 50,
       numDefendersInvolved = 1,
       sidelineFactor = 0.3,
       openFieldFactor = 0.5,
@@ -395,11 +395,11 @@ function clamp(x, lo, hi) {
    */
    export function sampleRunOutcome(params, rng) {
     const {
-      olRunBlockRating = 60,
-      rbVisionRating = 60,
-      rbPowerRating = 60,
-      rbElusivenessRating = 60,
-      frontRunDefRating = 60,
+      olRunBlockRating = 50,
+      rbVisionRating = 50,
+      rbPowerRating = 50,
+      rbElusivenessRating = 50,
+      frontRunDefRating = 50,
       boxCount = 7,
       boxLightness = 0,
       yardline = 25,
@@ -541,21 +541,21 @@ function clamp(x, lo, hi) {
    */
   export function samplePassOutcome(params, rng) {
     const {
-      qbAccuracyRating = 60,
-      qbProcessingRating = 60,
-      qbUnderPressureRating = 60,
-      olPassBlockRating = 60,
-      dlPassRushRating = 60,
-      wrRouteRating = 60,
-      wrReleaseRating = 60,
-      wrSpeedRating = 60,
-      wrHandsRating = 60,
-      wrContestedCatchRating = 60,
-      dbManRating = 60,
-      dbZoneRating = 60,
-      dbPressRating = 60,
-      dbSpeedRating = 60,
-      dbBallSkillsRating = 60,
+      qbAccuracyRating = 50,
+      qbProcessingRating = 50,
+      qbUnderPressureRating = 50,
+      olPassBlockRating = 50,
+      dlPassRushRating = 50,
+      wrRouteRating = 50,
+      wrReleaseRating = 50,
+      wrSpeedRating = 50,
+      wrHandsRating = 50,
+      wrContestedCatchRating = 50,
+      dbManRating = 50,
+      dbZoneRating = 50,
+      dbPressRating = 50,
+      dbSpeedRating = 50,
+      dbBallSkillsRating = 50,
       yardline = 25,
       down = 1,
       distance = 10,
@@ -773,10 +773,10 @@ function clamp(x, lo, hi) {
    */
   export function samplePenaltyOutcome(params, rng) {
     const {
-      offenseDisciplineRating = 60,
-      defenseDisciplineRating = 60,
-      aggressionRatingOff = 60,
-      aggressionRatingDef = 60,
+      offenseDisciplineRating = 50,
+      defenseDisciplineRating = 50,
+      aggressionRatingOff = 50,
+      aggressionRatingDef = 50,
       playType = 'pass',
     } = params || {};
   

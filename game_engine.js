@@ -131,10 +131,10 @@ class RNG {
     const off = getUnitProfiles(offenseTeam).offense;
     const def = getUnitProfiles(defenseTeam).defense;
   
-    const offPass = off.pass?.overall ?? 60;
-    const offRun  = off.run?.overall  ?? 60;
-    const defRun  = def.runFit?.overall ?? 60;
-    const defCov  = def.coverage?.overall ?? 60;
+    const offPass = off.pass?.overall ?? 50;
+    const offRun  = off.run?.overall  ?? 50;
+    const defRun  = def.runFit?.overall ?? 50;
+    const defCov  = def.coverage?.overall ?? 50;
   
     const offMean = (offPass + offRun) / 2;
     const defMean = (defRun + defCov) / 2;
@@ -1890,10 +1890,10 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
     timeoutsOffense = 0,
   } = situation;
 
-  const offPass  = offenseUnits.pass?.overall     ?? 60;
-  const offRun   = offenseUnits.run?.overall      ?? 60;
-  const defCover = defenseUnits.coverage?.overall ?? 60;
-  const defRun   = defenseUnits.runFit?.overall   ?? 60;
+  const offPass  = offenseUnits.pass?.overall     ?? 50;
+  const offRun   = offenseUnits.run?.overall      ?? 50;
+  const defCover = defenseUnits.coverage?.overall ?? 50;
+  const defRun   = defenseUnits.runFit?.overall   ?? 50;
 
   // Helper: rough drive EP by yardline (offense perspective).
   // yardline = 0..100 from offense goal
@@ -2377,8 +2377,8 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
   function simulateRunPlay(state, offenseUnits, defenseUnits, rng) {
         const runUnit   = offenseUnits.run || {};
         const defRun    = defenseUnits.runFit || {};
-        let   runOff    = runUnit.overall ?? 60;   // changed to let
-        let   frontRunD = defRun.overall ?? 60;    // changed to let
+        let   runOff    = runUnit.overall ?? 50;   // changed to let
+        let   frontRunD = defRun.overall ?? 50;    // changed to let
     
         const yardline = state.ballYardline;
         const down     = state.down;
@@ -2418,8 +2418,8 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
         const offMult = getMomentumMultiplier(state, offenseSide, "offense");
         const defMult = getMomentumMultiplier(state, defenseSide, "defense");
     
-        runOff    = clamp(runOff    * offMult,  40, 99);
-        frontRunD = clamp(frontRunD * defMult,  40, 99);
+        runOff    = clamp(runOff    * offMult,  10, 99);
+        frontRunD = clamp(frontRunD * defMult,  10, 99);
     
     
         const rusherRow = ensurePlayerRow(state, rusher, offenseSide);
@@ -2533,9 +2533,9 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
     const passUnit = offenseUnits.pass || {};
     const cover    = defenseUnits.coverage || {};
     const rush     = defenseUnits.passRush || {};
-    let   passOff  = passUnit.overall ?? 60;  // changed to let
-    let   coverDef = cover.overall ?? 60;     // changed to let
-    let   rushDef  = rush.overall ?? 60;      // changed to let
+    let   passOff  = passUnit.overall ?? 50;  // changed to let
+    let   coverDef = cover.overall ?? 50;     // changed to let
+    let   rushDef  = rush.overall ?? 50;      // changed to let
   
     const yardline = state.ballYardline;
     const down     = state.down;
@@ -2549,9 +2549,9 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
     const offMult = getMomentumMultiplier(state, offenseSide, "offense");
     const defMult = getMomentumMultiplier(state, defenseSide, "defense");
   
-    passOff  = clamp(passOff  * offMult, 40, 99);
-    coverDef = clamp(coverDef * defMult, 40, 99);
-    rushDef  = clamp(rushDef  * defMult, 40, 99);
+    passOff  = clamp(passOff  * offMult, 10, 99);
+    coverDef = clamp(coverDef * defMult, 10, 99);
+    rushDef  = clamp(rushDef  * defMult, 10, 99);
   
     const qbRow  = ensurePlayerRow(state, qb, offenseSide);
     const recRow = ensurePlayerRow(state, rec, offenseSide);
@@ -2588,13 +2588,13 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
       dlPassRushRating: rushDef,
       wrRouteRating: passOff,
       wrReleaseRating: passOff,
-      wrSpeedRating: clamp(passOff + 5, 40, 99),
-      wrHandsRating: clamp(passOff, 40, 99),
-      wrContestedCatchRating: clamp(passOff - 2, 40, 99),
+      wrSpeedRating: clamp(passOff + 5, 10, 99),
+      wrHandsRating: clamp(passOff, 10, 99),
+      wrContestedCatchRating: clamp(passOff - 2, 10, 99),
       dbManRating: coverDef,
       dbZoneRating: coverDef,
-      dbPressRating: clamp(coverDef - 2, 40, 99),
-      dbSpeedRating: clamp(coverDef + 2, 40, 99),
+      dbPressRating: clamp(coverDef - 2, 10, 99),
+      dbSpeedRating: clamp(coverDef + 2, 10, 99),
       dbBallSkillsRating: coverDef,
       yardline,
       down,
