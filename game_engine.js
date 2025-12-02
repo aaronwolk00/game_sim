@@ -85,6 +85,67 @@ class RNG {
     return mean + std * normal01(rng);
   }
 
+  function getKickerRatingsForSide(state, side, specialOffOverride = null) {
+    const kicker = side === "home" ? state.homeKicker : state.awayKicker;
+    const specialOff = specialOffOverride ||
+      getUnitProfiles(side === "home" ? state.homeTeam : state.awayTeam).special;
+  
+    const unitAcc = specialOff?.kicking?.accuracy;
+    const unitPow = specialOff?.kicking?.power;
+  
+    let kAcc = Number.isFinite(unitAcc) ? unitAcc : 31.5;
+    let kPow = Number.isFinite(unitPow) ? unitPow : 38.5;
+  
+    if (kicker) {
+      if (Number.isFinite(kicker.rating_K_accuracy)) {
+        kAcc = kicker.rating_K_accuracy;
+      }
+      if (Number.isFinite(kicker.rating_K_power)) {
+        kPow = kicker.rating_K_power;
+      }
+    }
+  
+    return { kicker, kAcc, kPow };
+  }
+  
+  // Simple kicker-based XP model: ~league 93–95% with spread by accuracy.
+  function computeXpMakeProb(state, offenseSide) {
+    const { kAcc } = getKickerRatingsForSide(state, offenseSide);
+    const MEAN_ACC = 31.5;
+    const STD_ACC  = 10.1;
+  
+    const accZ = STD_ACC > 0 ? (kAcc - MEAN_ACC) / STD_ACC : 0;
+  
+    // Base ~0.94, +/- ~0.03 over the league
+    let p = 0.94 + 0.03 * accZ;
+    return clamp(p, 0.88, 0.99);
+  }
+  
+  // Team/units-based 2-pt model: uses offense vs defense ratings.
+  function computeTwoPointMakeProb(state, offenseSide) {
+    const { offenseTeam, defenseTeam } =
+      offenseSide === "home"
+        ? { offenseTeam: state.homeTeam, defenseTeam: state.awayTeam }
+        : { offenseTeam: state.awayTeam, defenseTeam: state.homeTeam };
+  
+    const off = getUnitProfiles(offenseTeam).offense;
+    const def = getUnitProfiles(defenseTeam).defense;
+  
+    const offPass = off.pass?.overall ?? 60;
+    const offRun  = off.run?.overall  ?? 60;
+    const defRun  = def.runFit?.overall ?? 60;
+    const defCov  = def.coverage?.overall ?? 60;
+  
+    const offMean = (offPass + offRun) / 2;
+    const defMean = (defRun + defCov) / 2;
+    const diff    = offMean - defMean;  // + means offense is better
+  
+    // Base around 0.47 with ±0.08 or so based on diff
+    let p = 0.47 + 0.0025 * diff;
+    return clamp(p, 0.35, 0.60);
+  }
+  
+
 
   // -------------------------- Timing helpers -----------------------------------
   function isTwoMinute(state) {
@@ -929,8 +990,8 @@ function simulateDrive(state) {
   const rng = state.rng;
   const cfg = state.cfg || {};
 
-  const xpMakeProb    = Number.isFinite(cfg.xpMakeProb)    ? cfg.xpMakeProb    : 0.94;
-  const twoPtMakeProb = Number.isFinite(cfg.twoPtMakeProb) ? cfg.twoPtMakeProb : 0.48;
+  const xpMakeProb    = computeXpMakeProb(state, offenseSide);
+  const twoPtMakeProb = computeTwoPointMakeProb(state, offenseSide);
 
   const offenseSide = scoringSide;
   const defenseSide = scoringSide === "home" ? "away" : "home";
@@ -1810,6 +1871,8 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
   // distribution by LOS.
   // ---------------------------------------------------------------------
   if (down === 4) {
+    const yardsToGoal = 100 - yardline;
+    const rawKickDist = yardsToGoal + 17; // LOS + 17
     // --- Kicker range model (team + kicker + environment) ---
     const kAcc = Number.isFinite(situation.kickerAcc)
       ? situation.kickerAcc
@@ -2529,10 +2592,22 @@ function simulateFieldGoal(state, offenseUnits, specialOff, rng) {
   // Leg index: mostly power, some accuracy
   const legIndex = 0.6 * powZ + 0.4 * accZ;
 
+
   // Stronger leg "shrinks" the effective distance in a smooth way
   // Roughly ±6–7 yds for extremes, usually ±2–4 yds
   const powerShift = 4.5 * legIndex;
-  const effDist    = Math.max(18, rawDistance - powerShift);
+
+  // Environment hook: thin air, wind, rain, etc. Interpret fgRangeDelta
+  // as "extra yards of range" (same sign convention as in choosePlayType).
+  const fgEnvAdjust =
+    (state.environment && Number.isFinite(state.environment.fgRangeDelta))
+      ? state.environment.fgRangeDelta
+      : (state.weather && Number.isFinite(state.weather.fgRangeDelta))
+        ? state.weather.fgRangeDelta
+        : 0;
+
+  const effDist = Math.max(18, rawDistance - powerShift - fgEnvAdjust);
+
 
   // ---- Smooth logistic baseline (no hard-coded per-distance table) ----
   // Think: average NFL-ish kicker is around 50/50 somewhere in low-50s.
@@ -2636,6 +2711,24 @@ function simulatePunt(state, specialOff, rng) {
   
     let distance = normal(rng, mean, std);
     distance = clamp(distance, 25, 70);
+
+    // Chance they aim for a coffin corner inside opp 10, trading distance for pin
+    let targetCorner = false;
+    if (state.ballYardline >= 50) {
+      const lead =
+        offenseSide === "home"
+          ? state.score.home - state.score.away
+          : state.score.away - state.score.home;
+      if (lead >= 0) {
+        const pCorner = 0.45; // about half the time when punting in plus territory
+        targetCorner = rng.next() < pCorner;
+      }
+    }
+
+    if (targetCorner) {
+      // Take a few yards off for directional control
+      distance -= rng.nextRange(3, 8);
+    }
   
     const timeElapsed = rng.nextRange(5, 10);
   
@@ -2706,6 +2799,11 @@ function computeMomentumImpact(outcome, preState, offenseSide, state) {
     // 4) Drive-ending negative: sack or TFL on key down
     if (outcome.sack && yards <= -7 && down >= 3) {
       impact -= 0.5;
+    }
+
+      // Missed FG: medium negative for the offense
+    if (outcome.fieldGoalAttempt && !outcome.fieldGoalGood) {
+      impact -= 0.4;
     }
   
     // 5) 3-and-out or big stop: handle at drive-level if you want.
