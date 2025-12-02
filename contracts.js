@@ -7,6 +7,11 @@
 // - If LeagueState.contracts is missing, seeds contracts for every player on
 //   every team, fitting roughly under a cap per club.
 // - Renders a cap-sheet style grid for the selected team or the full league.
+// - Allows per-player contract actions (my team only):
+//   • Cut (Pre-June)
+//   • Cut (Post-June)
+//   • Restructure (current year)
+//   • Extend +1 Year
 // -----------------------------------------------------------------------------
 
 import { loadLeague } from "./data_models.js";
@@ -169,6 +174,7 @@ const CONTRACT_YEARS = 4;              // how many forward seasons to model
  * @property {number} guaranteed
  * @property {number} aav
  * @property {ContractYear[]} schedule
+ * @property {number|undefined} releasedYear   // optional – first year player is off roster
  */
 
 /**
@@ -535,6 +541,7 @@ let gViewMode = "cap"; // "cap" | "cash" | "dead"
 let gCurrentContracts = []; // currently displayed contracts (team or league slice)
 let gPlayerRankingsByPos = {}; // pos -> sorted list for league rankings
 let gFocusedPlayerKey = null;
+let gFranchiseTeamCodeUpper = "";
 
 // ---------------------------------------------------------------------------
 // League-wide rankings
@@ -611,8 +618,6 @@ function renderTeamSelect() {
   leagueOpt.textContent = "League – All teams";
   select.appendChild(leagueOpt);
 
-  // Divider-style option (disabled) is tricky across browsers, so skip.
-
   // Remaining teams (excluding franchise if already added)
   teamCodes.forEach((code) => {
     if (code === franchiseCode) return;
@@ -629,6 +634,10 @@ function renderTeamSelect() {
   select.addEventListener("change", () => {
     gSelectedTeamCode = select.value;
     gFocusedPlayerKey = null;
+    const ctx = getEl("contracts-player-context");
+    if (ctx) ctx.hidden = true;
+    const actions = getEl("contracts-player-actions");
+    if (actions) actions.hidden = true;
     renderContractsView();
   });
 }
@@ -657,6 +666,11 @@ function renderSeasonTabs() {
     btn.textContent = `${yr} Cap`;
     btn.addEventListener("click", () => {
       gSelectedSeasonYear = yr;
+      gFocusedPlayerKey = null;
+      const ctx = getEl("contracts-player-context");
+      if (ctx) ctx.hidden = true;
+      const actions = getEl("contracts-player-actions");
+      if (actions) actions.hidden = true;
       renderSeasonTabs();
       renderContractsView();
     });
@@ -758,13 +772,20 @@ function renderContractsTable() {
     const y3 = findYearEntry(c, yr3);
 
     const nameTd = document.createElement("td");
+    const teamLabel = getTeamDisplayName(c.teamCode || "") || "";
+    const ovrLabel =
+      c.overall != null && Number.isFinite(c.overall)
+        ? ` • OVR ${c.overall}`
+        : "";
+    const releasedTag =
+      c.releasedYear && gSelectedSeasonYear >= c.releasedYear
+        ? ` • Released ${c.releasedYear}`
+        : "";
     nameTd.innerHTML = `
       <div class="contracts-name-cell">
         <div class="contracts-name-primary">${c.name}</div>
         <div class="contracts-name-secondary">
-          ${getTeamDisplayName(c.teamCode || "") || ""}${
-      c.overall ? " • OVR " + c.overall : ""
-    }
+          ${teamLabel}${ovrLabel}${releasedTag}
         </div>
       </div>
     `;
@@ -831,7 +852,11 @@ function renderContractsTable() {
     tr.addEventListener("click", () => {
       gFocusedPlayerKey = key;
       renderContractsTable();
-      renderPlayerContext(c);
+      const modelContract = getFocusedModelContract();
+      if (modelContract) {
+        renderPlayerContext(modelContract);
+      }
+      renderPlayerActionsVisibility();
     });
 
     tbody.appendChild(tr);
@@ -950,6 +975,317 @@ function renderPlayerContext(contract) {
   root.hidden = false;
 }
 
+// Show or hide action buttons depending on whether this is your team
+function renderPlayerActionsVisibility(message) {
+  const actionsRoot = getEl("contracts-player-actions");
+  const noteEl = getEl("player-actions-note");
+  if (!actionsRoot) return;
+
+  const franchiseCode = gFranchiseTeamCodeUpper;
+  const canEdit =
+    gFocusedPlayerKey &&
+    gSelectedTeamCode === franchiseCode;
+
+  if (!canEdit) {
+    actionsRoot.hidden = true;
+    return;
+  }
+
+  actionsRoot.hidden = false;
+  if (noteEl) {
+    noteEl.textContent =
+      message ||
+      "Actions apply to the selected player for the current cap year and are written back to LeagueState.";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Contract actions – helpers
+// ---------------------------------------------------------------------------
+
+function getFocusedModelContract() {
+  if (!gContracts || !gFocusedPlayerKey) return null;
+  const [teamCode, playerId] = gFocusedPlayerKey.split("|");
+  const list = gContracts.byTeam?.[teamCode];
+  if (!list) return null;
+  return (
+    list.find((c) => (c.playerId || c.name) === playerId) || null
+  );
+}
+
+// Ensure cap table has an entry for a given year
+function ensureCapForYear(year) {
+  if (!gContracts) return;
+  if (gContracts.capBySeason[year]) return;
+  const keys = Object.keys(gContracts.capBySeason)
+    .map((s) => Number(s))
+    .sort((a, b) => a - b);
+  if (!keys.length) {
+    gContracts.capBySeason[year] = DEFAULT_CAP_START;
+    return;
+  }
+  let lastYear = keys[keys.length - 1];
+  let lastCap = gContracts.capBySeason[lastYear];
+  while (lastYear < year) {
+    lastCap = Math.round(lastCap * (1 + DEFAULT_CAP_GROWTH));
+    lastYear += 1;
+    gContracts.capBySeason[lastYear] = lastCap;
+  }
+}
+
+// Pre-June cut: accelerate all remaining guarantees into current year.
+function applyCutPreJune(contract) {
+  const schedule = contract.schedule || [];
+  const idx = schedule.findIndex(
+    (y) => y.seasonYear === gSelectedSeasonYear
+  );
+  if (idx < 0) {
+    return "No cap year for this season; pre-June cut not applied.";
+  }
+
+  if (contract.releasedYear && gSelectedSeasonYear >= contract.releasedYear) {
+    return `Already released in ${contract.releasedYear}.`;
+  }
+
+  const current = schedule[idx];
+  const totalRemainingDead = schedule
+    .slice(idx)
+    .reduce((sum, y) => sum + (y.deadIfCut || 0), 0);
+
+  const originalCapThisYear = current.capHit;
+  const newCapThisYear = totalRemainingDead;
+
+  current.capHit = newCapThisYear;
+  current.cash = 0;
+  current.deadIfCut = totalRemainingDead;
+
+  for (let j = idx + 1; j < schedule.length; j++) {
+    schedule[j].capHit = 0;
+    schedule[j].cash = 0;
+    schedule[j].deadIfCut = 0;
+  }
+
+  contract.releasedYear = gSelectedSeasonYear;
+
+  const delta = newCapThisYear - originalCapThisYear;
+  const deltaStr =
+    delta >= 0
+      ? `cap charge increases by ${formatMoney(delta)} this year.`
+      : `cap savings of ${formatMoney(-delta)} this year.`;
+  return `Pre-June cut applied in ${gSelectedSeasonYear}: ${formatMoney(
+    newCapThisYear
+  )} cap this season, all future years cleared; ${deltaStr}`;
+}
+
+// Post-June cut: current year's dead-only, future guarantees pushed to next year.
+function applyCutPostJune(contract) {
+  const schedule = contract.schedule || [];
+  const idx = schedule.findIndex(
+    (y) => y.seasonYear === gSelectedSeasonYear
+  );
+  if (idx < 0) {
+    return "No cap year for this season; post-June cut not applied.";
+  }
+
+  if (contract.releasedYear && gSelectedSeasonYear >= contract.releasedYear) {
+    return `Already released in ${contract.releasedYear}.`;
+  }
+
+  const current = schedule[idx];
+  const originalCapThisYear = current.capHit;
+  const thisYearDead = current.deadIfCut || 0;
+  const futureDead = schedule
+    .slice(idx + 1)
+    .reduce((sum, y) => sum + (y.deadIfCut || 0), 0);
+
+  // Current year: only this year's dead remains as cap
+  current.capHit = thisYearDead;
+  current.cash = 0;
+  current.deadIfCut = thisYearDead;
+
+  // Future years: zero cap/cash/dead, then push all futureDead into next year
+  if (idx + 1 < schedule.length) {
+    for (let j = idx + 1; j < schedule.length; j++) {
+      schedule[j].capHit = 0;
+      schedule[j].cash = 0;
+      schedule[j].deadIfCut = 0;
+    }
+    const next = schedule[idx + 1];
+    next.capHit = futureDead;
+    next.deadIfCut = futureDead;
+  }
+
+  contract.releasedYear = gSelectedSeasonYear;
+
+  const delta = current.capHit - originalCapThisYear;
+  const deltaStr =
+    delta >= 0
+      ? `cap charge increases by ${formatMoney(delta)} this year.`
+      : `cap savings of ${formatMoney(-delta)} this year.`;
+  return `Post-June cut applied in ${gSelectedSeasonYear}: ${formatMoney(
+    current.capHit
+  )} cap this season, remaining ${formatMoney(
+    futureDead
+  )} pushed into ${schedule[idx + 1]?.seasonYear || "future"}; ${deltaStr}`;
+}
+
+// Restructure: convert ~30% of this year's cap hit into bonus spread over remaining years
+function applyRestructure(contract) {
+  const schedule = contract.schedule || [];
+  const idx = schedule.findIndex(
+    (y) => y.seasonYear === gSelectedSeasonYear
+  );
+  if (idx < 0) {
+    return "No cap year for this season; restructure not applied.";
+  }
+
+  if (contract.releasedYear && gSelectedSeasonYear >= contract.releasedYear) {
+    return "Cannot restructure a player who has already been released.";
+  }
+
+  const current = schedule[idx];
+  const remaining = schedule.slice(idx);
+  if (!remaining.length) {
+    return "No remaining years to spread restructuring over.";
+  }
+
+  const restructurable = current.capHit * 0.3; // 30% of cap hit
+  if (!Number.isFinite(restructurable) || restructurable <= 0) {
+    return "No restructurable cap in this season.";
+  }
+
+  const originalCapThisYear = current.capHit;
+  const perYearBonus = restructurable / remaining.length;
+
+  // Remove from current year, then spread as bonus across remaining
+  current.capHit -= restructurable;
+
+  remaining.forEach((y) => {
+    y.capHit += perYearBonus;
+    y.deadIfCut += perYearBonus;
+  });
+
+  const newCapThisYear = current.capHit;
+  const savings = originalCapThisYear - newCapThisYear;
+
+  // Guarantees effectively increase by restructurable
+  contract.guaranteed += Math.round(restructurable);
+
+  return `Restructure applied in ${gSelectedSeasonYear}: moved ${formatMoney(
+    restructurable
+  )} into bonus over remaining years, saving ${formatMoney(
+    savings
+  )} in this season.`;
+}
+
+// Extend by +1 year with a simple new year based on current AAV
+function applyExtendOneYear(contract) {
+  const schedule = contract.schedule || [];
+  if (!schedule.length) {
+    return "No existing schedule to extend from.";
+  }
+
+  const lastYearObj = schedule.reduce((a, b) =>
+    a.seasonYear > b.seasonYear ? a : b
+  );
+  const newSeasonYear = lastYearObj.seasonYear + 1;
+
+  ensureCapForYear(newSeasonYear);
+  const capForNewYear = gContracts.capBySeason[newSeasonYear];
+
+  const base = contract.aav || (contract.totalValue / contract.years) || 5_000_000;
+  const capHit = Math.min(capForNewYear * 0.18, base * 0.9);
+  const dead = base * 0.8;
+  const cash = base * 0.95;
+
+  const newYear = {
+    seasonYear: newSeasonYear,
+    capHit: Math.round(capHit),
+    cash: Math.round(cash),
+    deadIfCut: Math.round(dead)
+  };
+
+  schedule.push(newYear);
+
+  contract.years += 1;
+  contract.totalValue += Math.round(base);
+  contract.guaranteed += Math.round(dead);
+  contract.aav = Math.round(contract.totalValue / contract.years);
+
+  return `Extension added for ${newSeasonYear}: approx ${formatMoney(
+    capHit
+  )} cap hit, ${formatMoney(dead)} dead, updating AAV to ${formatMoney(
+    contract.aav
+  )}.`;
+}
+
+// ---------------------------------------------------------------------------
+// Contract actions – binding
+// ---------------------------------------------------------------------------
+
+function bindContractActionButtons() {
+  const btnPre = getEl("btn-contract-cut-pre");
+  const btnPost = getEl("btn-contract-cut-post");
+  const btnRestruct = getEl("btn-contract-restructure");
+  const btnExtend = getEl("btn-contract-extend");
+
+  if (btnPre) {
+    btnPre.addEventListener("click", () => {
+      if (gSelectedTeamCode !== gFranchiseTeamCodeUpper) return;
+      const c = getFocusedModelContract();
+      if (!c) return;
+      const msg = applyCutPreJune(c);
+      buildLeagueRankings(gContracts);
+      saveLeagueState(gLeagueState);
+      renderContractsView();
+      renderPlayerContext(c);
+      renderPlayerActionsVisibility(msg);
+    });
+  }
+
+  if (btnPost) {
+    btnPost.addEventListener("click", () => {
+      if (gSelectedTeamCode !== gFranchiseTeamCodeUpper) return;
+      const c = getFocusedModelContract();
+      if (!c) return;
+      const msg = applyCutPostJune(c);
+      buildLeagueRankings(gContracts);
+      saveLeagueState(gLeagueState);
+      renderContractsView();
+      renderPlayerContext(c);
+      renderPlayerActionsVisibility(msg);
+    });
+  }
+
+  if (btnRestruct) {
+    btnRestruct.addEventListener("click", () => {
+      if (gSelectedTeamCode !== gFranchiseTeamCodeUpper) return;
+      const c = getFocusedModelContract();
+      if (!c) return;
+      const msg = applyRestructure(c);
+      buildLeagueRankings(gContracts);
+      saveLeagueState(gLeagueState);
+      renderContractsView();
+      renderPlayerContext(c);
+      renderPlayerActionsVisibility(msg);
+    });
+  }
+
+  if (btnExtend) {
+    btnExtend.addEventListener("click", () => {
+      if (gSelectedTeamCode !== gFranchiseTeamCodeUpper) return;
+      const c = getFocusedModelContract();
+      if (!c) return;
+      const msg = applyExtendOneYear(c);
+      buildLeagueRankings(gContracts);
+      saveLeagueState(gLeagueState);
+      renderContractsView();
+      renderPlayerContext(c);
+      renderPlayerActionsVisibility(msg);
+    });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // High-level render entry point
 // ---------------------------------------------------------------------------
@@ -968,6 +1304,14 @@ function renderContractsView() {
       gFocusedPlayerKey = null;
       const ctx = getEl("contracts-player-context");
       if (ctx) ctx.hidden = true;
+      const actions = getEl("contracts-player-actions");
+      if (actions) actions.hidden = true;
+    } else {
+      const c = getFocusedModelContract();
+      if (c) {
+        renderPlayerContext(c);
+        renderPlayerActionsVisibility();
+      }
     }
   }
 }
@@ -1003,6 +1347,7 @@ async function initContractsPage() {
   }
 
   gSave = save;
+  gFranchiseTeamCodeUpper = (save.teamCode || "").toUpperCase();
 
   let leagueState = loadLeagueState(save.franchiseId);
   if (!leagueState) {
@@ -1014,7 +1359,8 @@ async function initContractsPage() {
     leagueState.seasonYear = save.seasonYear || leagueState.seasonYear;
   }
 
-  // Ensure schedules exist so we know all team codes
+  // Make sure the league has schedules for all teams this season,
+  // then grab this franchise's schedule (for team codes).
   await ensureAllTeamSchedules(leagueState, leagueState.seasonYear);
   saveLeagueState(leagueState);
 
@@ -1036,6 +1382,7 @@ async function initContractsPage() {
   renderTeamSelect();
   renderSeasonTabs();
   bindViewToggleButtons();
+  bindContractActionButtons();
 
   const backBtn = getEl("btn-back-hub");
   if (backBtn) {

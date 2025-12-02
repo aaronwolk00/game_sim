@@ -339,18 +339,6 @@
       font-size: 0.72rem;
     }
 
-    .contracts-tag {
-      display: inline-flex;
-      align-items: center;
-      border-radius: var(--radius-pill);
-      border: 1px solid rgba(148,163,184,0.7);
-      padding: 1px 6px;
-      font-size: 0.68rem;
-      text-transform: uppercase;
-      letter-spacing: 0.14em;
-      color: var(--muted);
-    }
-
     /* Right column – cap summary */
 
     .cap-summary-metric {
@@ -460,6 +448,50 @@
       color: var(--accent);
     }
 
+    /* Player actions */
+
+    .player-actions {
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(31,41,55,0.8);
+      font-size: 0.78rem;
+    }
+
+    .player-actions-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+
+    .player-actions-btn {
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(148,163,184,0.7);
+      background: rgba(15,23,42,0.96);
+      color: var(--text);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      padding: 4px 10px;
+      cursor: pointer;
+      box-shadow: 0 1px 3px rgba(15,23,42,0.8);
+    }
+
+    .player-actions-btn[data-kind="danger"] {
+      border-color: rgba(248,113,113,0.9);
+      color: var(--danger);
+    }
+
+    .player-actions-btn:hover {
+      background: rgba(37,99,235,0.9);
+      border-color: rgba(129,140,248,0.95);
+    }
+
+    .player-actions-note {
+      font-size: 0.74rem;
+      color: var(--muted);
+    }
+
     .empty-state {
       font-size: 0.8rem;
       color: var(--muted);
@@ -565,7 +597,7 @@
         </div>
       </section>
 
-      <!-- Right: team cap summary + player ranking -->
+      <!-- Right: team cap summary + player ranking + actions -->
       <section class="card" aria-label="Cap summary">
         <div class="card-header-row">
           <div class="card-title">
@@ -608,6 +640,46 @@
             <div class="player-context-title">Player contract context</div>
             <div class="player-context-main" id="player-context-main-line"></div>
             <div class="player-context-sub" id="player-context-sub-line"></div>
+          </div>
+
+          <div class="player-actions" id="contracts-player-actions" hidden>
+            <div class="player-context-title">Contract actions (my team only)</div>
+            <div class="player-actions-row">
+              <button
+                type="button"
+                class="player-actions-btn"
+                data-kind="danger"
+                id="btn-contract-cut-pre"
+              >
+                Cut (Pre-June)
+              </button>
+              <button
+                type="button"
+                class="player-actions-btn"
+                data-kind="danger"
+                id="btn-contract-cut-post"
+              >
+                Cut (Post-June)
+              </button>
+              <button
+                type="button"
+                class="player-actions-btn"
+                id="btn-contract-restructure"
+              >
+                Restructure
+              </button>
+              <button
+                type="button"
+                class="player-actions-btn"
+                id="btn-contract-extend"
+              >
+                Extend +1 Year
+              </button>
+            </div>
+            <div class="player-actions-note" id="player-actions-note">
+              Select a player on your team and apply an action for the current cap year.
+              These are approximate NFL-style cap treatments and are written back to your LeagueState.
+            </div>
           </div>
         </div>
 
