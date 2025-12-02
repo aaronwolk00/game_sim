@@ -2247,7 +2247,7 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
 
       // Map opponent EP into a positive "punt utility" ~[0.4, 1.1]
       let puntEP = 1.2 - 0.25 * oppEP;
-      puntEP = clamp(puntEP, 0.4, 1.1);
+      puntEP = clamp(puntEP, 0.2, 0.6);
 
       // ---- Game context tweaks ----
       const lateQ4   = (quarter === 4 && clockSec <= 300);
@@ -2291,8 +2291,8 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
       }
 
       // ---- Long FGs: smooth downweighting, not hard cutoff ----
-      if (rawKickDistFG >= 55) {
-        const longFactor = clamp(1 - (rawKickDistFG - 55) / 12, 0.15, 1);
+      if (rawKickDistFG >= 75) {
+        const longFactor = clamp(1 - (rawKickDistFG - 75) / 12, 0.15, 1);
         fgEP *= longFactor;
       }
 
