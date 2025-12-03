@@ -2292,7 +2292,7 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
 
       // ---- Long FGs: smooth downweighting, not hard cutoff ----
       if (rawKickDistFG >= 55) {
-        const longFactor = clamp(1 - (rawKickDistFG - 55) / 10, 0.15, 1);
+        const longFactor = clamp(1 - (rawKickDistFG - 55) / 10, 0.075, 1);
         fgEP *= longFactor;
       }
 
