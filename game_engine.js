@@ -2059,7 +2059,7 @@ function choosePlayType(situation, offenseUnits, defenseUnits, specialOff, rng) 
     const under5   = (quarter >= 4 && secLeft <= 300);
 
     const deepOwn  = yardline <= 35;
-    const midField = yardline > 35 && yardline < 60;
+    const midField = yardline > 35 && yardline < 50;
     const plusTerr = yardline >= 50;
 
     const shortYds = distance <= 2;
